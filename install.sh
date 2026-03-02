@@ -196,10 +196,19 @@ info "\n  Installing Python dependencies...\n"
 echo ""
 ok "Dependencies installed"
 
-# ── Shell alias ─────────────────────────────
-ALIAS_CMD="alias clink='$VENV_DIR/bin/python $CLINK_DIR/clink.py'"
+# ── Create executable wrapper ──────────────
+BIN_DIR="$HOME/.clink/bin"
+mkdir -p "$BIN_DIR"
+cat > "$BIN_DIR/clink" << WRAPPER
+#!/usr/bin/env bash
+exec "$VENV_DIR/bin/python" "$CLINK_DIR/clink.py" "\$@"
+WRAPPER
+chmod +x "$BIN_DIR/clink"
+ok "Created clink command at $BIN_DIR/clink"
 
-# Detect shell config file
+# Add ~/.clink/bin to PATH in shell rc (for future sessions)
+PATH_LINE='export PATH="$HOME/.clink/bin:$PATH"'
+
 if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-bash}")" = "zsh" ]; then
     SHELL_RC="$HOME/.zshrc"
 elif [ -n "${BASH_VERSION:-}" ] || [ "$(basename "${SHELL:-bash}")" = "bash" ]; then
@@ -209,25 +218,36 @@ else
 fi
 
 if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
-    if ! grep -q "alias clink=" "$SHELL_RC" 2>/dev/null; then
+    if ! grep -q '.clink/bin' "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
         echo "# Clink - Claude Code multi-channel wrapper" >> "$SHELL_RC"
-        echo "$ALIAS_CMD" >> "$SHELL_RC"
-        ok "Added 'clink' alias to $SHELL_RC"
+        echo "$PATH_LINE" >> "$SHELL_RC"
+        ok "Added ~/.clink/bin to PATH in $SHELL_RC"
     else
-        ok "'clink' alias already in $SHELL_RC"
+        ok "PATH already configured in $SHELL_RC"
+    fi
+    # Also clean up old alias if present
+    if grep -q "alias clink=" "$SHELL_RC" 2>/dev/null; then
+        sed -i.bak '/alias clink=/d' "$SHELL_RC" && rm -f "$SHELL_RC.bak"
+        ok "Removed old clink alias from $SHELL_RC"
     fi
 fi
 
+# Add to PATH for this script session so setup works
+export PATH="$BIN_DIR:$PATH"
+
 # ── Run setup ───────────────────────────────
 info "\n── Running Setup ────────────────────────\n"
-"$VENV_DIR/bin/python" "$CLINK_DIR/clink.py" setup < /dev/tty
+"$BIN_DIR/clink" setup < /dev/tty
 
 info "\n── Done! ────────────────────────────────"
 echo ""
-echo "  Restart your terminal, then:"
+echo "  Run now:"
 echo ""
-echo "    clink start     # Start the bot"
-echo "    clink doctor    # Check environment"
-echo "    clink setup     # Re-configure"
+echo "    source $SHELL_RC"
+echo "    clink start"
+echo ""
+echo "  Or use the full path directly:"
+echo ""
+echo "    ~/.clink/bin/clink start"
 echo ""
