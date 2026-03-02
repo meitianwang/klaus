@@ -104,8 +104,12 @@ TEXTS: dict[str, dict[str, str]] = {
             "  2. Add QQ numbers of yourself and friends (up to ~20)\n"
             "  3. A sandbox bot QR code / link will appear on that page\n"
             "  4. Scan the QR code with your phone QQ to start chatting\n\n"
-            "  For public use (unlimited users): go through the review\n"
-            "  process at 'Management' > 'Publish'.\n"
+            "  Note: In sandbox mode, the bot name will have a suffix\n"
+            "  like 'YourBot-Testing'. This is added by QQ platform and\n"
+            "  cannot be removed. It does NOT affect any functionality.\n"
+            "  The suffix disappears after passing the review process.\n\n"
+            "  For public use (unlimited users, no name suffix):\n"
+            "  go through the review at 'Management' > 'Publish'.\n"
         ),
         "zh": (
             "  如何获取 QQ 机器人凭证:\n\n"
@@ -122,7 +126,12 @@ TEXTS: dict[str, dict[str, str]] = {
             "  2. 添加你自己和朋友的 QQ 号为测试用户 (最多约 20 人)\n"
             "  3. 页面上会出现沙箱机器人的二维码/链接\n"
             "  4. 用手机 QQ 扫码即可开始私聊\n\n"
-            "  如需公开使用 (不限用户数): 在「管理」>「发布上架」提审。\n"
+            "  注意: 沙箱模式下, 机器人名字会带「测试中」后缀\n"
+            "  (如「我的Bot-测试中」), 这是 QQ 平台强制添加的,\n"
+            "  无法去掉, 但不影响任何功能。\n"
+            "  通过审核后后缀会自动消失。\n\n"
+            "  如需公开使用 (不限用户数, 无名称后缀):\n"
+            "  在「管理」>「发布上架」提审。\n"
         ),
     },
     "qq_appid": {
