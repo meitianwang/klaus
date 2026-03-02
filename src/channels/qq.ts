@@ -3,6 +3,7 @@
  * Uses qq-group-bot SDK if available, otherwise provides clear error.
  */
 
+import { execSync } from "node:child_process";
 import { Channel, type Handler } from "./base.js";
 import { loadQQBotConfig } from "../config.js";
 
@@ -16,12 +17,17 @@ export class QQChannel extends Channel {
     try {
       qqBot = await import("qq-group-bot");
     } catch {
-      console.error(
-        "[QQ] qq-group-bot package not found.\n" +
-          "Install it: npm install -g qq-group-bot\n" +
-          "Or: npm install qq-group-bot"
-      );
-      process.exit(1);
+      console.log("[QQ] qq-group-bot not found, installing...");
+      try {
+        execSync("npm install -g qq-group-bot", { stdio: "inherit" });
+        qqBot = await import("qq-group-bot");
+      } catch {
+        console.error(
+          "[QQ] Failed to install qq-group-bot.\n" +
+            "Install manually: npm install -g qq-group-bot",
+        );
+        process.exit(1);
+      }
     }
 
     const testConfig = {
@@ -38,31 +44,35 @@ export class QQChannel extends Channel {
       console.log("Cpaw QQ Bot online");
     });
 
-    ws.on("C2C_MESSAGE_CREATE", async (data: { msg: Record<string, unknown> }) => {
-      const msg = data.msg;
-      const content = ((msg.content as string) ?? "").trim();
-      const userOpenId = msg.author && (msg.author as Record<string, string>).user_openid;
-      if (!content || !userOpenId) return;
+    ws.on(
+      "C2C_MESSAGE_CREATE",
+      async (data: { msg: Record<string, unknown> }) => {
+        const msg = data.msg;
+        const content = ((msg.content as string) ?? "").trim();
+        const userOpenId =
+          msg.author && (msg.author as Record<string, string>).user_openid;
+        if (!content || !userOpenId) return;
 
-      const sessionKey = `c2c:${userOpenId}`;
-      console.log(`[C2C] Received (${sessionKey}): ${content}`);
+        const sessionKey = `c2c:${userOpenId}`;
+        console.log(`[C2C] Received (${sessionKey}): ${content}`);
 
-      try {
-        const reply = await handler(sessionKey, content);
-        if (reply === null) {
-          console.log("[C2C] Message merged into batch, skipping reply");
-          return;
+        try {
+          const reply = await handler(sessionKey, content);
+          if (reply === null) {
+            console.log("[C2C] Message merged into batch, skipping reply");
+            return;
+          }
+          console.log(`[C2C] Replying: ${reply.slice(0, 100)}...`);
+          await client.c2cApi.postMessage(userOpenId, {
+            msg_type: 0,
+            msg_id: msg.id as string,
+            content: reply,
+          });
+        } catch (err) {
+          console.error(`[C2C] Error: ${err}`);
         }
-        console.log(`[C2C] Replying: ${reply.slice(0, 100)}...`);
-        await client.c2cApi.postMessage(userOpenId, {
-          msg_type: 0,
-          msg_id: msg.id as string,
-          content: reply,
-        });
-      } catch (err) {
-        console.error(`[C2C] Error: ${err}`);
-      }
-    });
+      },
+    );
 
     ws.on(
       "GROUP_AT_MESSAGE_CREATE",
@@ -90,7 +100,7 @@ export class QQChannel extends Channel {
         } catch (err) {
           console.error(`[Group] Error: ${err}`);
         }
-      }
+      },
     );
 
     // Block forever
