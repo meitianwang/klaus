@@ -1,6 +1,7 @@
+import { existsSync } from "node:fs";
 import { QQChannel } from "./channels/qq.js";
 import { WeComChannel } from "./channels/wecom.js";
-import { getChannelName } from "./config.js";
+import { getChannelName, CONFIG_FILE } from "./config.js";
 import { ChatSessionManager } from "./core.js";
 import type { Channel } from "./channels/base.js";
 
@@ -10,6 +11,13 @@ const CHANNELS: Record<string, new () => Channel> = {
 };
 
 async function start(): Promise<void> {
+  if (!existsSync(CONFIG_FILE)) {
+    console.log("No config found. Starting setup wizard...\n");
+    const { runSetup } = await import("./setup-wizard.js");
+    await runSetup();
+    if (!existsSync(CONFIG_FILE)) return;
+  }
+
   const channelName = getChannelName();
   const ChannelCls = CHANNELS[channelName];
 
