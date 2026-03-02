@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import AsyncExitStack
 
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
+from config import load_config
 
 
 class ClaudeChat:
@@ -13,7 +14,12 @@ class ClaudeChat:
     def __init__(self) -> None:
         self._client: ClaudeSDKClient | None = None
         self._exit_stack: AsyncExitStack | None = None
+
+        cfg = load_config()
+        persona = cfg.get("persona")
+
         self._options = ClaudeAgentOptions(
+            system_prompt=persona if persona else "",
             permission_mode="default",
             max_turns=1,
         )

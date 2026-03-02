@@ -247,6 +247,37 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "  ✓ Setup complete! Run:\n\n    python clink.py start",
         "zh": "  ✓ 安装完成! 运行:\n\n    python clink.py start",
     },
+    # ── Persona ──
+    "persona_title": {
+        "en": "Bot Persona",
+        "zh": "机器人人设",
+    },
+    "persona_prompt": {
+        "en": (
+            "  Configure how the bot responds:\n\n"
+            "  1. Default         - Claude as-is, no custom persona\n"
+            "  2. Friendly chat   - Warm, casual, helpful assistant\n"
+            "  3. Custom          - Write your own system prompt\n"
+        ),
+        "zh": (
+            "  设置机器人的回复风格:\n\n"
+            "  1. 默认            - 原始 Claude, 不设定人设\n"
+            "  2. 友好聊天助手    - 温暖、亲切、乐于助人\n"
+            "  3. 自定义          - 自己编写 system prompt\n"
+        ),
+    },
+    "persona_enter_number": {
+        "en": "  Please enter a number 1-3.",
+        "zh": "  请输入 1-3 的数字。",
+    },
+    "persona_custom_hint": {
+        "en": "  Enter your system prompt (one line):\n  > ",
+        "zh": "  输入你的 system prompt (一行):\n  > ",
+    },
+    "persona_saved": {
+        "en": "  ✓ Persona configured",
+        "zh": "  ✓ 人设已配置",
+    },
 }
 
 # Current language — set by choose_language()
@@ -404,6 +435,43 @@ def collect_config(channel: str) -> dict:
     return {}
 
 
+_PERSONA_PRESETS = {
+    "friendly_en": (
+        "You are a friendly, warm, and helpful AI assistant. "
+        "Respond in a casual and approachable tone. "
+        "Use simple language and be encouraging. "
+        "You are NOT a coding IDE — you are a general-purpose chat companion."
+    ),
+    "friendly_zh": (
+        "你是一个友好、温暖、乐于助人的 AI 助手。"
+        "用轻松亲切的语气回复，语言简洁易懂。"
+        "你不是编程 IDE，你是一个通用的聊天伙伴，可以回答各种问题。"
+    ),
+}
+
+
+def collect_persona() -> str | None:
+    """Let user choose a bot persona. Returns system prompt or None."""
+    _print_header(t("persona_title"))
+    print(t("persona_prompt"))
+
+    while True:
+        choice = input("  > ").strip()
+        if choice == "1":
+            return None
+        if choice == "2":
+            prompt = _PERSONA_PRESETS.get(f"friendly_{_lang}", _PERSONA_PRESETS["friendly_en"])
+            print(f"\n  {t('persona_saved')}")
+            return prompt
+        if choice == "3":
+            custom = input(t("persona_custom_hint")).strip()
+            if custom:
+                print(f"\n  {t('persona_saved')}")
+                return custom
+            return None
+        print(t("persona_enter_number"))
+
+
 def verify_connection(channel: str, channel_cfg: dict) -> bool:
     """Try connecting to the channel to verify credentials."""
     if channel == "terminal":
@@ -486,10 +554,15 @@ def run_setup() -> None:
                 print(t("cancelled"))
                 return
 
-    # Step 5: Save config
+    # Step 5: Bot persona
+    persona = collect_persona()
+
+    # Step 6: Save config
     config_data = {"channel": channel}
     if channel_cfg:
         config_data[channel] = channel_cfg
+    if persona:
+        config_data["persona"] = persona
 
     save_config(config_data)
     print(t("config_saved", path=str(CONFIG_FILE)))
