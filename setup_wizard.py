@@ -244,18 +244,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "zh": "\n  配置已保存到 {path}",
     },
     "setup_done": {
+        "en": "  ✓ Setup complete! Run:\n\n    python clink.py start",
+        "zh": "  ✓ 安装完成! 运行:\n\n    python clink.py start",
+    },
+    # ── Persona ──
+    "persona_title": {
+        "en": "Bot Persona",
+        "zh": "机器人人设",
+    },
+    "persona_prompt": {
         "en": (
-            "  ✓ Setup complete! Run:\n\n"
-            "    python clink.py start\n\n"
-            "  Tip: To customize bot persona, edit ~/.clink/config.yaml:\n\n"
-            "    persona: \"Your system prompt here\""
+            "  Set the bot's system prompt (controls how it responds).\n"
+            "  Leave empty to use default Claude behavior.\n\n"
+            "  System prompt:\n"
         ),
         "zh": (
-            "  ✓ 安装完成! 运行:\n\n"
-            "    python clink.py start\n\n"
-            "  提示: 如需自定义机器人人设, 编辑 ~/.clink/config.yaml:\n\n"
-            "    persona: \"你的 system prompt\""
+            "  设置机器人的 system prompt (控制回复风格和角色)。\n"
+            "  留空则使用默认 Claude 行为。\n\n"
+            "  System prompt:\n"
         ),
+    },
+    "persona_saved": {
+        "en": "  ✓ Persona configured",
+        "zh": "  ✓ 人设已配置",
+    },
+    "persona_skipped": {
+        "en": "  ✓ Using default Claude behavior",
+        "zh": "  ✓ 使用默认 Claude 行为",
     },
 }
 
@@ -414,6 +429,18 @@ def collect_config(channel: str) -> dict:
     return {}
 
 
+def collect_persona() -> str | None:
+    """Let user enter a system prompt for the bot."""
+    _print_header(t("persona_title"))
+    print(t("persona_prompt"))
+    persona = input("  > ").strip()
+    if persona:
+        print(f"\n{t('persona_saved')}")
+        return persona
+    print(f"\n{t('persona_skipped')}")
+    return None
+
+
 def verify_connection(channel: str, channel_cfg: dict) -> bool:
     """Try connecting to the channel to verify credentials."""
     if channel == "terminal":
@@ -496,10 +523,15 @@ def run_setup() -> None:
                 print(t("cancelled"))
                 return
 
-    # Step 5: Save config
+    # Step 5: Bot persona
+    persona = collect_persona()
+
+    # Step 6: Save config
     config_data = {"channel": channel}
     if channel_cfg:
         config_data[channel] = channel_cfg
+    if persona:
+        config_data["persona"] = persona
 
     save_config(config_data)
     print(t("config_saved", path=str(CONFIG_FILE)))
