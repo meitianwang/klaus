@@ -37,9 +37,16 @@ async function collectQQConfig(): Promise<Record<string, unknown>> {
   p.log.info(t("qq_guide"));
 
   const result = await p.group({
-    appid: () => p.text({ message: t("qq_appid"), validate: (v) => (v ? undefined : "Required") }),
+    appid: () =>
+      p.text({
+        message: t("qq_appid"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
     secret: () =>
-      p.text({ message: t("qq_secret"), validate: (v) => (v ? undefined : "Required") }),
+      p.text({
+        message: t("qq_secret"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
   });
 
   if (p.isCancel(result)) process.exit(0);
@@ -51,18 +58,30 @@ async function collectWeComConfig(): Promise<Record<string, unknown>> {
 
   const result = await p.group({
     corp_id: () =>
-      p.text({ message: t("wecom_corp_id"), validate: (v) => (v ? undefined : "Required") }),
+      p.text({
+        message: t("wecom_corp_id"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
     corp_secret: () =>
-      p.text({ message: t("wecom_secret"), validate: (v) => (v ? undefined : "Required") }),
+      p.text({
+        message: t("wecom_secret"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
     agent_id: () =>
       p.text({
         message: t("wecom_agent_id"),
         validate: (v) => (/^\d+$/.test(v) ? undefined : "Must be a number"),
       }),
     token: () =>
-      p.text({ message: t("wecom_token"), validate: (v) => (v ? undefined : "Required") }),
+      p.text({
+        message: t("wecom_token"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
     encoding_aes_key: () =>
-      p.text({ message: t("wecom_aes_key"), validate: (v) => (v ? undefined : "Required") }),
+      p.text({
+        message: t("wecom_aes_key"),
+        validate: (v) => (v ? undefined : "Required"),
+      }),
     port: () =>
       p.text({
         message: t("wecom_port"),
@@ -82,7 +101,10 @@ async function collectWeComConfig(): Promise<Record<string, unknown>> {
   };
 }
 
-async function verifyWeComToken(corpId: string, corpSecret: string): Promise<boolean> {
+async function verifyWeComToken(
+  corpId: string,
+  corpSecret: string,
+): Promise<boolean> {
   const s = p.spinner();
   s.start(t("wecom_verify"));
 
@@ -159,6 +181,7 @@ export async function runSetup(): Promise<void> {
   if (channel === "qq") {
     p.log.step(t("qq_title"));
     channelCfg = await collectQQConfig();
+    p.log.success(t("qq_verify_ok"));
   } else if (channel === "wecom") {
     p.log.step(t("wecom_title"));
     channelCfg = await collectWeComConfig();
@@ -166,7 +189,7 @@ export async function runSetup(): Promise<void> {
     // Verify WeCom credentials
     const ok = await verifyWeComToken(
       channelCfg.corp_id as string,
-      channelCfg.corp_secret as string
+      channelCfg.corp_secret as string,
     );
     if (!ok) {
       const saveAnyway = await p.confirm({
@@ -186,6 +209,12 @@ export async function runSetup(): Promise<void> {
     placeholder: t("persona_placeholder"),
   });
   if (p.isCancel(persona)) process.exit(0);
+
+  if (persona) {
+    p.log.success(t("persona_saved"));
+  } else {
+    p.log.success(t("persona_skipped"));
+  }
 
   // Step 5: Save
   const configData: Record<string, unknown> = { channel };
