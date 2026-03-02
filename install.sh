@@ -3,7 +3,7 @@
 set -euo pipefail
 
 CLINK_DIR="${CLINK_INSTALL_DIR:-$HOME/.clink/app}"
-REPO_URL="${CLINK_REPO:-https://github.com/xxx/clink.git}"
+REPO_URL="${CLINK_REPO:-https://github.com/meitianwang/clink.git}"
 
 # ── Colors ──────────────────────────────────
 RED='\033[0;31m'
