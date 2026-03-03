@@ -15,7 +15,7 @@ npm install -g claude-paw
 ### curl
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/meitianwang/clink/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/meitianwang/cpaw/main/install.sh | bash
 ```
 
 The script installs Node.js (if missing), Claude Code CLI, and Claude Paw.
@@ -29,13 +29,13 @@ The script installs Node.js (if missing), Claude Code CLI, and Claude Paw.
 ## Quick Start
 
 ```bash
-# 1. Interactive setup wizard
-cpaw setup
-
-# 2. Start the bot
+# 1. Start — auto-launches setup wizard on first run
 cpaw start
 
-# 3. Diagnose issues
+# Or run setup separately
+cpaw setup
+
+# Diagnose issues
 cpaw doctor
 ```
 
@@ -52,8 +52,9 @@ cpaw doctor
 2. Get AppID and AppSecret from Development > Settings
 3. Run `cpaw setup` and select QQ
 4. Add test users at Development > Sandbox Config
+5. Scan the sandbox QR code with your phone QQ to start chatting
 
-**Optional dependency**: `npm install -g qq-group-bot`
+> `qq-group-bot` is auto-installed when you select QQ channel during setup.
 
 ### WeChat Work (WeCom)
 
