@@ -212,13 +212,57 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     en: "Bot Persona",
     zh: "机器人人设",
   },
+  persona_method: {
+    en: "How do you want to set the persona?",
+    zh: "如何设置人设?",
+  },
+  persona_from_clipboard: {
+    en: "Paste from clipboard (recommended — copy text first, then select this)",
+    zh: "从剪贴板粘贴 (推荐 — 先复制内容，再选此项)",
+  },
+  persona_clipboard_preview: {
+    en: "Clipboard content preview:",
+    zh: "剪贴板内容预览:",
+  },
+  persona_clipboard_confirm: {
+    en: "Use this as persona?",
+    zh: "使用这段内容作为人设?",
+  },
+  persona_clipboard_empty: {
+    en: "Clipboard is empty. Skipping persona.",
+    zh: "剪贴板为空，跳过人设设置。",
+  },
+  persona_lines: {
+    en: "lines",
+    zh: "行",
+  },
+  persona_from_file: {
+    en: "From file",
+    zh: "从文件读取",
+  },
+  persona_direct: {
+    en: "Type directly (single line only)",
+    zh: "直接输入 (仅支持单行)",
+  },
+  persona_skip_option: {
+    en: "Skip (use default Claude behavior)",
+    zh: "跳过 (使用默认 Claude 行为)",
+  },
+  persona_file_prompt: {
+    en: "Path to persona file (text/markdown)",
+    zh: "人设文件路径 (文本或 Markdown 文件)",
+  },
+  persona_file_required: {
+    en: "File path is required",
+    zh: "请输入文件路径",
+  },
+  persona_file_not_found: {
+    en: "File not found",
+    zh: "文件不存在",
+  },
   persona_prompt: {
-    en:
-      "Set the bot's system prompt (controls how it responds).\n" +
-      "Leave empty to use default Claude behavior.",
-    zh:
-      "设置机器人的 system prompt (控制回复风格和角色)。\n" +
-      "留空则使用默认 Claude 行为。",
+    en: "Enter system prompt (single line)",
+    zh: "输入 system prompt (单行)",
   },
   persona_placeholder: {
     en: "You are a helpful AI assistant...",

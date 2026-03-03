@@ -1,9 +1,12 @@
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { CONFIG_FILE, loadConfig, saveConfig } from "./config.js";
 import { setLang, t } from "./i18n.js";
+
+const require = createRequire(import.meta.url);
 
 function which(cmd: string): string | null {
   try {
@@ -181,9 +184,9 @@ export async function runSetup(): Promise<void> {
   if (channel === "qq") {
     p.log.step(t("qq_title"));
 
-    // Install qq-group-bot if missing
+    // Install qq-group-bot if missing (use require.resolve to avoid executing module code)
     try {
-      await import("qq-group-bot");
+      require.resolve("qq-group-bot");
     } catch {
       const s2 = p.spinner();
       s2.start(t("installing_qq_dep"));
@@ -219,14 +222,83 @@ export async function runSetup(): Promise<void> {
 
   // Step 4: Bot persona
   p.log.step(t("persona_title"));
-  const persona = await p.text({
-    message: t("persona_prompt"),
-    placeholder: t("persona_placeholder"),
+  const personaMethod = await p.select({
+    message: t("persona_method"),
+    options: [
+      { value: "clipboard" as const, label: t("persona_from_clipboard") },
+      { value: "file" as const, label: t("persona_from_file") },
+      { value: "text" as const, label: t("persona_direct") },
+      { value: "skip" as const, label: t("persona_skip_option") },
+    ],
   });
-  if (p.isCancel(persona)) process.exit(0);
+  if (p.isCancel(personaMethod)) process.exit(0);
 
-  if (persona) {
-    p.log.success(t("persona_saved"));
+  let persona = "";
+  if (personaMethod === "clipboard") {
+    // Read from system clipboard
+    const clipCmd =
+      process.platform === "darwin"
+        ? "pbpaste"
+        : process.platform === "win32"
+          ? 'powershell -command "Get-Clipboard"'
+          : "xclip -selection clipboard -o";
+    try {
+      persona = execSync(clipCmd, { encoding: "utf-8" }).trim();
+    } catch {
+      persona = "";
+    }
+    if (persona) {
+      const preview =
+        persona.length > 200 ? persona.slice(0, 200) + "..." : persona;
+      p.log.info(t("persona_clipboard_preview") + "\n\n" + preview);
+      const ok = await p.confirm({ message: t("persona_clipboard_confirm") });
+      if (p.isCancel(ok)) process.exit(0);
+      if (!ok) {
+        persona = "";
+        p.log.warn(t("persona_skipped"));
+      } else {
+        p.log.success(
+          t("persona_saved") +
+            ` (${persona.split("\n").length} ${t("persona_lines")})`,
+        );
+      }
+    } else {
+      p.log.warn(t("persona_clipboard_empty"));
+    }
+  } else if (personaMethod === "file") {
+    const filePath = await p.text({
+      message: t("persona_file_prompt"),
+      placeholder: "~/persona.md",
+      validate: (v) => {
+        if (!v) return t("persona_file_required");
+        const resolved = v.startsWith("~")
+          ? v.replace("~", process.env.HOME ?? "")
+          : v;
+        if (!existsSync(resolved)) return t("persona_file_not_found");
+        return undefined;
+      },
+    });
+    if (p.isCancel(filePath)) process.exit(0);
+    const resolved = (filePath as string).startsWith("~")
+      ? (filePath as string).replace("~", process.env.HOME ?? "")
+      : (filePath as string);
+    persona = readFileSync(resolved, "utf-8").trim();
+    p.log.success(
+      t("persona_saved") +
+        ` (${persona.split("\n").length} ${t("persona_lines")})`,
+    );
+  } else if (personaMethod === "text") {
+    const text = await p.text({
+      message: t("persona_prompt"),
+      placeholder: t("persona_placeholder"),
+    });
+    if (p.isCancel(text)) process.exit(0);
+    persona = (text as string) ?? "";
+    if (persona) {
+      p.log.success(t("persona_saved"));
+    } else {
+      p.log.success(t("persona_skipped"));
+    }
   } else {
     p.log.success(t("persona_skipped"));
   }
