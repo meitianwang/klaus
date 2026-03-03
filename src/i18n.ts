@@ -280,6 +280,55 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     en: "Credentials saved (will verify on first start)",
     zh: "凭证已保存 (将在首次启动时验证)",
   },
+  // ── Chat Commands ──
+  cmd_reset: {
+    en: "Session reset.",
+    zh: "会话已重置。",
+  },
+  cmd_help: {
+    en:
+      "Available commands:\n" +
+      "/new /reset /clear — Reset conversation\n" +
+      "/help — Show this help\n" +
+      "/session — Show session info\n" +
+      "/model — Show current model\n" +
+      "/model <name> — Switch model (sonnet/opus/haiku)",
+    zh:
+      "可用命令:\n" +
+      "/new /reset /clear — 重置对话\n" +
+      "/help — 显示帮助\n" +
+      "/session — 查看会话信息\n" +
+      "/model — 查看当前模型\n" +
+      "/model <名称> — 切换模型 (sonnet/opus/haiku)",
+  },
+  cmd_session_info: {
+    en: "Session: {key}\nStatus: {status}\nModel: {model}",
+    zh: "会话: {key}\n状态: {status}\n模型: {model}",
+  },
+  cmd_session_active: {
+    en: "active",
+    zh: "活跃",
+  },
+  cmd_session_idle: {
+    en: "idle",
+    zh: "空闲",
+  },
+  cmd_model_current: {
+    en: "Current model: {model}",
+    zh: "当前模型: {model}",
+  },
+  cmd_model_switched: {
+    en: "Model switched to: {model}",
+    zh: "模型已切换为: {model}",
+  },
+  cmd_model_unknown: {
+    en: "Unknown model: {name}\nAvailable: sonnet, opus, haiku",
+    zh: "未知模型: {name}\n可选: sonnet, opus, haiku",
+  },
+  cmd_default_model: {
+    en: "default",
+    zh: "默认",
+  },
   // ── Done ──
   config_saved: {
     en: "Config saved to {path}",

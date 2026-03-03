@@ -31,6 +31,7 @@ function createDeferred<T>(): Deferred<T> {
 
 interface ChatOptions {
   systemPrompt: string;
+  model?: string;
 }
 
 interface PendingMessage {
@@ -43,9 +44,11 @@ export class ClaudeChat {
   private busy = false;
   private pending: PendingMessage[] = [];
   private options: ChatOptions;
+  private model: string | undefined;
 
   constructor(options: ChatOptions) {
     this.options = options;
+    this.model = options.model;
   }
 
   /** Send a message to Claude and collect the full text reply. */
@@ -58,6 +61,7 @@ export class ClaudeChat {
       options: {
         systemPrompt: this.options.systemPrompt || undefined,
         permissionMode: "bypassPermissions",
+        ...(this.model ? { model: this.model } : {}),
         ...(this.sessionId ? { resume: this.sessionId } : {}),
       },
     });
@@ -145,6 +149,14 @@ export class ClaudeChat {
     return this.busy;
   }
 
+  getModel(): string | undefined {
+    return this.model;
+  }
+
+  setModel(model: string): void {
+    this.model = model;
+  }
+
   async reset(): Promise<void> {
     this.sessionId = undefined;
   }
@@ -201,6 +213,28 @@ export class ChatSessionManager {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
     return session.chat(prompt);
+  }
+
+  setModel(sessionKey: string, model: string): void {
+    const session = this.getSession(sessionKey);
+    session.setModel(model);
+  }
+
+  getModel(sessionKey: string): string | undefined {
+    return this.sessions.get(sessionKey)?.getModel();
+  }
+
+  getSessionInfo(sessionKey: string): {
+    active: boolean;
+    busy: boolean;
+    model: string | undefined;
+  } {
+    const session = this.sessions.get(sessionKey);
+    return {
+      active: !!session,
+      busy: session?.isBusy ?? false,
+      model: session?.getModel(),
+    };
   }
 
   async reset(sessionKey: string): Promise<void> {

@@ -3,7 +3,18 @@ import { QQChannel } from "./channels/qq.js";
 import { WeComChannel } from "./channels/wecom.js";
 import { getChannelName, CONFIG_FILE } from "./config.js";
 import { ChatSessionManager } from "./core.js";
+import { t } from "./i18n.js";
 import type { Channel } from "./channels/base.js";
+
+// ---------------------------------------------------------------------------
+// Model alias mapping
+// ---------------------------------------------------------------------------
+
+const MODEL_ALIASES: Record<string, string> = {
+  sonnet: "claude-sonnet-4-6",
+  opus: "claude-opus-4-6",
+  haiku: "claude-haiku-4-5-20251001",
+};
 
 const CHANNELS: Record<string, new () => Channel> = {
   qq: QQChannel,
@@ -35,10 +46,46 @@ async function start(): Promise<void> {
     sessionKey: string,
     text: string,
   ): Promise<string | null> => {
-    if (["/new", "/reset", "/clear"].includes(text)) {
+    const trimmed = text.trim();
+
+    // /new, /reset, /clear — reset conversation
+    if (["/new", "/reset", "/clear"].includes(trimmed)) {
       await sessions.reset(sessionKey);
-      return "Session reset.";
+      return t("cmd_reset");
     }
+
+    // /help — list commands
+    if (trimmed === "/help") {
+      return t("cmd_help");
+    }
+
+    // /session — show session info
+    if (trimmed === "/session") {
+      const info = sessions.getSessionInfo(sessionKey);
+      return t("cmd_session_info", {
+        key: sessionKey,
+        status: info.busy ? t("cmd_session_active") : t("cmd_session_idle"),
+        model: info.model ?? t("cmd_default_model"),
+      });
+    }
+
+    // /model [name] — show or switch model
+    if (trimmed === "/model" || trimmed.startsWith("/model ")) {
+      const arg = trimmed.slice("/model".length).trim();
+      if (!arg) {
+        const current = sessions.getModel(sessionKey);
+        return t("cmd_model_current", {
+          model: current ?? t("cmd_default_model"),
+        });
+      }
+      const resolved = MODEL_ALIASES[arg.toLowerCase()] ?? MODEL_ALIASES[arg];
+      if (!resolved) {
+        return t("cmd_model_unknown", { name: arg });
+      }
+      sessions.setModel(sessionKey, resolved);
+      return t("cmd_model_switched", { model: resolved });
+    }
+
     return sessions.chat(sessionKey, text);
   };
 
