@@ -19,24 +19,32 @@ function check(label: string, ok: boolean, hint = ""): boolean {
 }
 
 export function runDoctor(): void {
-  console.log("\nCpaw Doctor\n");
+  console.log("\nKlaus Doctor\n");
   let allOk = true;
 
   // Node.js version
   const [major] = process.versions.node.split(".").map(Number);
-  allOk &&= check(`Node.js ${process.version}`, major >= 18, "need Node.js >= 18");
+  allOk &&= check(
+    `Node.js ${process.version}`,
+    major >= 18,
+    "need Node.js >= 18",
+  );
 
   // Claude CLI
   const claudePath = which("claude");
   allOk &&= check(
     "Claude Code CLI",
     claudePath !== null,
-    "npm i -g @anthropic-ai/claude-code"
+    "npm i -g @anthropic-ai/claude-code",
   );
 
   // Config file
   const cfgExists = existsSync(CONFIG_FILE);
-  allOk &&= check(`Config file (${CONFIG_FILE})`, cfgExists, "run: cpaw setup");
+  allOk &&= check(
+    `Config file (${CONFIG_FILE})`,
+    cfgExists,
+    "run: klaus setup",
+  );
 
   if (cfgExists) {
     const cfg = loadConfig();
@@ -44,7 +52,7 @@ export function runDoctor(): void {
     allOk &&= check(
       `Channel configured: ${channel}`,
       channel === "qq" || channel === "wecom",
-      "unknown channel"
+      "unknown channel",
     );
 
     if (channel === "qq") {
@@ -52,24 +60,32 @@ export function runDoctor(): void {
       allOk &&= check(
         "QQ Bot credentials",
         Boolean(qqCfg.appid && qqCfg.secret),
-        "missing appid or secret"
+        "missing appid or secret",
       );
     } else if (channel === "wecom") {
       const wc = (cfg.wecom as Record<string, unknown>) ?? {};
-      const required = ["corp_id", "corp_secret", "agent_id", "token", "encoding_aes_key"];
+      const required = [
+        "corp_id",
+        "corp_secret",
+        "agent_id",
+        "token",
+        "encoding_aes_key",
+      ];
       const missing = required.filter((k) => !wc[k]);
       allOk &&= check(
         "WeCom credentials",
         missing.length === 0,
-        `missing: ${missing.join(", ")}`
+        `missing: ${missing.join(", ")}`,
       );
     }
   }
 
   console.log();
   if (allOk) {
-    console.log(`  ${pc.green("All checks passed!")} Run: cpaw start\n`);
+    console.log(`  ${pc.green("All checks passed!")} Run: klaus start\n`);
   } else {
-    console.log("  Some checks failed. Fix the issues above and re-run doctor.\n");
+    console.log(
+      "  Some checks failed. Fix the issues above and re-run doctor.\n",
+    );
   }
 }

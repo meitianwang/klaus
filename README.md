@@ -1,26 +1,26 @@
-# Claude Paw 🐾
+# Klaus
 
 在 QQ / 企业微信 中使用 Claude Code。
 
-Claude Paw 基于 [Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code)，将 Claude Code 接入即时通讯平台。自动处理多轮对话、会话管理、消息合并（Collect 模式），并支持图片、文件、语音等富媒体消息。
+Klaus 基于 [Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code)，将 Claude Code 接入即时通讯平台。自动处理多轮对话、会话管理、消息合并（Collect 模式），并支持图片、文件、语音等富媒体消息。
 
 ## 安装
 
-> 包名是 `claude-paw`，安装后使用 `cpaw` 命令。
+> 包名是 `klaus-ai`，安装后使用 `klaus` 命令。
 
 ### npm（推荐）
 
 ```bash
-npm install -g claude-paw
+npm install -g klaus-ai
 ```
 
 ### 一键脚本
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/meitianwang/cpaw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/meitianwang/klaus/main/install.sh | bash
 ```
 
-脚本会自动安装 Node.js（如缺失）、Claude Code CLI 和 Claude Paw。
+脚本会自动安装 Node.js（如缺失）、Claude Code CLI 和 Klaus。
 
 ## 前置条件
 
@@ -32,13 +32,13 @@ curl -fsSL https://raw.githubusercontent.com/meitianwang/cpaw/main/install.sh | 
 
 ```bash
 # 首次运行自动进入配置向导
-cpaw start
+klaus start
 
 # 单独运行配置
-cpaw setup
+klaus setup
 
 # 诊断环境问题
-cpaw doctor
+klaus doctor
 ```
 
 ## 支持的通道
@@ -52,7 +52,7 @@ cpaw doctor
 
 1. 前往 [QQ 开放平台](https://q.qq.com/) 创建机器人
 2. 在 开发 > 开发设置 中获取 AppID 和 AppSecret
-3. 运行 `cpaw setup`，选择 QQ
+3. 运行 `klaus setup`，选择 QQ
 4. 在 开发 > 沙箱配置 添加测试用户
 5. 用手机 QQ 扫描沙箱二维码即可开始聊天
 
@@ -76,7 +76,7 @@ cpaw doctor
 2. 在 我的企业 获取 Corp ID
 3. 创建自建应用，获取 Agent ID + Secret
 4. 在 接收消息 设置回调 URL
-5. 运行 `cpaw setup`，选择企业微信
+5. 运行 `klaus setup`，选择企业微信
 
 **提示**：使用 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) 将本地端口暴露到公网：
 
@@ -86,7 +86,7 @@ cloudflared tunnel --url http://localhost:8080
 
 ## 配置
 
-配置文件：`~/.cpaw/config.yaml`
+配置文件：`~/.klaus/config.yaml`
 
 ```yaml
 channel: qq          # 或 wecom

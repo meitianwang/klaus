@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**claude-paw** (`cpaw`) is a TypeScript CLI tool that bridges Claude Code (via `@anthropic-ai/claude-agent-sdk`) to messaging platforms (QQ, WeChat Work). It runs as a global npm package exposing the `cpaw` command.
+**Klaus** (`klaus-ai` on npm) is a TypeScript CLI tool that bridges Claude Code (via `@anthropic-ai/claude-agent-sdk`) to messaging platforms (QQ, WeChat Work). It runs as a global npm package exposing the `klaus` command.
 
 ## Commands
 
@@ -36,7 +36,7 @@ User message → Channel (QQ/WeCom) → ChatSessionManager → ClaudeChat → Cl
 
 - **`src/index.ts`** — CLI entry point. Routes `setup`/`start`/`doctor` subcommands. Handles special messages (`/new`, `/reset`, `/clear`) to reset sessions.
 
-- **`src/config.ts`** — YAML config at `~/.cpaw/config.yaml`, with env var fallback.
+- **`src/config.ts`** — YAML config at `~/.klaus/config.yaml`, with env var fallback.
 
 - **`src/i18n.ts`** — Bilingual (EN/ZH) translation system for setup wizard and guides.
 

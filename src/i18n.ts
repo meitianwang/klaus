@@ -3,8 +3,8 @@ type Lang = "en" | "zh";
 const TEXTS: Record<string, Record<Lang, string>> = {
   // ── Setup ──
   setup_title: {
-    en: " Cpaw Setup ",
-    zh: " Cpaw 安装引导 ",
+    en: " Klaus Setup ",
+    zh: " Klaus 安装引导 ",
   },
   config_exists: {
     en: "Config already exists at {path}\nCurrent channel: {channel}",
@@ -335,8 +335,8 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     zh: "配置已保存到 {path}",
   },
   setup_done: {
-    en: "Setup complete! Run: cpaw start",
-    zh: "安装完成! 运行: cpaw start",
+    en: "Setup complete! Run: klaus start",
+    zh: "安装完成! 运行: klaus start",
   },
 };
 

@@ -24,7 +24,7 @@ interface MsgElem {
 // Temp file directory for downloaded media
 // ---------------------------------------------------------------------------
 
-const TEMP_DIR = join(tmpdir(), "cpaw-files");
+const TEMP_DIR = join(tmpdir(), "klaus-files");
 mkdirSync(TEMP_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ export class QQChannel extends Channel {
   private cfg = loadQQBotConfig();
 
   async start(handler: Handler): Promise<void> {
-    console.log("Cpaw QQ Bot channel starting...");
+    console.log("Klaus QQ Bot channel starting...");
 
     let BotClass: new (
       config: Record<string, unknown>,
@@ -219,7 +219,7 @@ export class QQChannel extends Channel {
     }) as Record<string, Function>;
 
     await (bot.start as () => Promise<void>)();
-    console.log("Cpaw QQ Bot online");
+    console.log("Klaus QQ Bot online");
 
     // Private messages (C2C)
     bot.on("message.private", async (e: Record<string, unknown>) => {

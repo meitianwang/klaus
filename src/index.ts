@@ -35,7 +35,7 @@ async function start(): Promise<void> {
   if (!ChannelCls) {
     console.error(`Unknown channel: ${channelName}`);
     console.error(`Available: ${Object.keys(CHANNELS).join(", ")}`);
-    console.error("Run 'cpaw setup' to configure.");
+    console.error("Run 'klaus setup' to configure.");
     process.exit(1);
   }
 
@@ -114,8 +114,8 @@ function main(): void {
       break;
     default:
       console.log(
-        "Cpaw — Use Claude Code from any messaging platform\n\n" +
-          "Usage: cpaw [command]\n\n" +
+        "Klaus — Use Claude Code from any messaging platform\n\n" +
+          "Usage: klaus [command]\n\n" +
           "Commands:\n" +
           "  setup    Interactive setup wizard\n" +
           "  start    Start the bot (default)\n" +

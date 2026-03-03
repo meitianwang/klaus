@@ -1,4 +1,4 @@
-# Skill: Add a New Channel to cpaw
+# Skill: Add a New Channel to Klaus
 
 Step-by-step guide for adding a new messaging channel (e.g., Telegram, Slack, Discord).
 
@@ -29,7 +29,7 @@ export class XxxChannel extends Channel {
   private cfg = loadXxxConfig();
 
   async start(handler: Handler): Promise<void> {
-    console.log("Cpaw Xxx channel starting...");
+    console.log("Klaus Xxx channel starting...");
     // Connect to platform, listen for messages
     // When message received:
     //   const reply = await handler(sessionKey, prompt);
@@ -85,7 +85,7 @@ interface MsgElem {
   [key: string]: unknown;
 }
 
-const TEMP_DIR = join(tmpdir(), "cpaw-files");
+const TEMP_DIR = join(tmpdir(), "klaus-files");
 mkdirSync(TEMP_DIR, { recursive: true });
 const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
 ```
@@ -126,10 +126,10 @@ Every channel's SDK delivers messages differently, but the output prompt must fo
 | Element type | Prompt format | Claude ability |
 |-------------|---------------|---------------|
 | Text | Direct text | ✅ |
-| Image | `[图片: /tmp/cpaw-files/xxx.png，请用 Read 工具查看]` | ✅ Read tool |
-| File (PDF etc.) | `[文件: /tmp/cpaw-files/doc.pdf，请用 Read 工具查看]` | ✅ Read tool |
-| Video | `[视频文件: /tmp/cpaw-files/xxx.mp4]` | ❌ but knows it exists |
-| Audio | `[语音文件: /tmp/cpaw-files/xxx.mp3]` | ❌ but knows it exists |
+| Image | `[图片: /tmp/klaus-files/xxx.png，请用 Read 工具查看]` | ✅ Read tool |
+| File (PDF etc.) | `[文件: /tmp/klaus-files/doc.pdf，请用 Read 工具查看]` | ✅ Read tool |
+| Video | `[视频文件: /tmp/klaus-files/xxx.mp4]` | ❌ but knows it exists |
+| Audio | `[语音文件: /tmp/klaus-files/xxx.mp3]` | ❌ but knows it exists |
 | Emoji/Sticker | `[表情:描述]` | — |
 | @Mention | `[@用户:id]` or `[@全体成员]` | — context |
 | Reply/Quote | `[回复消息: "被引用的内容..."]` | — context |
@@ -251,16 +251,16 @@ Add credential validation for the new channel.
 
 ```bash
 # 1. Clean state
-rm -rf ~/.cpaw/config.yaml
+rm -rf ~/.klaus/config.yaml
 
 # 2. Run setup, select your new channel
-cpaw setup
+klaus setup
 
 # 3. Verify environment
-cpaw doctor
+klaus doctor
 
 # 4. Start and send test messages
-cpaw start
+klaus start
 
 # 5. Test each message type:
 #    - Pure text

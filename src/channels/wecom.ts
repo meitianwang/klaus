@@ -3,7 +3,11 @@
  * Uses Node.js native http and crypto modules.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { createDecipheriv, createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { Channel, type Handler } from "./base.js";
@@ -40,14 +44,19 @@ export class WeComChannel extends Channel {
     });
 
     server.listen(this.cfg.port, "0.0.0.0", () => {
-      console.log(`Cpaw WeCom channel listening on :${this.cfg.port}/callback`);
+      console.log(
+        `Klaus WeCom channel listening on :${this.cfg.port}/callback`,
+      );
     });
 
     // Block forever
     await new Promise(() => {});
   }
 
-  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handleRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     const url = new URL(req.url ?? "/", `http://localhost:${this.cfg.port}`);
     if (url.pathname !== "/callback") {
       res.writeHead(404);
@@ -91,7 +100,11 @@ export class WeComChannel extends Channel {
   // Callback: receive message (POST)
   // ------------------------------------------------------------------
 
-  private async onMessage(url: URL, body: string, res: ServerResponse): Promise<void> {
+  private async onMessage(
+    url: URL,
+    body: string,
+    res: ServerResponse,
+  ): Promise<void> {
     const msgSignature = url.searchParams.get("msg_signature") ?? "";
     const timestamp = url.searchParams.get("timestamp") ?? "";
     const nonce = url.searchParams.get("nonce") ?? "";
@@ -212,7 +225,7 @@ export class WeComChannel extends Channel {
     signature: string,
     timestamp: string,
     nonce: string,
-    encrypt: string
+    encrypt: string,
   ): boolean {
     const parts = [this.cfg.token, timestamp, nonce, encrypt].sort();
     const digest = createHash("sha1").update(parts.join("")).digest("hex");

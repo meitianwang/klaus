@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── Cpaw Installer ──────────────────────────────────────────────────────────
-# Usage: curl -fsSL https://raw.githubusercontent.com/<user>/cpaw/main/install.sh | bash
+# ─── Klaus Installer ─────────────────────────────────────────────────────────
+# Usage: curl -fsSL https://raw.githubusercontent.com/meitianwang/klaus/main/install.sh | bash
 
 BOLD="\033[1m"
 GREEN="\033[32m"
@@ -97,18 +97,18 @@ install_claude() {
   npm install -g @anthropic-ai/claude-code
 }
 
-# ─── Install Cpaw ────────────────────────────────────────────────────────────
+# ─── Install Klaus ────────────────────────────────────────────────────────────
 
-install_cpaw() {
-  step "Installing Cpaw"
-  npm install -g cpaw
+install_klaus() {
+  step "Installing Klaus"
+  npm install -g klaus-ai
 }
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
   echo ""
-  echo "  ${BOLD}Cpaw Installer${RESET}"
+  echo "  ${BOLD}Klaus Installer${RESET}"
   echo "  Use Claude Code from QQ / WeChat Work"
   echo ""
 
@@ -126,16 +126,16 @@ main() {
     check_claude || { error "Claude Code CLI installation failed"; exit 1; }
   fi
 
-  # 3. Cpaw
-  install_cpaw
+  # 3. Klaus
+  install_klaus
 
   echo ""
   info "Installation complete!"
   echo ""
   echo "  Next steps:"
-  echo "    ${BOLD}cpaw setup${RESET}   — Interactive configuration wizard"
-  echo "    ${BOLD}cpaw start${RESET}   — Start the bot"
-  echo "    ${BOLD}cpaw doctor${RESET}  — Diagnose environment issues"
+  echo "    ${BOLD}klaus setup${RESET}   — Interactive configuration wizard"
+  echo "    ${BOLD}klaus start${RESET}   — Start the bot"
+  echo "    ${BOLD}klaus doctor${RESET}  — Diagnose environment issues"
   echo ""
 }
 

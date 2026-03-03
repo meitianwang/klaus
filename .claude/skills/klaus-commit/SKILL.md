@@ -1,6 +1,6 @@
-# Skill: cpaw-commit
+# Skill: klaus-commit
 
-cpaw 项目的代码提交、版本发布流程。
+Klaus 项目的代码提交、版本发布流程。
 
 ## 提交前检查
 
