@@ -14,13 +14,25 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { ChannelPlugin } from "./types.js";
 import type { Handler } from "../types.js";
 import type { WebConfig } from "../types.js";
 import { loadWebConfig } from "../config.js";
-import type { InboundMessage } from "../message.js";
+import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { startTunnel } from "./web-tunnel.js";
+
+// ---------------------------------------------------------------------------
+// File upload storage
+// ---------------------------------------------------------------------------
+
+const UPLOAD_DIR = join(tmpdir(), "klaus-web-uploads");
+mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 
 // ---------------------------------------------------------------------------
 // SSE client management
@@ -105,21 +117,21 @@ function checkRateLimit(ip: string): boolean {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, maxSize?: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    const MAX = 1024 * 64; // 64 KB
+    const limit = maxSize ?? 1024 * 64; // default 64 KB
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX) {
+      if (size > limit) {
         req.destroy();
         reject(new Error("body too large"));
         return;
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -143,11 +155,7 @@ function getClientIp(req: IncomingMessage): string {
 // Route handlers
 // ---------------------------------------------------------------------------
 
-function serveHtml(
-  url: URL,
-  res: ServerResponse,
-  cfg: WebConfig,
-): void {
+function serveHtml(url: URL, res: ServerResponse, cfg: WebConfig): void {
   const token = url.searchParams.get("token") ?? "";
   if (!validateToken(token, cfg.token)) {
     res.writeHead(401, { "Content-Type": "text/plain" });
@@ -200,9 +208,13 @@ async function handleMessage(
   }
 
   const body = await readBody(req);
-  let parsed: { token?: string; text?: string };
+  let parsed: { token?: string; text?: string; files?: string[] };
   try {
-    parsed = JSON.parse(body) as { token?: string; text?: string };
+    parsed = JSON.parse(body.toString("utf-8")) as {
+      token?: string;
+      text?: string;
+      files?: string[];
+    };
   } catch {
     jsonResponse(res, 400, { error: "invalid JSON" });
     return;
@@ -215,7 +227,9 @@ async function handleMessage(
   }
 
   const text = (parsed.text ?? "").trim();
-  if (!text) {
+  const fileIds = parsed.files ?? [];
+
+  if (!text && fileIds.length === 0) {
     jsonResponse(res, 400, { error: "empty message" });
     return;
   }
@@ -223,17 +237,41 @@ async function handleMessage(
   // Respond immediately (async processing, same as wecom.ts pattern)
   jsonResponse(res, 200, { ok: true });
 
+  // Build media list from uploaded file IDs
+  const media: MediaFile[] = [];
+  for (const fileId of fileIds) {
+    const meta = uploadedFiles.get(fileId);
+    if (!meta) continue;
+    media.push({
+      type: meta.mediaType,
+      path: meta.path,
+      fileName: meta.originalName,
+    });
+    uploadedFiles.delete(fileId);
+  }
+
   const sessionKey = `web:${token}`;
+  const hasMedia = media.length > 0;
+  const messageType =
+    hasMedia && text
+      ? "mixed"
+      : hasMedia
+        ? media[0].type === "image"
+          ? "image"
+          : "file"
+        : "text";
   const msg: InboundMessage = {
     sessionKey,
     text,
-    messageType: "text",
+    messageType,
     chatType: "private",
     senderId: token,
+    ...(hasMedia ? { media } : {}),
   };
 
+  const mediaLabel = hasMedia ? ` +${media.length} file(s)` : "";
   console.log(
-    `[Web] Received (web:${tokenLabel(token)}): ${text.slice(0, 120)}`,
+    `[Web] Received (web:${tokenLabel(token)}): ${text.slice(0, 120)}${mediaLabel}`,
   );
 
   try {
@@ -257,6 +295,96 @@ async function handleMessage(
       message: "An internal error occurred. Please try again.",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// File upload handler
+// ---------------------------------------------------------------------------
+
+interface UploadMeta {
+  readonly path: string;
+  readonly originalName: string;
+  readonly mediaType: "image" | "audio" | "video" | "file";
+  readonly createdAt: number;
+}
+
+const uploadedFiles = new Map<string, UploadMeta>();
+
+// Cleanup stale uploads every 10 minutes (files older than 30 min)
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60_000;
+  for (const [id, meta] of uploadedFiles) {
+    if (meta.createdAt < cutoff) uploadedFiles.delete(id);
+  }
+}, 10 * 60_000);
+
+function inferMediaType(
+  contentType: string,
+  fileName: string,
+): "image" | "audio" | "video" | "file" {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("audio/")) return "audio";
+  if (contentType.startsWith("video/")) return "video";
+  // Fallback: check extension
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext))
+    return "image";
+  if (["mp3", "wav", "ogg", "m4a", "aac"].includes(ext)) return "audio";
+  if (["mp4", "webm", "mov", "avi"].includes(ext)) return "video";
+  return "file";
+}
+
+async function handleUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+  cfg: WebConfig,
+): Promise<void> {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) {
+    jsonResponse(res, 429, { error: "too many requests" });
+    return;
+  }
+
+  // Token in query string for upload
+  const url = new URL(req.url ?? "/", `http://localhost:${cfg.port}`);
+  const token = url.searchParams.get("token") ?? "";
+  if (!validateToken(token, cfg.token)) {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+
+  const contentType = req.headers["content-type"] ?? "";
+  const fileName = decodeURIComponent(url.searchParams.get("name") ?? "upload");
+
+  // Validate content type is present
+  if (!contentType) {
+    jsonResponse(res, 400, { error: "missing content-type" });
+    return;
+  }
+
+  const data = await readBody(req, MAX_UPLOAD_SIZE);
+
+  // Save to temp file
+  const safeBase = fileName.replace(/[^\w.\-]/g, "_");
+  const diskName = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${safeBase}`;
+  const filePath = join(UPLOAD_DIR, diskName);
+  writeFileSync(filePath, data);
+
+  const fileId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const mediaType = inferMediaType(contentType, fileName);
+
+  uploadedFiles.set(fileId, {
+    path: filePath,
+    originalName: fileName,
+    mediaType,
+    createdAt: Date.now(),
+  });
+
+  console.log(
+    `[Web] Upload (${tokenLabel(token)}): ${fileName} → ${mediaType} [${data.length} bytes]`,
+  );
+
+  jsonResponse(res, 200, { id: fileId, type: mediaType, name: fileName });
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +416,12 @@ async function handleRequest(
         return;
       }
       return handleMessage(req, res, handler, cfg);
+    case "/api/upload":
+      if (req.method !== "POST") {
+        jsonResponse(res, 405, { error: "method not allowed" });
+        return;
+      }
+      return handleUpload(req, res, cfg);
     case "/api/health":
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");
@@ -329,9 +463,7 @@ export const webPlugin: ChannelPlugin = {
       console.log(
         `Klaus Web channel listening on http://localhost:${cfg.port}`,
       );
-      console.log(
-        `Chat URL: http://localhost:${cfg.port}/?token=${cfg.token}`,
-      );
+      console.log(`Chat URL: http://localhost:${cfg.port}/?token=${cfg.token}`);
     });
 
     // SSE keepalive — 30s ping to prevent proxy/tunnel timeouts
