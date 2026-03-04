@@ -18,9 +18,16 @@ export interface WeComConfig {
   readonly port: number;
 }
 
+export interface SessionConfig {
+  readonly idleMs: number;
+  readonly maxEntries: number;
+  readonly maxAgeMs: number;
+}
+
 export interface KlausConfig {
   channel: string;
   persona?: string;
   qq?: QQBotConfig;
   wecom?: WeComConfig;
+  session?: SessionConfig;
 }

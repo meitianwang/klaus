@@ -7,6 +7,22 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
+import type { SessionStore, PersistedSession } from "./session-store.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isSessionExpiredError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("session") &&
+    (msg.includes("not found") ||
+      msg.includes("expired") ||
+      msg.includes("invalid"))
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Deferred: equivalent of Python asyncio.Future
@@ -51,8 +67,34 @@ export class ClaudeChat {
     this.model = options.model;
   }
 
-  /** Send a message to Claude and collect the full text reply. */
+  /** Get the current Claude SDK session ID (for persistence). */
+  getSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
+  /** Restore a session ID from persistent storage. */
+  restoreSessionId(id: string): void {
+    this.sessionId = id;
+  }
+
+  /**
+   * Send a message to Claude. If the error indicates a stale/expired session,
+   * clears sessionId and retries once without resume.
+   */
   private async doChat(prompt: string): Promise<string> {
+    try {
+      return await this.doChatInner(prompt);
+    } catch (err) {
+      if (this.sessionId && isSessionExpiredError(err)) {
+        console.log("[Chat] Session expired, starting fresh session");
+        this.sessionId = undefined;
+        return await this.doChatInner(prompt);
+      }
+      throw err;
+    }
+  }
+
+  private async doChatInner(prompt: string): Promise<string> {
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
 
@@ -174,20 +216,43 @@ export class ChatSessionManager {
   static readonly MAX_SESSIONS = 20;
   private sessions = new Map<string, ClaudeChat>();
   private options: ChatOptions;
+  private store: SessionStore | undefined;
+  private idleMs: number;
 
-  constructor() {
+  constructor(store?: SessionStore, idleMs?: number) {
     const cfg = loadConfig();
     const persona = (cfg.persona as string) ?? "";
     this.options = { systemPrompt: persona };
+    this.store = store;
+    this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
+  }
+
+  private persistSession(key: string, session: ClaudeChat): void {
+    if (!this.store) return;
+    const sessionId = session.getSessionId();
+    if (!sessionId) return;
+    const existing = this.store.get(key);
+    this.store.set(key, {
+      sessionId,
+      sessionKey: key,
+      createdAt: existing?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      model: session.getModel(),
+    });
   }
 
   private async evictIfNeeded(): Promise<void> {
     if (this.sessions.size < ChatSessionManager.MAX_SESSIONS) return;
     for (const [key, session] of this.sessions) {
       if (!session.isBusy) {
+        // Save sessionId before eviction so it can be restored later
+        this.persistSession(key, session);
         await session.close();
         this.sessions.delete(key);
         console.log(`[Session] Evicted (LRU): ${key}`);
+        this.store?.save().catch((err) => {
+          console.error("[SessionStore] Save after eviction failed:", err);
+        });
         return;
       }
     }
@@ -201,7 +266,21 @@ export class ChatSessionManager {
       this.sessions.set(sessionKey, existing);
       return existing;
     }
+
     const chat = new ClaudeChat(this.options);
+
+    // Restore sessionId from persistent store if fresh
+    if (this.store) {
+      const persisted = this.store.get(sessionKey);
+      if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
+        chat.restoreSessionId(persisted.sessionId);
+        if (persisted.model) {
+          chat.setModel(persisted.model);
+        }
+        console.log(`[Session] Restored from store: ${sessionKey}`);
+      }
+    }
+
     this.sessions.set(sessionKey, chat);
     console.log(
       `[Session] New session: ${sessionKey} (total: ${this.sessions.size})`,
@@ -212,7 +291,17 @@ export class ChatSessionManager {
   async chat(sessionKey: string, prompt: string): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
-    return session.chat(prompt);
+    const result = await session.chat(prompt);
+
+    // Persist after successful chat (fire-and-forget)
+    if (result !== null) {
+      this.persistSession(sessionKey, session);
+      this.store?.save().catch((err) => {
+        console.error("[SessionStore] Save failed:", err);
+      });
+    }
+
+    return result;
   }
 
   setModel(sessionKey: string, model: string): void {
@@ -242,11 +331,30 @@ export class ChatSessionManager {
     if (session) {
       await session.reset();
       this.sessions.delete(sessionKey);
+
+      // Remove from persistent store
+      if (this.store) {
+        this.store.delete(sessionKey);
+        this.store.save().catch((err) => {
+          console.error("[SessionStore] Save failed:", err);
+        });
+      }
+
       console.log(`[Session] Reset: ${sessionKey}`);
     }
   }
 
   async close(): Promise<void> {
+    // Persist all active sessions before closing
+    if (this.store) {
+      for (const [key, session] of this.sessions) {
+        this.persistSession(key, session);
+      }
+      await this.store.close().catch((err) => {
+        console.error("[SessionStore] Failed to save on close:", err);
+      });
+    }
+
     for (const session of this.sessions.values()) {
       await session.close();
     }

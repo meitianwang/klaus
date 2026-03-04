@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { qqPlugin } from "./channels/qq.js";
 import { wecomPlugin } from "./channels/wecom.js";
 import { registerChannel, getChannel } from "./channels/types.js";
-import { getChannelName, CONFIG_FILE } from "./config.js";
+import { getChannelName, CONFIG_FILE, loadSessionConfig } from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
@@ -42,7 +42,16 @@ async function start(): Promise<void> {
     process.exit(1);
   }
 
-  const sessions = new ChatSessionManager();
+  // Initialize session persistence
+  const sessionCfg = loadSessionConfig();
+  const { SessionStore } = await import("./session-store.js");
+  const store = new SessionStore();
+  await store.load();
+  store.pruneStale(sessionCfg.maxAgeMs);
+  store.capEntries(sessionCfg.maxEntries);
+  await store.save();
+
+  const sessions = new ChatSessionManager(store, sessionCfg.idleMs);
 
   const handler = async (
     sessionKey: string,

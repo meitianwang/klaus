@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import yaml from "js-yaml";
-import type { QQBotConfig, WeComConfig } from "./types.js";
+import type { QQBotConfig, WeComConfig, SessionConfig } from "./types.js";
 
 export const CONFIG_DIR = join(homedir(), ".klaus");
 export const CONFIG_FILE = join(CONFIG_DIR, "config.yaml");
@@ -44,5 +44,19 @@ export function loadWeComConfig(): WeComConfig {
       process.env.WECOM_ENCODING_AES_KEY ??
       "",
     port: Number(cfg.port ?? process.env.WECOM_PORT ?? 8080),
+  };
+}
+
+function positiveNumber(raw: unknown, fallback: number): number {
+  const n = Number(raw ?? fallback);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+export function loadSessionConfig(): SessionConfig {
+  const cfg = (loadConfig().session as Record<string, unknown>) ?? {};
+  return {
+    idleMs: positiveNumber(cfg.idle_minutes, 240) * 60 * 1000,
+    maxEntries: Math.floor(positiveNumber(cfg.max_entries, 100)),
+    maxAgeMs: positiveNumber(cfg.max_age_days, 7) * 24 * 60 * 60 * 1000,
   };
 }
