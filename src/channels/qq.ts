@@ -11,6 +11,13 @@ import { tmpdir } from "node:os";
 import { Channel, type Handler } from "./base.js";
 import { loadQQBotConfig } from "../config.js";
 import { chunkText } from "../chunk.js";
+import {
+  retryAsync,
+  computeBackoff,
+  sleep,
+  DEFAULT_RECONNECT,
+  type ReconnectConfig,
+} from "../retry.js";
 
 // QQ Bot text message character limit (conservative, platform may allow more)
 const QQ_TEXT_LIMIT = 4000;
@@ -185,24 +192,60 @@ async function buildPrompt(elements: MsgElem[]): Promise<string> {
 // QQ Channel
 // ---------------------------------------------------------------------------
 
+type BotConstructor = new (
+  config: Record<string, unknown>,
+) => Record<string, Function>;
+
+// Reconnect config for QQ WebSocket lifecycle
+const QQ_RECONNECT: ReconnectConfig = {
+  ...DEFAULT_RECONNECT,
+  initialMs: 3_000,
+  maxMs: 120_000,
+};
+
 export class QQChannel extends Channel {
   private cfg = loadQQBotConfig();
 
   async start(handler: Handler): Promise<void> {
     console.log("Klaus QQ Bot channel starting...");
 
-    let BotClass: new (
-      config: Record<string, unknown>,
-    ) => Record<string, unknown>;
+    const BotClass = await this.loadBotClass();
+    let reconnectAttempts = 0;
+
+    // Outer reconnection loop — restarts the entire bot on fatal disconnect
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        await this.runBot(BotClass, handler, () => {
+          reconnectAttempts = 0;
+        });
+      } catch (err) {
+        reconnectAttempts += 1;
+        const delay = computeBackoff(QQ_RECONNECT, reconnectAttempts);
+        console.error(
+          `[QQ] Bot disconnected (attempt ${reconnectAttempts}), reconnecting in ${delay}ms…`,
+          err,
+        );
+        await sleep(delay);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Load qq-group-bot SDK (auto-install if missing)
+  // ------------------------------------------------------------------
+
+  private async loadBotClass(): Promise<BotConstructor> {
+    type Mod = { Bot?: BotConstructor; QQBot?: BotConstructor };
     try {
-      const mod = await import("qq-group-bot");
-      BotClass = (mod.Bot ?? mod.QQBot) as typeof BotClass;
+      const mod: Mod = await import("qq-group-bot");
+      return (mod.Bot ?? mod.QQBot)!;
     } catch {
       console.log("[QQ] qq-group-bot not found, installing...");
       try {
         execSync("npm install -g qq-group-bot", { stdio: "inherit" });
-        const mod = await import("qq-group-bot");
-        BotClass = (mod.Bot ?? mod.QQBot) as typeof BotClass;
+        const mod: Mod = await import("qq-group-bot");
+        return (mod.Bot ?? mod.QQBot)!;
       } catch {
         console.error(
           "[QQ] Failed to install qq-group-bot.\n" +
@@ -211,7 +254,17 @@ export class QQChannel extends Channel {
         process.exit(1);
       }
     }
+  }
 
+  // ------------------------------------------------------------------
+  // Run bot — resolves/throws when the connection drops
+  // ------------------------------------------------------------------
+
+  private async runBot(
+    BotClass: BotConstructor,
+    handler: Handler,
+    onConnected: () => void,
+  ): Promise<void> {
     const bot = new BotClass({
       appid: this.cfg.appid,
       secret: this.cfg.secret,
@@ -224,6 +277,7 @@ export class QQChannel extends Channel {
 
     await (bot.start as () => Promise<void>)();
     console.log("Klaus QQ Bot online");
+    onConnected();
 
     // Private messages (C2C)
     bot.on("message.private", async (e: Record<string, unknown>) => {
@@ -251,19 +305,7 @@ export class QQChannel extends Channel {
           return;
         }
 
-        const chunks = chunkText(reply, QQ_TEXT_LIMIT);
-        console.log(
-          `[C2C] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
-        );
-
-        const replyFn = e.reply as (msg: unknown) => Promise<void>;
-        for (let i = 0; i < chunks.length; i++) {
-          const msg =
-            i === 0 && msgId
-              ? [{ type: "reply", id: msgId }, chunks[i]]
-              : chunks[i];
-          await replyFn(msg);
-        }
+        await this.sendReply(e, msgId, reply, "C2C");
       } catch (err) {
         console.error(`[C2C] Error: ${err}`);
       }
@@ -293,26 +335,44 @@ export class QQChannel extends Channel {
           return;
         }
 
-        const chunks = chunkText(reply, QQ_TEXT_LIMIT);
-        console.log(
-          `[Group] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
-        );
-
-        const replyFn = e.reply as (msg: unknown) => Promise<void>;
-        for (let i = 0; i < chunks.length; i++) {
-          const msg =
-            i === 0 && msgId
-              ? [{ type: "reply", id: msgId }, chunks[i]]
-              : chunks[i];
-          await replyFn(msg);
-        }
+        await this.sendReply(e, msgId, reply, "Group");
       } catch (err) {
         console.error(`[Group] Error: ${err}`);
       }
     });
 
-    // Block forever
-    await new Promise(() => {});
+    // Wait for disconnect — the SDK emits "close" or the promise rejects
+    await new Promise<void>((_, reject) => {
+      if (typeof bot.on === "function") {
+        bot.on("close", () => reject(new Error("WebSocket closed")));
+        bot.on("error", (err: unknown) => reject(err));
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Send reply with retry
+  // ------------------------------------------------------------------
+
+  private async sendReply(
+    e: Record<string, unknown>,
+    msgId: string,
+    reply: string,
+    tag: string,
+  ): Promise<void> {
+    const chunks = chunkText(reply, QQ_TEXT_LIMIT);
+    console.log(
+      `[${tag}] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
+    );
+
+    const replyFn = e.reply as (msg: unknown) => Promise<void>;
+    for (let i = 0; i < chunks.length; i++) {
+      const msg =
+        i === 0 && msgId
+          ? [{ type: "reply", id: msgId }, chunks[i]]
+          : chunks[i];
+      await retryAsync(() => replyFn(msg), { attempts: 3 }, `qq-reply-${tag}`);
+    }
   }
 }
 

@@ -17,9 +17,24 @@ import { Channel, type Handler } from "./base.js";
 import { loadWeComConfig } from "../config.js";
 import type { WeComConfig } from "../types.js";
 import { chunkTextByBytes } from "../chunk.js";
+import { retryAsync } from "../retry.js";
 
 // WeCom text message API byte limit (content field, UTF-8)
 const WECOM_TEXT_BYTE_LIMIT = 2048;
+
+// Retryable WeCom error codes: token expired, rate limited, system busy
+const RETRYABLE_ERRCODES = new Set([42001, 45009, -1]);
+
+class WeComApiError extends Error {
+  readonly retryable: boolean;
+  constructor(
+    readonly errcode: number,
+    errmsg: string,
+  ) {
+    super(`WeCom API ${errcode}: ${errmsg}`);
+    this.retryable = RETRYABLE_ERRCODES.has(errcode);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Temp file directory for downloaded media
@@ -329,24 +344,43 @@ export class WeComChannel extends Channel {
   // ------------------------------------------------------------------
 
   private async sendText(userId: string, text: string): Promise<void> {
-    const token = await this.getAccessToken();
-    const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`;
-    const payload = {
-      touser: userId,
-      agentid: this.cfg.agentId,
-      msgtype: "text",
-      text: { content: text },
-    };
+    await retryAsync(
+      async () => {
+        const token = await this.getAccessToken();
+        const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`;
+        const payload = {
+          touser: userId,
+          agentid: this.cfg.agentId,
+          msgtype: "text",
+          text: { content: text },
+        };
 
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = (await resp.json()) as { errcode?: number };
-    if (data.errcode && data.errcode !== 0) {
-      console.error(`[WeCom] send failed:`, data);
-    }
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = (await resp.json()) as {
+          errcode?: number;
+          errmsg?: string;
+        };
+
+        if (data.errcode && data.errcode !== 0) {
+          // 42001 = token expired → force refresh then retry
+          if (data.errcode === 42001) {
+            this.accessToken = "";
+            this.tokenExpiresAt = 0;
+          }
+          throw new WeComApiError(data.errcode, data.errmsg ?? "unknown");
+        }
+      },
+      {
+        attempts: 3,
+        minDelayMs: 1000,
+        shouldRetry: (err) => err instanceof WeComApiError && err.retryable,
+      },
+      "wecom-send",
+    );
   }
 
   // ------------------------------------------------------------------
@@ -358,25 +392,34 @@ export class WeComChannel extends Channel {
       return this.accessToken;
     }
 
-    const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
-    url.searchParams.set("corpid", this.cfg.corpId);
-    url.searchParams.set("corpsecret", this.cfg.corpSecret);
+    return retryAsync(
+      async () => {
+        const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
+        url.searchParams.set("corpid", this.cfg.corpId);
+        url.searchParams.set("corpsecret", this.cfg.corpSecret);
 
-    const resp = await fetch(url.toString());
-    const data = (await resp.json()) as {
-      errcode?: number;
-      access_token?: string;
-      expires_in?: number;
-    };
+        const resp = await fetch(url.toString());
+        const data = (await resp.json()) as {
+          errcode?: number;
+          access_token?: string;
+          expires_in?: number;
+        };
 
-    if (data.errcode && data.errcode !== 0) {
-      throw new Error(`Failed to get access_token: ${JSON.stringify(data)}`);
-    }
+        if (data.errcode && data.errcode !== 0) {
+          throw new Error(
+            `Failed to get access_token: ${JSON.stringify(data)}`,
+          );
+        }
 
-    this.accessToken = data.access_token ?? "";
-    // Refresh 5 minutes early
-    this.tokenExpiresAt = Date.now() + ((data.expires_in ?? 7200) - 300) * 1000;
-    return this.accessToken;
+        this.accessToken = data.access_token ?? "";
+        // Refresh 5 minutes early
+        this.tokenExpiresAt =
+          Date.now() + ((data.expires_in ?? 7200) - 300) * 1000;
+        return this.accessToken;
+      },
+      { attempts: 3, minDelayMs: 1000 },
+      "wecom-token",
+    );
   }
 
   // ------------------------------------------------------------------
@@ -384,6 +427,17 @@ export class WeComChannel extends Channel {
   // ------------------------------------------------------------------
 
   private async downloadMedia(mediaId: string, ext?: string): Promise<string> {
+    return retryAsync(
+      () => this.downloadMediaOnce(mediaId, ext),
+      { attempts: 3, minDelayMs: 1000 },
+      "wecom-media",
+    );
+  }
+
+  private async downloadMediaOnce(
+    mediaId: string,
+    ext?: string,
+  ): Promise<string> {
     const token = await this.getAccessToken();
     const url = `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${token}&media_id=${mediaId}`;
 
