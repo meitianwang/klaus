@@ -95,6 +95,12 @@ export interface SessionConfig {
   readonly maxAgeMs: number;
 }
 
+export interface TranscriptsConfig {
+  readonly transcriptsDir: string;
+  readonly maxFiles: number;
+  readonly maxAgeDays: number;
+}
+
 export interface KlausConfig {
   channel: string;
   persona?: string;
@@ -102,4 +108,5 @@ export interface KlausConfig {
   wecom?: WeComConfig;
   web?: WebConfig;
   session?: SessionConfig;
+  transcripts?: TranscriptsConfig;
 }

@@ -301,6 +301,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     currentSessionId = id;
     var saved = sessionDom.get(id);
     if (saved) { msgs.appendChild(saved); sessionDom.delete(id); }
+    else { loadHistory(id); }
     busy = false; isStreaming = false; streamBuffer = "";
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     activeTools.clear(); agentContainers.clear(); toolContainer = null;
@@ -311,6 +312,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     if (evt) { evt.stopPropagation(); evt.preventDefault(); }
     sessionsMeta = sessionsMeta.filter(function(s){ return s.id !== id; });
     sessionDom.delete(id);
+    historyLoaded.delete(id);
     if (id === currentSessionId) {
       // Clear current messages and tool state
       while (msgs.firstChild) msgs.removeChild(msgs.firstChild);
@@ -319,6 +321,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
       currentSessionId = sessionsMeta[0].id;
       var saved = sessionDom.get(currentSessionId);
       if (saved) { msgs.appendChild(saved); sessionDom.delete(currentSessionId); }
+      else { loadHistory(currentSessionId); }
     }
     saveSessionMeta(); renderSessionList();
   }
@@ -369,6 +372,26 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   var ws = null;
   var reconnectAttempt = 0;
 
+  var historyLoaded = new Set();
+
+  async function loadHistory(sessionId) {
+    if (historyLoaded.has(sessionId)) return;
+    historyLoaded.add(sessionId);
+    try {
+      var res = await fetch("/api/history?token=" + encodeURIComponent(token) + "&sessionId=" + encodeURIComponent(sessionId));
+      if (!res.ok) { historyLoaded.delete(sessionId); return; }
+      var data = await res.json();
+      if (!data.messages || !data.messages.length) return;
+      if (sessionId !== currentSessionId) return;
+      data.messages.forEach(function(m) {
+        appendMsg(m.role === "user" ? "user" : "assistant", m.content);
+      });
+    } catch(e) {
+      historyLoaded.delete(sessionId);
+      console.warn("Failed to load history:", e);
+    }
+  }
+
   function connectWs() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(proto + "//" + location.host + "/api/ws?token=" + encodeURIComponent(token));
@@ -376,6 +399,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
       reconnectAttempt = 0;
       statusEl.textContent = "Connected";
       statusEl.className = "";
+      if (!msgs.firstChild && !sessionDom.has(currentSessionId)) {
+        loadHistory(currentSessionId);
+      }
     };
     ws.onclose = function() {
       ws = null;

@@ -32,6 +32,7 @@ import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { startTunnel } from "./web-tunnel.js";
 import { formatToolEvent, type ToolPayload } from "../tool-config.js";
+import type { MessageStore } from "../message-store.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -41,6 +42,16 @@ const UPLOAD_DIR = join(tmpdir(), "klaus-web-uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+
+// ---------------------------------------------------------------------------
+// Message store (set by index.ts for /api/history)
+// ---------------------------------------------------------------------------
+
+let messageStoreRef: MessageStore | null = null;
+
+export function setMessageStore(store: MessageStore): void {
+  messageStoreRef = store;
+}
 
 // ---------------------------------------------------------------------------
 // WebSocket client management
@@ -532,6 +543,38 @@ async function handleRequest(
         return;
       }
       return handleUpload(req, res, cfg);
+    case "/api/history": {
+      if (req.method !== "GET") {
+        jsonResponse(res, 405, { error: "method not allowed" });
+        return;
+      }
+      const histIp = getClientIp(req);
+      if (!checkRateLimit(histIp)) {
+        jsonResponse(res, 429, { error: "too many requests" });
+        return;
+      }
+      const histToken = url.searchParams.get("token") ?? "";
+      if (!validateToken(histToken, cfg.token)) {
+        jsonResponse(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const histSessionId = url.searchParams.get("sessionId") ?? "default";
+      if (!/^[\w\-]{1,64}$/.test(histSessionId)) {
+        jsonResponse(res, 400, { error: "invalid sessionId" });
+        return;
+      }
+      if (!messageStoreRef) {
+        jsonResponse(res, 503, { error: "history unavailable" });
+        return;
+      }
+      const histKey = `web:${cfg.token}:${histSessionId}`;
+      const limitStr = url.searchParams.get("limit") ?? "200";
+      const limit = Math.min(Math.max(parseInt(limitStr, 10) || 200, 1), 500);
+      const all = await messageStoreRef.readHistory(histKey);
+      const messages = all.length > limit ? all.slice(-limit) : all;
+      jsonResponse(res, 200, { messages, total: all.length });
+      return;
+    }
     case "/api/health":
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");

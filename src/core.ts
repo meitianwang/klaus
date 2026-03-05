@@ -9,6 +9,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import { getToolConfig } from "./tool-config.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
+import type { MessageStore } from "./message-store.js";
 import type {
   ToolEventCallback,
   StreamChunkCallback,
@@ -405,13 +406,19 @@ export class ChatSessionManager {
   private sessions = new Map<string, ClaudeChat>();
   private options: ChatOptions;
   private store: SessionStore | undefined;
+  private messageStore: MessageStore | undefined;
   private idleMs: number;
 
-  constructor(store?: SessionStore, idleMs?: number) {
+  constructor(
+    store?: SessionStore,
+    idleMs?: number,
+    messageStore?: MessageStore,
+  ) {
     const cfg = loadConfig();
     const persona = (cfg.persona as string) ?? "";
     this.options = { systemPrompt: persona };
     this.store = store;
+    this.messageStore = messageStore;
     this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
   }
 
@@ -498,6 +505,16 @@ export class ChatSessionManager {
       this.store?.save().catch((err) => {
         console.error("[SessionStore] Save failed:", err);
       });
+
+      // Append messages to transcript (fire-and-forget async)
+      if (this.messageStore) {
+        this.messageStore
+          .append(sessionKey, "user", prompt)
+          .then(() =>
+            this.messageStore!.append(sessionKey, "assistant", result),
+          )
+          .catch((err) => console.error("[MessageStore] Append failed:", err));
+      }
     }
 
     return result;

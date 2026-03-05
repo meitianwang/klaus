@@ -3,7 +3,12 @@ import { qqPlugin } from "./channels/qq.js";
 import { wecomPlugin } from "./channels/wecom.js";
 import { webPlugin } from "./channels/web.js";
 import { registerChannel, getChannel } from "./channels/types.js";
-import { getChannelName, CONFIG_FILE, loadSessionConfig } from "./config.js";
+import {
+  getChannelName,
+  CONFIG_FILE,
+  loadSessionConfig,
+  loadTranscriptsConfig,
+} from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
@@ -59,7 +64,22 @@ async function start(): Promise<void> {
   store.capEntries(sessionCfg.maxEntries);
   await store.save();
 
-  const sessions = new ChatSessionManager(store, sessionCfg.idleMs);
+  // Initialize message persistence (JSONL transcripts)
+  const { MessageStore } = await import("./message-store.js");
+  const messageStore = new MessageStore(loadTranscriptsConfig());
+  messageStore.prune();
+
+  const sessions = new ChatSessionManager(
+    store,
+    sessionCfg.idleMs,
+    messageStore,
+  );
+
+  // Expose messageStore to web channel for /api/history endpoint
+  if (channelName === "web") {
+    const { setMessageStore } = await import("./channels/web.js");
+    setMessageStore(messageStore);
+  }
 
   const handler = async (
     msg: InboundMessage,

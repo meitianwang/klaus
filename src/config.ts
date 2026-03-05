@@ -8,6 +8,7 @@ import type {
   WeComConfig,
   WebConfig,
   SessionConfig,
+  TranscriptsConfig,
   TunnelConfig,
 } from "./types.js";
 
@@ -139,5 +140,14 @@ export function loadSessionConfig(): SessionConfig {
     idleMs: positiveNumber(cfg.idle_minutes, 240) * 60 * 1000,
     maxEntries: Math.floor(positiveNumber(cfg.max_entries, 100)),
     maxAgeMs: positiveNumber(cfg.max_age_days, 7) * 24 * 60 * 60 * 1000,
+  };
+}
+
+export function loadTranscriptsConfig(): TranscriptsConfig {
+  const cfg = (loadConfig().transcripts as Record<string, unknown>) ?? {};
+  return {
+    transcriptsDir: (cfg.dir as string) ?? join(CONFIG_DIR, "transcripts"),
+    maxFiles: Math.floor(positiveNumber(cfg.max_files, 200)),
+    maxAgeDays: positiveNumber(cfg.max_age_days, 30),
   };
 }
