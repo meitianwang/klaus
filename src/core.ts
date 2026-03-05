@@ -7,8 +7,24 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
+import { getToolConfig } from "./tool-config.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
-import type { ToolEventCallback, StreamChunkCallback } from "./types.js";
+import type {
+  ToolEventCallback,
+  StreamChunkCallback,
+  PermissionRequestCallback,
+  PermissionRequest,
+} from "./types.js";
+
+// Read-only tools — auto-allow without permission prompt
+const READ_ONLY_TOOLS = new Set([
+  "Read",
+  "Glob",
+  "Grep",
+  "WebSearch",
+  "WebFetch",
+  "TodoWrite",
+]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,14 +102,25 @@ export class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
+    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
     try {
-      return await this.doChatInner(prompt, onToolEvent, onStreamChunk);
+      return await this.doChatInner(
+        prompt,
+        onToolEvent,
+        onStreamChunk,
+        onPermissionRequest,
+      );
     } catch (err) {
       if (this.sessionId && isSessionExpiredError(err)) {
         console.log("[Chat] Session expired, starting fresh session");
         this.sessionId = undefined;
-        return await this.doChatInner(prompt, onToolEvent, onStreamChunk);
+        return await this.doChatInner(
+          prompt,
+          onToolEvent,
+          onStreamChunk,
+          onPermissionRequest,
+        );
       }
       throw err;
     }
@@ -103,6 +130,7 @@ export class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
+    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
@@ -111,7 +139,44 @@ export class ClaudeChat {
       prompt,
       options: {
         systemPrompt: this.options.systemPrompt || undefined,
-        permissionMode: "bypassPermissions",
+        permissionMode: onPermissionRequest ? "default" : "bypassPermissions",
+        ...(onPermissionRequest
+          ? {
+              canUseTool: async (
+                toolName: string,
+                input: Record<string, unknown>,
+                opts: { toolUseID: string; decisionReason?: string },
+              ) => {
+                if (READ_ONLY_TOOLS.has(toolName)) {
+                  return { behavior: "allow" as const };
+                }
+                const config = getToolConfig(toolName);
+                const request: PermissionRequest = {
+                  requestId: opts.toolUseID,
+                  toolName,
+                  toolUseId: opts.toolUseID,
+                  input,
+                  description: opts.decisionReason,
+                  display: {
+                    icon: config.icon,
+                    label: config.label,
+                    style: config.style,
+                    value: config.getValue(input),
+                    ...(config.getSecondary
+                      ? { secondary: config.getSecondary(input) }
+                      : {}),
+                  },
+                };
+                const response = await onPermissionRequest(request);
+                return response.allow
+                  ? { behavior: "allow" as const }
+                  : {
+                      behavior: "deny" as const,
+                      message: "User denied the tool execution",
+                    };
+              },
+            }
+          : {}),
         ...(this.model ? { model: this.model } : {}),
         ...(this.sessionId ? { resume: this.sessionId } : {}),
         ...(onStreamChunk ? { includePartialMessages: true } : {}),
@@ -234,6 +299,7 @@ export class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
+    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string | null> {
     if (this.busy) {
       const deferred = createDeferred<string | null>();
@@ -246,7 +312,12 @@ export class ClaudeChat {
 
     this.busy = true;
     try {
-      let reply = await this.doChat(prompt, onToolEvent, onStreamChunk);
+      let reply = await this.doChat(
+        prompt,
+        onToolEvent,
+        onStreamChunk,
+        onPermissionRequest,
+      );
 
       // Drain queued messages (collect mode)
       while (this.pending.length > 0) {
@@ -269,7 +340,12 @@ export class ClaudeChat {
         // Process the merged message; ensure last caller's deferred
         // is always resolved even if doChat throws.
         try {
-          reply = await this.doChat(merged, onToolEvent, onStreamChunk);
+          reply = await this.doChat(
+            merged,
+            onToolEvent,
+            onStreamChunk,
+            onPermissionRequest,
+          );
           batch[batch.length - 1].deferred.resolve(reply);
         } catch (e) {
           batch[batch.length - 1].deferred.resolve(null);
@@ -397,10 +473,16 @@ export class ChatSessionManager {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
+    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
-    const result = await session.chat(prompt, onToolEvent, onStreamChunk);
+    const result = await session.chat(
+      prompt,
+      onToolEvent,
+      onStreamChunk,
+      onPermissionRequest,
+    );
 
     // Persist after successful chat (fire-and-forget)
     if (result !== null) {

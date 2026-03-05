@@ -65,6 +65,9 @@ export function loadWebConfig(): WebConfig {
     token,
     port: Number(cfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
     tunnel: Boolean(cfg.tunnel ?? process.env.KLAUS_WEB_TUNNEL === "true"),
+    permissions: Boolean(
+      cfg.permissions ?? process.env.KLAUS_WEB_PERMISSIONS === "true",
+    ),
   };
 }
 

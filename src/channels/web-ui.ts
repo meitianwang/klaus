@@ -11,6 +11,10 @@ export function getChatHtml(): string {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Klaus AI</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"><\/script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -69,13 +73,29 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .avatar { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
 .msg-container.user .avatar { background: var(--avatar-user); color: var(--fg); }
 .msg-container.assistant .avatar { background: var(--avatar-bot); color: var(--bg); }
-.msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
-.msg.user { background: var(--msg-user); border-top-right-radius: 4px; }
+.msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+.msg.user { white-space: pre-wrap; background: var(--msg-user); border-top-right-radius: 4px; }
 .msg.assistant { background: var(--msg-bot); border-top-left-radius: 4px; border: 1px solid var(--border); }
 .msg.error { background: #fee2e2; color: #991b1b; display: flex; align-items: center; gap: 8px; font-size: 14px; border-radius: 12px; max-width: fit-content; margin: 0 auto; padding: 12px 16px; border: 1px solid #fca5a5; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13.5px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
 .msg pre { background: var(--code-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; margin: 12px 0; }
-.msg pre code { background: none; padding: 0; border: none; }
+.msg pre code { background: none; padding: 0; border: none; font-size: 13.5px; }
+.msg pre code.hljs { background: var(--code-bg); }
+.msg table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+.msg thead { background: var(--code-bg); }
+.msg th, .msg td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+.msg th { font-weight: 600; }
+.msg blockquote { border-left: 3px solid var(--border); padding: 4px 16px; margin: 8px 0; color: var(--thinking); }
+.msg ul, .msg ol { padding-left: 24px; margin: 8px 0; }
+.msg li { margin: 4px 0; }
+.msg p { margin: 0 0 8px 0; }
+.msg p:last-child { margin-bottom: 0; }
+.msg hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+.code-block { position: relative; margin: 12px 0; }
+.code-block pre { margin: 0; }
+.code-lang { position: absolute; top: 6px; left: 12px; font-size: 11px; color: var(--thinking); font-weight: 500; text-transform: uppercase; font-family: var(--font-main); }
+.code-copy { position: absolute; top: 6px; right: 8px; opacity: 0; background: rgba(0,0,0,0.5); color: #fff; border: none; padding: 3px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: opacity 0.2s; font-family: var(--font-main); }
+.code-block:hover .code-copy { opacity: 1; }
 .msg a { color: #3b82f6; text-decoration: none; font-weight: 500; }
 .msg a:hover { text-decoration: underline; }
 .msg img { max-width: 100%; border-radius: 12px; margin: 8px 0; border: 1px solid var(--border); }
@@ -129,6 +149,15 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .msg.streaming { white-space: pre-wrap; }
 .msg.streaming .cursor { display: inline-block; width: 2px; height: 1em; background: var(--thinking); animation: blink 0.8s step-end infinite; vertical-align: text-bottom; margin-left: 1px; }
 @keyframes blink { 50% { opacity: 0; } }
+.perm-banner { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); max-width: 600px; width: calc(100% - 32px); background: var(--input-container); border: 1px solid var(--border); border-radius: 16px; padding: 14px 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); z-index: 20; animation: fade-in 0.3s ease-out; display: flex; align-items: center; gap: 12px; }
+.perm-info { flex: 1; min-width: 0; }
+.perm-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.perm-value { font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: var(--thinking); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perm-btn { border: none; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-main); transition: background 0.2s; }
+.perm-btn.approve { background: #22c55e; color: #fff; }
+.perm-btn.approve:hover { background: #16a34a; }
+.perm-btn.deny { background: #ef4444; color: #fff; }
+.perm-btn.deny:hover { background: #dc2626; }
 </style>
 </head>
 <body>
@@ -159,6 +188,12 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 </div>
 <script>
 (function(){
+  if (typeof marked !== "undefined") {
+    marked.use({ breaks: true, gfm: true, renderer: {
+      html: function(token) { return escHtml(typeof token === "string" ? token : token.text); }
+    }});
+  }
+
   const token = new URLSearchParams(location.search).get("token");
   if (!token) { document.body.innerHTML = "<p style='padding:40px;text-align:center'>Missing token parameter.</p>"; return; }
 
@@ -185,9 +220,11 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data);
     if (data.type === "ping") return;
+    if (data.type === "permission") { showPermissionBanner(data.data); return; }
     if (data.type === "tool") { handleToolEvent(data.data); return; }
     if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
     if (!isStreaming) { removeThinking(); clearToolContainer(); }
+    removePermissionBanner();
     if (data.type === "message") {
       if (isStreaming) { finalizeStreamingMessage(data.text); }
       else { appendMsg("assistant", data.text); }
@@ -495,7 +532,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     if (el) {
       if (fullText) {
         const msgEl = el.querySelector(".msg");
-        if (msgEl) { msgEl.className = "msg assistant"; msgEl.innerHTML = renderMd(fullText); }
+        if (msgEl) { msgEl.className = "msg assistant"; msgEl.innerHTML = renderMd(fullText); postProcessMsg(msgEl); }
       } else {
         const cursor = el.querySelector(".cursor");
         if (cursor) cursor.remove();
@@ -549,9 +586,10 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const el = document.createElement("div");
     el.className = "msg " + role;
     el.innerHTML = role === "user" ? escHtml(text) : renderMd(text);
-    
+    if (role !== "user") postProcessMsg(el);
+
     wrap.appendChild(el);
-    msgs.appendChild(wrap); 
+    msgs.appendChild(wrap);
     scrollBottom();
   }
 
@@ -568,6 +606,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   function escAttr(s) { return s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
   function renderMd(text) {
+    if (typeof marked !== "undefined") {
+      return marked.parse(text);
+    }
     text = escHtml(text);
     text = text.replace(/\\\`\\\`\\\`(\\w*)?\\n([\\s\\S]*?)\\\`\\\`\\\`/g, (_,lang,code) =>
       "<pre><code>" + code.replace(/\\n$/,"") + "</code></pre>");
@@ -579,6 +620,77 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
       '<a href="$2" target="_blank" rel="noopener">$1</a>');
     const parts = text.split(/(<pre>[\\s\\S]*?<\\/pre>)/g);
     return parts.map((p,i) => i%2===0 ? p.replace(/\\n/g,"<br>") : p).join("");
+  }
+
+  function showPermissionBanner(req) {
+    removePermissionBanner();
+    var banner = document.createElement("div");
+    banner.className = "perm-banner";
+    banner.id = "perm-banner";
+    var iconHtml = toolIcons[req.display.icon] || toolIcons.tool;
+    var info = document.createElement("div");
+    info.className = "perm-info";
+    info.innerHTML = '<div class="perm-title">' + iconHtml + ' ' + escHtml(req.display.label) + '</div>'
+      + '<div class="perm-value">' + (req.display.style === "terminal" ? "$ " : "") + escHtml(req.display.value) + '</div>';
+    var approveBtn = document.createElement("button");
+    approveBtn.className = "perm-btn approve";
+    approveBtn.textContent = "Approve";
+    approveBtn.onclick = function() { respondPermission(req.requestId, true); };
+    var denyBtn = document.createElement("button");
+    denyBtn.className = "perm-btn deny";
+    denyBtn.textContent = "Deny";
+    denyBtn.onclick = function() { respondPermission(req.requestId, false); };
+    banner.appendChild(info);
+    banner.appendChild(denyBtn);
+    banner.appendChild(approveBtn);
+    document.body.appendChild(banner);
+  }
+
+  function removePermissionBanner() {
+    var el = document.getElementById("perm-banner");
+    if (el) el.remove();
+  }
+
+  function respondPermission(requestId, allow) {
+    removePermissionBanner();
+    fetch("/api/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: token, requestId: requestId, allow: allow })
+    }).catch(function(err) { console.error("Permission response failed:", err); });
+  }
+
+  function postProcessMsg(container) {
+    container.querySelectorAll("pre code").forEach(function(block) {
+      if (typeof hljs !== "undefined") hljs.highlightElement(block);
+      var pre = block.parentElement;
+      if (!pre || !pre.parentElement || pre.parentElement.classList.contains("code-block")) return;
+      var wrapper = document.createElement("div");
+      wrapper.className = "code-block";
+      pre.parentElement.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+      var langClass = Array.from(block.classList).find(function(c) { return c.startsWith("language-"); });
+      var lang = langClass ? langClass.replace("language-", "") : "";
+      if (lang && lang !== "plaintext") {
+        var badge = document.createElement("span");
+        badge.className = "code-lang";
+        badge.textContent = lang;
+        wrapper.appendChild(badge);
+      }
+      var btn = document.createElement("button");
+      btn.className = "code-copy";
+      btn.textContent = "Copy";
+      btn.onclick = function() {
+        navigator.clipboard.writeText(block.textContent).then(function() {
+          btn.textContent = "Copied!";
+          setTimeout(function() { btn.textContent = "Copy"; }, 2000);
+        }).catch(function() { btn.textContent = "Failed"; setTimeout(function() { btn.textContent = "Copy"; }, 2000); });
+      };
+      wrapper.appendChild(btn);
+    });
+    container.querySelectorAll("a").forEach(function(a) {
+      if (!a.getAttribute("target")) { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener"); }
+    });
   }
 })();
 </script>

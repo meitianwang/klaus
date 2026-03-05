@@ -22,6 +22,8 @@ import type {
   Handler,
   ToolEventCallback,
   StreamChunkCallback,
+  PermissionRequestCallback,
+  PermissionRequest,
 } from "../types.js";
 import type { WebConfig } from "../types.js";
 import { loadWebConfig } from "../config.js";
@@ -51,7 +53,8 @@ type SseEvent =
   | { readonly type: "merged" }
   | { readonly type: "error"; readonly message: string }
   | { readonly type: "ping" }
-  | { readonly type: "tool"; readonly data: SseToolPayload };
+  | { readonly type: "tool"; readonly data: SseToolPayload }
+  | { readonly type: "permission"; readonly data: PermissionRequest };
 
 function addSseClient(token: string, res: ServerResponse): void {
   let clients = sseClients.get(token);
@@ -119,6 +122,20 @@ function checkRateLimit(ip: string): boolean {
   bucket.count += 1;
   return bucket.count <= RATE_MAX_REQUESTS;
 }
+
+// ---------------------------------------------------------------------------
+// Pending permission requests (deferred promises for canUseTool approval)
+// ---------------------------------------------------------------------------
+
+const PERMISSION_TIMEOUT_MS = 120_000; // 2 minutes
+
+const pendingPermissions = new Map<
+  string,
+  {
+    resolve: (response: { allow: boolean }) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -299,8 +316,31 @@ async function handleMessage(
     }
   };
 
+  // Permission request callback (only when permissions enabled)
+  const onPermissionRequest: PermissionRequestCallback | undefined =
+    cfg.permissions
+      ? (request) => {
+          return new Promise<{ allow: boolean }>((resolve) => {
+            const timer = setTimeout(() => {
+              pendingPermissions.delete(request.requestId);
+              console.log(
+                `[Web] Permission timeout for ${request.toolName} (${request.requestId})`,
+              );
+              resolve({ allow: false });
+            }, PERMISSION_TIMEOUT_MS);
+            pendingPermissions.set(request.requestId, { resolve, timer });
+            sendSseEvent(token, { type: "permission", data: request });
+          });
+        }
+      : undefined;
+
   try {
-    const reply = await handler(msg, onToolEvent, onStreamChunk);
+    const reply = await handler(
+      msg,
+      onToolEvent,
+      onStreamChunk,
+      onPermissionRequest,
+    );
     if (reply === null) {
       console.log("[Web] Message merged into batch, skipping reply");
       sendSseEvent(token, { type: "merged" });
@@ -320,6 +360,52 @@ async function handleMessage(
       message: "An internal error occurred. Please try again.",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Permission response handler
+// ---------------------------------------------------------------------------
+
+async function handlePermission(
+  req: IncomingMessage,
+  res: ServerResponse,
+  cfg: WebConfig,
+): Promise<void> {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) {
+    jsonResponse(res, 429, { error: "too many requests" });
+    return;
+  }
+
+  const body = await readBody(req);
+  let parsed: { token?: string; requestId?: string; allow?: boolean };
+  try {
+    parsed = JSON.parse(body.toString("utf-8")) as {
+      token?: string;
+      requestId?: string;
+      allow?: boolean;
+    };
+  } catch {
+    jsonResponse(res, 400, { error: "invalid JSON" });
+    return;
+  }
+
+  if (!validateToken(parsed.token ?? "", cfg.token)) {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+
+  const requestId = parsed.requestId ?? "";
+  const pending = pendingPermissions.get(requestId);
+  if (!pending) {
+    jsonResponse(res, 404, { error: "no pending request" });
+    return;
+  }
+
+  clearTimeout(pending.timer);
+  pendingPermissions.delete(requestId);
+  pending.resolve({ allow: Boolean(parsed.allow) });
+  jsonResponse(res, 200, { ok: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -441,6 +527,12 @@ async function handleRequest(
         return;
       }
       return handleMessage(req, res, handler, cfg);
+    case "/api/permission":
+      if (req.method !== "POST") {
+        jsonResponse(res, 405, { error: "method not allowed" });
+        return;
+      }
+      return handlePermission(req, res, cfg);
     case "/api/upload":
       if (req.method !== "POST") {
         jsonResponse(res, 405, { error: "method not allowed" });
