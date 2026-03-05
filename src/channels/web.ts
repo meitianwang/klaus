@@ -575,6 +575,48 @@ async function handleRequest(
       jsonResponse(res, 200, { messages, total: all.length });
       return;
     }
+    case "/api/sessions": {
+      const sessIp = getClientIp(req);
+      if (!checkRateLimit(sessIp)) {
+        jsonResponse(res, 429, { error: "too many requests" });
+        return;
+      }
+      const sessToken = url.searchParams.get("token") ?? "";
+      if (!validateToken(sessToken, cfg.token)) {
+        jsonResponse(res, 401, { error: "unauthorized" });
+        return;
+      }
+      if (!messageStoreRef) {
+        jsonResponse(res, 503, { error: "sessions unavailable" });
+        return;
+      }
+
+      if (req.method === "GET") {
+        const prefix = `web:${cfg.token}:`;
+        const sessions = await messageStoreRef.listSessions(prefix);
+        jsonResponse(res, 200, { sessions });
+        return;
+      }
+
+      if (req.method === "DELETE") {
+        const delSessionId = url.searchParams.get("sessionId") ?? "";
+        if (!/^[\w\-]{1,64}$/.test(delSessionId)) {
+          jsonResponse(res, 400, { error: "invalid sessionId" });
+          return;
+        }
+        const delKey = `web:${cfg.token}:${delSessionId}`;
+        const deleted = messageStoreRef.deleteSession(delKey);
+        if (!deleted) {
+          jsonResponse(res, 404, { error: "session not found" });
+          return;
+        }
+        jsonResponse(res, 200, { deleted: true });
+        return;
+      }
+
+      jsonResponse(res, 405, { error: "method not allowed" });
+      return;
+    }
     case "/api/health":
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");

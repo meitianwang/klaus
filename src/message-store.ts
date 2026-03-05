@@ -18,7 +18,7 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { TranscriptsConfig } from "./types.js";
@@ -38,6 +38,14 @@ export interface TranscriptMessage {
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly ts: number;
+}
+
+export interface SessionSummary {
+  readonly sessionId: string;
+  readonly title: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly messageCount: number;
 }
 
 type TranscriptLine = TranscriptSessionLine | TranscriptMessage;
@@ -62,6 +70,48 @@ function sanitizeSessionKey(sessionKey: string): string {
     .replace(/:/g, "__")
     .replace(/\.\./g, "_") // prevent path traversal
     .replace(/[^\w.\-]/g, "_");
+}
+
+function parseSummary(raw: string, sessionId: string): SessionSummary | null {
+  let createdAt = 0;
+  let updatedAt = 0;
+  let title = "New Chat";
+  let messageCount = 0;
+  let foundFirstUser = false;
+
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      if (parsed.type === "session" && typeof parsed.createdAt === "number") {
+        createdAt = parsed.createdAt;
+      }
+      if (parsed.type === "message") {
+        messageCount++;
+        const ts = typeof parsed.ts === "number" ? parsed.ts : 0;
+        if (ts > updatedAt) updatedAt = ts;
+        if (
+          !foundFirstUser &&
+          parsed.role === "user" &&
+          typeof parsed.content === "string"
+        ) {
+          title = parsed.content.slice(0, 50).trim() || "New Chat";
+          foundFirstUser = true;
+        }
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  if (messageCount === 0) return null;
+  return {
+    sessionId,
+    title,
+    createdAt: createdAt || updatedAt,
+    updatedAt,
+    messageCount,
+  };
 }
 
 function parseMessages(raw: string): TranscriptMessage[] {
@@ -227,6 +277,62 @@ export class MessageStore {
     }
 
     return removed;
+  }
+
+  /**
+   * List all sessions whose sanitized sessionKey starts with the given prefix.
+   * Returns summaries sorted by updatedAt descending (newest first).
+   * Capped at `limit` results (default 200).
+   */
+  async listSessions(
+    prefix: string,
+    limit: number = 200,
+  ): Promise<readonly SessionSummary[]> {
+    const dir = this.config.transcriptsDir;
+
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return [];
+    }
+
+    const sanitizedPrefix = sanitizeSessionKey(prefix);
+    const matching = names.filter(
+      (n) => n.endsWith(".jsonl") && n.startsWith(sanitizedPrefix),
+    );
+
+    const tasks = matching.map(async (name) => {
+      const sessionId = name.slice(sanitizedPrefix.length, -".jsonl".length);
+      if (!sessionId) return null;
+      try {
+        const raw = await readFile(join(dir, name), "utf-8");
+        return parseSummary(raw, sessionId);
+      } catch {
+        return null;
+      }
+    });
+
+    const results = (await Promise.all(tasks)).filter(
+      (s): s is SessionSummary => s !== null,
+    );
+    results.sort((a, b) => b.updatedAt - a.updatedAt);
+    return results.slice(0, limit);
+  }
+
+  /** Delete a session's transcript file. */
+  deleteSession(sessionKey: string): boolean {
+    const fp = this.filePath(sessionKey);
+    if (!existsSync(fp)) return false;
+    try {
+      unlinkSync(fp);
+      this.knownFiles.delete(sessionKey);
+      this.writeLocks.delete(sessionKey);
+      return true;
+    } catch (err) {
+      console.error("[MessageStore] Failed to delete transcript:", fp, err);
+      return false;
+    }
   }
 
   /** No-op for now; async file writes are self-contained. */

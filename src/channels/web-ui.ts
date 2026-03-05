@@ -269,6 +269,41 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   saveSessionMeta();
   renderSessionList();
 
+  // Load session list from server (merge with localStorage cache)
+  async function loadSessionList() {
+    try {
+      var res = await fetch("/api/sessions?token=" + encodeURIComponent(token));
+      if (!res.ok) return;
+      var data = await res.json();
+      if (!data.sessions || !Array.isArray(data.sessions)) return;
+      var changed = false;
+      data.sessions.forEach(function(srv) {
+        var idx = sessionsMeta.findIndex(function(s) { return s.id === srv.sessionId; });
+        if (idx >= 0) {
+          var local = sessionsMeta[idx];
+          var newTitle = (local.title === "New Chat" && srv.title !== "New Chat") ? srv.title : local.title;
+          var newTs = srv.updatedAt > (local.ts || 0) ? srv.updatedAt : local.ts;
+          if (newTitle !== local.title || newTs !== local.ts) {
+            sessionsMeta[idx] = { id: local.id, title: newTitle, ts: newTs };
+            changed = true;
+          }
+        } else {
+          // Server has a session not in localStorage — add it
+          sessionsMeta.push({ id: srv.sessionId, title: srv.title, ts: srv.updatedAt });
+          changed = true;
+        }
+      });
+      if (changed) {
+        sessionsMeta.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+        saveSessionMeta();
+        renderSessionList();
+      }
+    } catch(e) {
+      console.warn("Failed to load session list:", e);
+    }
+  }
+  loadSessionList();
+
   function saveSessionMeta() {
     localStorage.setItem(SP + "_s", JSON.stringify(sessionsMeta));
     localStorage.setItem(SP + "_c", currentSessionId);
@@ -324,6 +359,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
       else { loadHistory(currentSessionId); }
     }
     saveSessionMeta(); renderSessionList();
+    // Delete from server (fire-and-forget)
+    fetch("/api/sessions?token=" + encodeURIComponent(token) + "&sessionId=" + encodeURIComponent(id), { method: "DELETE" }).catch(function() {});
   }
 
   function updateSessionTitle(text) {
