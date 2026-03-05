@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 import yaml from "js-yaml";
 import type {
   QQBotConfig,
@@ -54,8 +55,14 @@ export function loadWeComConfig(): WeComConfig {
 
 export function loadWebConfig(): WebConfig {
   const cfg = (loadConfig().web as Record<string, unknown>) ?? {};
+  let token = (cfg.token as string) ?? process.env.KLAUS_WEB_TOKEN ?? "";
+  // Guard: auto-generate if token is empty or a placeholder value
+  if (!token || token === "(auto-generate)") {
+    token = randomBytes(24).toString("hex");
+    console.log(`[Web] Auto-generated token: ${token}`);
+  }
   return {
-    token: (cfg.token as string) ?? process.env.KLAUS_WEB_TOKEN ?? "",
+    token,
     port: Number(cfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
     tunnel: Boolean(cfg.tunnel ?? process.env.KLAUS_WEB_TUNNEL === "true"),
   };

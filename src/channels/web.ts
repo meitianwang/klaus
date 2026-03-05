@@ -485,7 +485,7 @@ export const webPlugin: ChannelPlugin = {
     // Cloudflare Tunnel
     let tunnelChild: ReturnType<typeof startTunnel> = null;
     if (cfg.tunnel) {
-      tunnelChild = startTunnel(cfg.port);
+      tunnelChild = startTunnel(cfg.port, cfg.token);
     }
 
     // Cleanup on process exit

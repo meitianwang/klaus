@@ -5,7 +5,7 @@
 
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 
-export function startTunnel(port: number): ChildProcess | null {
+export function startTunnel(port: number, token?: string): ChildProcess | null {
   try {
     execSync("which cloudflared", { stdio: "pipe" });
   } catch {
@@ -31,11 +31,15 @@ export function startTunnel(port: number): ChildProcess | null {
     const text = chunk.toString();
     if (!urlFound) {
       const match = text.match(
-        /https:\/\/[a-z0-9-]+\.trycloudflare\.com/,
+        /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/,
       );
       if (match) {
         urlFound = true;
-        console.log(`[Web] Tunnel URL: ${match[0]}`);
+        const publicUrl = match[0];
+        console.log(`[Web] Tunnel URL: ${publicUrl}`);
+        if (token) {
+          console.log(`[Web] Public Chat URL: ${publicUrl}/?token=${token}`);
+        }
       }
     }
   };
