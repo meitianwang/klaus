@@ -215,11 +215,24 @@ function startCustomTunnel(
     return { child: null, publicUrl: cfg.url };
   }
 
+  const parts = cfg.command.split(/\s+/).filter(Boolean);
+  const bin = parts[0];
+
+  if (!hasCommand(bin)) {
+    console.warn(
+      `[Web] Custom tunnel command "${bin}" not found. Continuing without tunnel process.`,
+    );
+    return { child: null, publicUrl: cfg.url };
+  }
+
   console.log(`[Web] Starting custom tunnel command: ${cfg.command}`);
 
-  const parts = cfg.command.split(/\s+/).filter(Boolean);
-  const child = spawn(parts[0], parts.slice(1), {
+  const child = spawn(bin, parts.slice(1), {
     stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.on("error", (err) => {
+    console.warn(`[Web] Custom tunnel command failed: ${err.message}`);
   });
 
   child.stdout?.on("data", (chunk: Buffer) => {
