@@ -178,15 +178,20 @@ export async function handleAuthRegister(
     json(res, 400, { error: "display_name_required" });
     return;
   }
-  if (!inviteCode) {
-    json(res, 400, { error: "invite_code_required" });
-    return;
-  }
 
-  // Validate invite code
-  if (!inviteStore.isValid(inviteCode)) {
-    json(res, 400, { error: "invalid_invite_code" });
-    return;
+  // First user can register without invite code (becomes admin)
+  const isFirstUser = userStore.isFirstUser();
+  if (!isFirstUser) {
+    if (!inviteCode) {
+      json(res, 400, { error: "invite_code_required" });
+      return;
+    }
+
+    // Validate invite code
+    if (!inviteStore.isValid(inviteCode)) {
+      json(res, 400, { error: "invalid_invite_code" });
+      return;
+    }
   }
 
   // Check if email already registered
@@ -204,7 +209,9 @@ export async function handleAuthRegister(
     );
 
     // Consume the invite code (one-time use)
-    inviteStore.delete(inviteCode);
+    if (!isFirstUser && inviteCode) {
+      inviteStore.delete(inviteCode);
+    }
 
     const session = userStore.createSession(
       user.id,
@@ -471,9 +478,10 @@ export async function handleGoogleCallback(
       name: string;
     };
 
-    // Find or create user
+    // Find or create user — first user skips invite code requirement
+    const isFirstUser = userStore.isFirstUser();
     let inviteForCreate: string | undefined;
-    if (inviteCode && inviteStore.isValid(inviteCode)) {
+    if (!isFirstUser && inviteCode && inviteStore.isValid(inviteCode)) {
       inviteForCreate = inviteCode;
     }
 

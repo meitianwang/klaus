@@ -313,7 +313,8 @@ function serveHtml(req: IncomingMessage, res: ServerResponse): void {
 }
 
 function serveLogin(res: ServerResponse, cfg: WebConfig): void {
-  serveHtmlPage(res, getLoginHtml(!!cfg.google));
+  const isFirst = userStoreRef ? userStoreRef.isFirstUser() : false;
+  serveHtmlPage(res, getLoginHtml(!!cfg.google, isFirst));
 }
 
 function serveAdmin(req: IncomingMessage, res: ServerResponse): void {

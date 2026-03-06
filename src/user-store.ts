@@ -338,6 +338,10 @@ export class UserStore {
     // Transaction to prevent TOCTOU race on isFirstUser check
     const insertUser = this.db.transaction(() => {
       const isFirst = this.isFirstUser();
+      // Re-check invite code inside transaction to prevent race condition
+      if (!isFirst && !inviteCode) {
+        throw new Error("invite_code_required");
+      }
       this.stmtInsertUser.run({
         id,
         email: email.toLowerCase().trim(),
@@ -392,8 +396,9 @@ export class UserStore {
       };
     }
 
-    // New user — requires invite code
-    if (!inviteCode) {
+    // New user — requires invite code (unless first user)
+    const isFirst = this.isFirstUser();
+    if (!isFirst && !inviteCode) {
       throw new Error("invite_code_required");
     }
 
@@ -403,6 +408,10 @@ export class UserStore {
     // Transaction to prevent TOCTOU race on isFirstUser check
     const insertUser = this.db.transaction(() => {
       const isFirst = this.isFirstUser();
+      // Re-check invite code inside transaction to prevent race condition
+      if (!isFirst && !inviteCode) {
+        throw new Error("invite_code_required");
+      }
       this.stmtInsertUser.run({
         id,
         email: email.toLowerCase().trim(),
@@ -410,7 +419,7 @@ export class UserStore {
         displayName: displayName.trim(),
         role: isFirst ? "admin" : "user",
         googleId,
-        inviteCode,
+        inviteCode: inviteCode ?? "",
         createdAt: now,
         lastLoginAt: now,
         isActive: 1,

@@ -3,7 +3,7 @@
  * Supports email+password and Google OAuth login.
  */
 
-export function getLoginHtml(hasGoogle: boolean): string {
+export function getLoginHtml(hasGoogle: boolean, isFirstUser = false): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -110,11 +110,12 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
       <label for="reg-password">Password</label>
       <input id="reg-password" type="password" autocomplete="new-password" placeholder="At least 8 characters">
     </div>
-    <div class="field">
+    <div class="field invite-field" style="display: ${isFirstUser ? "none" : "block"};">
       <label for="reg-invite">Invite Code</label>
       <input id="reg-invite" type="text" placeholder="Enter your invite code">
       <p class="invite-hint">Ask an admin for an invite code to register.</p>
     </div>
+    ${isFirstUser ? '<p class="invite-hint" style="margin-bottom:16px;color:var(--accent);">First user will become admin. No invite code needed.</p>' : ""}
     <button class="btn btn-primary" id="btn-register">Create Account</button>
     <div class="google-section">
       <div class="divider">or</div>
@@ -133,6 +134,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   const errorEl = $('#error');
   const tabs = document.querySelectorAll('.tab');
   const forms = { login: $('#form-login'), register: $('#form-register') };
+  const needsInvite = !${isFirstUser};
 
   // Error messages mapping
   const errorMessages = {
@@ -215,7 +217,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const email = $('#reg-email').value.trim();
     const password = $('#reg-password').value;
     const inviteCode = $('#reg-invite').value.trim();
-    if (!displayName || !email || !password || !inviteCode) { showError('Please fill in all fields.'); return; }
+    if (!displayName || !email || !password || (needsInvite && !inviteCode)) { showError('Please fill in all fields.'); return; }
     if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
     const btn = $('#btn-register');
     btn.disabled = true;
@@ -235,8 +237,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   if (googleRegister) {
     googleRegister.addEventListener('click', () => {
       const inviteCode = $('#reg-invite').value.trim();
-      if (!inviteCode) { showError('Please enter an invite code before using Google sign-up.'); return; }
-      location.href = '/api/auth/google?invite=' + encodeURIComponent(inviteCode);
+      if (needsInvite && !inviteCode) { showError('Please enter an invite code before using Google sign-up.'); return; }
+      location.href = inviteCode ? '/api/auth/google?invite=' + encodeURIComponent(inviteCode) : '/api/auth/google';
     });
   }
 
