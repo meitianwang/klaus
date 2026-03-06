@@ -180,9 +180,9 @@ async function collectWebConfig(): Promise<Record<string, unknown>> {
   });
   if (p.isCancel(basic)) process.exit(0);
 
-  // Auto-generate token if empty
+  // Auto-generate token if empty or placeholder
   let token = (basic.token as string).trim();
-  if (!token) {
+  if (!token || token === "(auto-generate)") {
     token = randomBytes(24).toString("hex");
     p.log.info(t("web_token_generated", { token }));
   }

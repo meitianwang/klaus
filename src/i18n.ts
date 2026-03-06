@@ -275,15 +275,25 @@ const TEXTS: Record<string, Record<Lang, string>> = {
   web_tunnel_named_guide: {
     en:
       "Cloudflare Named Tunnel setup:\n\n" +
-      "1. Go to Cloudflare Zero Trust Dashboard → Networks → Tunnels\n" +
-      "2. Create a tunnel, copy the connector token\n" +
-      "3. Configure a public hostname pointing to http://localhost:PORT\n\n" +
+      "1. Open https://one.dash.cloudflare.com → Networks → Tunnels\n" +
+      "2. Create a tunnel (e.g. 'klaus'), copy the connector token\n" +
+      "3. In the tunnel's Routes tab → Add route → Published application:\n" +
+      "   - Domain: your domain (e.g. chat.example.com)\n" +
+      "   - Service Type: HTTP (not HTTPS!)\n" +
+      "   - URL: localhost:PORT (e.g. localhost:3000)\n" +
+      "4. Check your Cloudflare DNS panel — delete any old A records for this domain\n" +
+      "   The tunnel will auto-create a CNAME record\n\n" +
       "The token looks like: eyJhIjoiNz...",
     zh:
       "Cloudflare 命名隧道配置:\n\n" +
-      "1. 进入 Cloudflare Zero Trust Dashboard → Networks → Tunnels\n" +
-      "2. 创建隧道, 复制 connector token\n" +
-      "3. 配置公共域名指向 http://localhost:端口\n\n" +
+      "1. 打开 https://one.dash.cloudflare.com → Networks → Tunnels\n" +
+      "2. 创建隧道 (如 'klaus'), 复制 connector token\n" +
+      "3. 在隧道的 Routes 标签页 → Add route → Published application:\n" +
+      "   - Domain: 你的域名 (如 chat.example.com)\n" +
+      "   - Service Type: 选 HTTP (不是 HTTPS!)\n" +
+      "   - URL: localhost:端口 (如 localhost:3000)\n" +
+      "4. 检查 Cloudflare DNS 面板 — 删除该域名的旧 A 记录\n" +
+      "   隧道会自动创建 CNAME 记录\n\n" +
       "Token 格式如: eyJhIjoiNz...",
   },
   web_tunnel_cf_token: {

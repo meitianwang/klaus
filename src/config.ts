@@ -118,6 +118,16 @@ export function loadWebConfig(): WebConfig {
   if (!token || token === "(auto-generate)") {
     token = randomBytes(24).toString("hex");
     console.log(`[Web] Auto-generated token: ${token}`);
+    // Persist the generated token so it stays stable across restarts
+    try {
+      const full = loadConfig();
+      const webCfg = (full.web as Record<string, unknown>) ?? {};
+      webCfg.token = token;
+      full.web = webCfg;
+      saveConfig(full);
+    } catch {
+      // Non-fatal: token works for this session even if save fails
+    }
   }
   return {
     token,
