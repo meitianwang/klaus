@@ -87,10 +87,16 @@ async function start(): Promise<void> {
   let inviteStoreInstance: { close(): void } | null = null;
   let userStoreInstance: { close(): void } | null = null;
   if (channelNames.includes("web")) {
-    const { setMessageStore, setInviteStore, setSessionStore, setUserStore } =
-      await import("./channels/web.js");
+    const {
+      setMessageStore,
+      setInviteStore,
+      setSessionStore,
+      setUserStore,
+      setChatManager,
+    } = await import("./channels/web.js");
     setMessageStore(messageStore);
     setSessionStore(store);
+    setChatManager(sessions);
 
     const { InviteStore } = await import("./invite-store.js");
     const inviteStore = new InviteStore();

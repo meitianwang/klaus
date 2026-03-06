@@ -83,6 +83,15 @@ tr.clickable:hover { background: var(--card-bg); }
 .toast.show { opacity: 1; }
 .view { display: none; }
 .view.active { display: block; }
+.settings-section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+.setting-row { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.setting-row:last-child { margin-bottom: 0; }
+.setting-label { font-size: 14px; font-weight: 500; min-width: 130px; padding-top: 8px; }
+.setting-control { flex: 1; }
+.setting-select { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: var(--font-main); background: var(--bg); color: var(--fg); outline: none; }
+.setting-select:focus { border-color: var(--accent); }
+.setting-textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: var(--font-main); background: var(--bg); color: var(--fg); outline: none; resize: vertical; }
+.setting-textarea:focus { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -94,6 +103,27 @@ tr.clickable:hover { background: var(--card-bg); }
     </div>
   </div>
   <div id="view-main" class="view active">
+    <h2 class="section-title">Settings</h2>
+    <div class="settings-section" id="settings-section">
+      <div class="setting-row">
+        <label class="setting-label" for="setting-model">Default Model</label>
+        <div class="setting-control">
+          <select id="setting-model" class="setting-select"><option value="">Loading...</option></select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <label class="setting-label" for="setting-persona">System Prompt</label>
+        <div class="setting-control">
+          <textarea id="setting-persona" class="setting-textarea" rows="3" placeholder="Optional persona / system prompt for Claude"></textarea>
+        </div>
+      </div>
+      <div class="setting-row" style="justify-content:flex-end">
+        <button class="btn btn-primary btn-sm" id="save-settings-btn">Save Settings</button>
+        <span id="settings-status" style="font-size:13px;color:var(--success);margin-left:10px;opacity:0;transition:opacity 0.3s"></span>
+      </div>
+    </div>
+
+    <h2 class="section-title" style="margin-top:32px">Users</h2>
     <div class="stats-row" id="admin-stats"></div>
     <h2 class="section-title">Invite Codes</h2>
     <div class="create-row">
@@ -133,6 +163,53 @@ tr.clickable:hover { background: var(--card-bg); }
   function initAdmin() {
 
   document.getElementById("back-link").href = "/";
+
+  // --- Settings ---
+  var modelSelect = document.getElementById("setting-model");
+  var personaInput = document.getElementById("setting-persona");
+  var saveSettingsBtn = document.getElementById("save-settings-btn");
+  var settingsStatus = document.getElementById("settings-status");
+
+  function loadSettings() {
+    fetch("/api/admin/settings", { credentials: "same-origin" })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        modelSelect.innerHTML = "";
+        (data.availableModels || []).forEach(function(m) {
+          var opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = m.label;
+          if (m.id === data.model) opt.selected = true;
+          modelSelect.appendChild(opt);
+        });
+        personaInput.value = data.persona || "";
+      });
+  }
+
+  saveSettingsBtn.onclick = function() {
+    saveSettingsBtn.disabled = true;
+    fetch("/api/admin/settings", {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelSelect.value, persona: personaInput.value.trim() }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        settingsStatus.textContent = "Saved!";
+        settingsStatus.style.opacity = "1";
+        setTimeout(function() { settingsStatus.style.opacity = "0"; }, 2000);
+      })
+      .catch(function() {
+        settingsStatus.textContent = "Failed";
+        settingsStatus.style.color = "var(--danger)";
+        settingsStatus.style.opacity = "1";
+        setTimeout(function() { settingsStatus.style.opacity = "0"; settingsStatus.style.color = "var(--success)"; }, 2000);
+      })
+      .finally(function() { saveSettingsBtn.disabled = false; });
+  };
+
+  loadSettings();
 
   var views = { main: document.getElementById("view-main"), sessions: document.getElementById("view-sessions"), history: document.getElementById("view-history") };
   var tableWrap = document.getElementById("table-wrap");

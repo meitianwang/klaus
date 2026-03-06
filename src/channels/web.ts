@@ -23,6 +23,7 @@
  *   PATCH /api/admin/users    → Update user (admin only)
  *   GET  /api/admin/sessions  → Browse any user's sessions (admin only)
  *   GET  /api/admin/history   → View any session's history (admin only)
+ *   GET/PATCH /api/admin/settings → Global settings: model, persona (admin only)
  *   GET  /api/health          → Health check (no auth)
  */
 
@@ -44,7 +45,12 @@ import type {
   PermissionRequest,
 } from "../types.js";
 import type { WebConfig } from "../types.js";
-import { loadWebConfig, CONFIG_FILE } from "../config.js";
+import {
+  loadWebConfig,
+  loadConfig,
+  saveConfig,
+  CONFIG_FILE,
+} from "../config.js";
 import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { getAdminHtml } from "./web-admin-ui.js";
@@ -93,6 +99,10 @@ let messageStoreRef: MessageStore | null = null;
 let inviteStoreRef: InviteStore | null = null;
 let sessionStoreRef: SessionStore | null = null;
 let userStoreRef: UserStore | null = null;
+let chatManagerRef: {
+  getDefaultModel(): string | undefined;
+  setDefaultModel(m: string | undefined): void;
+} | null = null;
 
 export function setMessageStore(store: MessageStore): void {
   messageStoreRef = store;
@@ -108,6 +118,13 @@ export function setSessionStore(store: SessionStore): void {
 
 export function setUserStore(store: UserStore): void {
   userStoreRef = store;
+}
+
+export function setChatManager(manager: {
+  getDefaultModel(): string | undefined;
+  setDefaultModel(m: string | undefined): void;
+}): void {
+  chatManagerRef = manager;
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +869,89 @@ async function handleAdminHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: settings (model, persona)
+// ---------------------------------------------------------------------------
+
+const ALLOWED_MODELS: Record<string, string> = {
+  "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-opus-4-6": "Claude Opus 4.6",
+  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+};
+
+async function handleAdminSettings(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  if (req.method === "GET") {
+    const cfg = loadConfig();
+    const currentModel =
+      chatManagerRef?.getDefaultModel() ?? (cfg.model as string) ?? "";
+    const persona = (cfg.persona as string) ?? "";
+    jsonResponse(res, 200, {
+      model: currentModel,
+      persona,
+      availableModels: Object.entries(ALLOWED_MODELS).map(([id, label]) => ({
+        id,
+        label,
+      })),
+    });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(body.toString()) as Record<string, unknown>;
+    } catch {
+      jsonResponse(res, 400, { error: "invalid JSON" });
+      return;
+    }
+
+    const cfg = loadConfig();
+
+    // Update model
+    if ("model" in parsed) {
+      const model = String(parsed.model ?? "").trim();
+      if (model && !ALLOWED_MODELS[model]) {
+        jsonResponse(res, 400, { error: "invalid_model" });
+        return;
+      }
+      if (model) {
+        cfg.model = model;
+        chatManagerRef?.setDefaultModel(model);
+      } else {
+        delete cfg.model;
+        chatManagerRef?.setDefaultModel(undefined);
+      }
+    }
+
+    // Update persona
+    if ("persona" in parsed) {
+      const persona = String(parsed.persona ?? "").trim();
+      if (persona) {
+        cfg.persona = persona;
+      } else {
+        delete cfg.persona;
+      }
+    }
+
+    saveConfig(cfg);
+    const updated = loadConfig();
+    jsonResponse(res, 200, {
+      model:
+        chatManagerRef?.getDefaultModel() ?? (updated.model as string) ?? "",
+      persona: (updated.persona as string) ?? "",
+    });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
 // Request router
 // ---------------------------------------------------------------------------
 
@@ -919,6 +1019,8 @@ async function handleRequest(
       return handleAdminSessions(req, res);
     case "/api/admin/history":
       return handleAdminHistory(req, res);
+    case "/api/admin/settings":
+      return handleAdminSettings(req, res);
 
     // Upload
     case "/api/upload":

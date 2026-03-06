@@ -416,10 +416,21 @@ export class ChatSessionManager {
   ) {
     const cfg = loadConfig();
     const persona = (cfg.persona as string) ?? "";
-    this.options = { systemPrompt: persona };
+    const model = (cfg.model as string) || undefined;
+    this.options = { systemPrompt: persona, model };
     this.store = store;
     this.messageStore = messageStore;
     this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
+  }
+
+  /** Update the default model for new sessions. */
+  setDefaultModel(model: string | undefined): void {
+    this.options = { ...this.options, model };
+  }
+
+  /** Get the current default model. */
+  getDefaultModel(): string | undefined {
+    return this.options.model;
   }
 
   private persistSession(key: string, session: ClaudeChat): void {
