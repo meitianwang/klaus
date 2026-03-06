@@ -73,7 +73,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .avatar { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
 .msg-container.user .avatar { background: var(--avatar-user); color: var(--fg); }
-.msg-container.assistant .avatar { background: var(--avatar-bot); color: var(--bg); }
+.msg-container.assistant .avatar { background: var(--avatar-bot); color: var(--bg); padding: 2px; }
+.msg-container.assistant .avatar img { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; }
 .msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
 .msg.user { white-space: pre-wrap; background: var(--msg-user); border-top-right-radius: 4px; }
 .msg.assistant { background: var(--msg-bot); border-top-left-radius: 4px; border: 1px solid var(--border); }
@@ -752,11 +753,10 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   }
 
   sendBtn.addEventListener("click", send);
-  input.addEventListener("keydown", (e) => { 
-    if (e.key==="Enter" && !e.shiftKey) { 
-      // check if it's on mobile, usually shiftKey isn't easy there, but let's just do standard enter to send
-      e.preventDefault(); send(); 
-    } 
+  input.addEventListener("keydown", (e) => {
+    if (e.key==="Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault(); send();
+    }
   });
 
   function updateBtn() {
@@ -771,7 +771,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const el = document.createElement("div");
     el.className = "msg-container assistant";
     el.id = "thinking-container";
-    el.innerHTML = '<div class="avatar">K</div><div class="msg assistant"><div class="thinking"><div class="spinner"></div>' + tt("thinking") + '</div></div>';
+    el.innerHTML = '<div class="avatar"><img src="/logo.png" alt="K"></div><div class="msg assistant"><div class="thinking"><div class="spinner"></div>' + tt("thinking") + '</div></div>';
     msgs.appendChild(el); scrollBottom();
   }
   function removeThinking() {
@@ -938,7 +938,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const wrap = document.createElement("div");
     wrap.className = "msg-container assistant";
     wrap.id = "streaming-msg";
-    wrap.innerHTML = '<div class="avatar">K</div><div class="msg assistant streaming"><span class="cursor"></span></div>';
+    wrap.innerHTML = '<div class="avatar"><img src="/logo.png" alt="K"></div><div class="msg assistant streaming"><span class="cursor"></span></div>';
     msgs.appendChild(wrap);
     scrollBottom();
   }
