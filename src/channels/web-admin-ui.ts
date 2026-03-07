@@ -274,18 +274,42 @@ tr.clickable:hover { background: var(--card-bg); }
     if (!codes.length) { tableWrap.innerHTML = ""; emptyEl.style.display = "block"; return; }
     emptyEl.style.display = "none";
 
-    var html = "<table><thead><tr><th>Code</th><th>Label</th><th>Created</th><th>Actions</th></tr></thead><tbody>";
-    codes.forEach(function(c) {
-      html += "<tr>"
-        + "<td><span class='code-text'>" + esc(c.code.slice(0,8)) + "...</span></td>"
-        + "<td>" + esc(c.label || "-") + "</td>"
-        + "<td class='stat-muted'>" + esc(fmtRelative(c.createdAt)) + "</td>"
-        + "<td><div class='actions'>"
-        + "<button class='btn btn-sm btn-copy' data-code='" + esc(c.code) + "'>Copy Code</button>"
-        + "<button class='btn btn-sm btn-danger' data-del='" + esc(c.code) + "'>Delete</button>"
-        + "</div></td></tr>";
-    });
-    html += "</tbody></table>";
+    var activeCodes = codes.filter(function(c) { return c.isActive; });
+    var usedCodes = codes.filter(function(c) { return !c.isActive; });
+
+    var html = "";
+
+    // Active invite codes
+    if (activeCodes.length) {
+      html += "<table><thead><tr><th>Code</th><th>Label</th><th>Created</th><th>Actions</th></tr></thead><tbody>";
+      activeCodes.forEach(function(c) {
+        html += "<tr>"
+          + "<td><span class='code-text'>" + esc(c.code.slice(0,8)) + "...</span></td>"
+          + "<td>" + esc(c.label || "-") + "</td>"
+          + "<td class='stat-muted'>" + esc(fmtRelative(c.createdAt)) + "</td>"
+          + "<td><div class='actions'>"
+          + "<button class='btn btn-sm btn-copy' data-code='" + esc(c.code) + "'>Copy Code</button>"
+          + "<button class='btn btn-sm btn-danger' data-del='" + esc(c.code) + "'>Delete</button>"
+          + "</div></td></tr>";
+      });
+      html += "</tbody></table>";
+    }
+
+    // Used invite codes history
+    if (usedCodes.length) {
+      html += "<div style='margin-top:20px;font-weight:600;font-size:14px;color:var(--muted)'>Used Codes</div>";
+      html += "<table><thead><tr><th>Code</th><th>Label</th><th>Used By</th><th>Used At</th></tr></thead><tbody>";
+      usedCodes.forEach(function(c) {
+        html += "<tr style='opacity:0.7'>"
+          + "<td><span class='code-text'>" + esc(c.code.slice(0,8)) + "...</span></td>"
+          + "<td>" + esc(c.label || "-") + "</td>"
+          + "<td>" + esc(c.usedBy || "-") + "</td>"
+          + "<td class='stat-muted'>" + (c.usedAt ? esc(fmtRelative(c.usedAt)) : "-") + "</td>"
+          + "</tr>";
+      });
+      html += "</tbody></table>";
+    }
+
     tableWrap.innerHTML = html;
   }
 

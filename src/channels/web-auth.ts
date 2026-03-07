@@ -210,7 +210,7 @@ export async function handleAuthRegister(
 
     // Consume the invite code (one-time use)
     if (!isFirstUser && inviteCode) {
-      inviteStore.delete(inviteCode);
+      inviteStore.consume(inviteCode, email);
     }
 
     const session = userStore.createSession(
@@ -510,7 +510,7 @@ export async function handleGoogleCallback(
 
     // Consume the invite code if a new user was created
     if (result.isNew && inviteForCreate) {
-      inviteStore.delete(inviteForCreate);
+      inviteStore.consume(inviteForCreate, googleUser.email);
     }
 
     const session = userStore.createSession(

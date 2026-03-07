@@ -8,6 +8,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import { getToolConfig } from "./tool-config.js";
+import { DEFAULT_PERSONA } from "./persona.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
 import type {
@@ -415,7 +416,7 @@ export class ChatSessionManager {
     messageStore?: MessageStore,
   ) {
     const cfg = loadConfig();
-    const persona = (cfg.persona as string) ?? "";
+    const persona = (cfg.persona as string) || DEFAULT_PERSONA;
     const model = (cfg.model as string) || undefined;
     this.options = { systemPrompt: persona, model };
     this.store = store;

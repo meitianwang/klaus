@@ -57,9 +57,10 @@ export function getChatHtml(): string {
     --avatar-bot: #f8fafc;
   }
 }
-html, body { height: 100%; font-family: var(--font-main); background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; }
-#app { display: flex; flex-direction: column; height: 100%; position: relative; }
-#header { padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: rgba(var(--bg), 0.8); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); z-index: 10; }
+html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: var(--font-main); background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; overflow: hidden; }
+#app { display: flex; flex-direction: row; height: 100%; width: 100%; position: fixed; inset: 0; }
+.main-content { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
+#header { padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); z-index: 10; flex-shrink: 0; }
 .brand { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
 .brand-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
 .brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
@@ -68,19 +69,19 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 #status.disconnected { color: #ef4444; }
 #status.disconnected::before { background: #ef4444; }
 #messages { flex: 1; overflow-y: auto; padding: 32px 16px; display: flex; flex-direction: column; gap: 32px; scroll-behavior: smooth; }
-.msg-container { display: flex; gap: 16px; max-width: 800px; width: 100%; margin: 0 auto; animation: fade-in 0.3s ease-out; }
+.msg-container { display: flex; gap: 16px; max-width: 800px; width: 100%; margin: 0 auto; animation: fade-in 0.3s ease-out; min-width: 0; }
 .msg-container.user { flex-direction: row-reverse; }
 @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .avatar { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
 .msg-container.user .avatar { background: var(--avatar-user); color: var(--fg); }
 .msg-container.assistant .avatar { background: var(--avatar-bot); color: var(--bg); padding: 2px; }
 .msg-container.assistant .avatar img { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; }
-.msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+.msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); min-width: 0; }
 .msg.user { white-space: pre-wrap; background: var(--msg-user); border-top-right-radius: 4px; }
 .msg.assistant { background: var(--msg-bot); border-top-left-radius: 4px; border: 1px solid var(--border); }
 .msg.error { background: #fee2e2; color: #991b1b; display: flex; align-items: center; gap: 8px; font-size: 14px; border-radius: 12px; max-width: fit-content; margin: 0 auto; padding: 12px 16px; border: 1px solid #fca5a5; }
 .msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13.5px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
-.msg pre { background: var(--code-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; margin: 12px 0; }
+.msg pre { background: var(--code-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; margin: 12px 0; max-width: 100%; }
 .msg pre code { background: none; padding: 0; border: none; font-size: 13.5px; }
 .msg pre code.hljs { background: var(--code-bg); }
 .msg table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
@@ -165,6 +166,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 @keyframes blink { 50% { opacity: 0; } }
 .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 280px; background: var(--input-container); border-right: 1px solid var(--border); z-index: 30; transform: translateX(-100%); transition: transform 0.25s ease; display: flex; flex-direction: column; }
 .sidebar.open { transform: translateX(0); }
+@media (min-width: 769px) { .sidebar { position: relative; transform: none !important; } }
 .sidebar-header { padding: 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
 .sidebar-title { font-weight: 600; font-size: 15px; }
 .new-chat-btn { background: var(--accent); color: var(--accent-text); border: none; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-main); transition: background 0.2s; }
@@ -186,7 +188,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .lang-option.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 25; display: none; }
 .sidebar-overlay.show { display: block; }
-.menu-btn { background: transparent; border: none; cursor: pointer; color: var(--fg); padding: 4px; display: flex; align-items: center; font-size: 18px; }
+@media (min-width: 769px) { .sidebar-overlay { display: none !important; } }
+.menu-btn { background: transparent; border: none; cursor: pointer; color: var(--fg); padding: 8px; margin-left: -8px; display: flex; align-items: center; font-size: 18px; }
+@media (min-width: 769px) { .menu-btn { display: none !important; } }
 .perm-banner { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); max-width: 600px; width: calc(100% - 32px); background: var(--input-container); border: 1px solid var(--border); border-radius: 16px; padding: 14px 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); z-index: 20; animation: fade-in 0.3s ease-out; display: flex; align-items: center; gap: 12px; }
 .perm-info { flex: 1; min-width: 0; }
 .perm-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
@@ -219,20 +223,21 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     </div>
   </div>
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
-  <div id="header">
-    <div class="brand">
-      <button class="menu-btn" id="menu-btn">&#9776;</button>
-      <div class="brand-icon"><img src="/logo.png" alt="Klaus AI Logo" /></div>
-      Klaus AI
+  <div class="main-content">
+    <div id="header">
+      <div class="brand">
+        <button class="menu-btn" id="menu-btn">&#9776;</button>
+        <div class="brand-icon"><img src="/logo.png" alt="Klaus AI Logo" /></div>
+        Klaus AI
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <a id="admin-link" href="/admin" style="display:none;font-size:13px;font-weight:500;color:var(--thinking);text-decoration:none">Admin</a>
+        <button id="logout-btn" class="logout-btn" data-i18n="logout">Logout</button>
+        <span id="status" data-i18n="connected">Connected</span>
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px">
-      <a id="admin-link" href="/admin" style="display:none;font-size:13px;font-weight:500;color:var(--thinking);text-decoration:none">Admin</a>
-      <button id="logout-btn" class="logout-btn" data-i18n="logout">Logout</button>
-      <span id="status" data-i18n="connected">Connected</span>
-    </div>
-  </div>
-  <div id="messages"></div>
-  <div id="input-wrapper">
+    <div id="messages"></div>
+    <div id="input-wrapper">
     <div id="input-area">
       <div id="previews"></div>
       <div class="input-row">
@@ -771,7 +776,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const el = document.createElement("div");
     el.className = "msg-container assistant";
     el.id = "thinking-container";
-    el.innerHTML = '<div class="avatar"><img src="/logo.png" alt="K"></div><div class="msg assistant"><div class="thinking"><div class="spinner"></div>' + tt("thinking") + '</div></div>';
+    el.innerHTML = '<div class="avatar"><img src="/avatar.jpg" alt="K"></div><div class="msg assistant"><div class="thinking"><div class="spinner"></div>' + tt("thinking") + '</div></div>';
     msgs.appendChild(el); scrollBottom();
   }
   function removeThinking() {
@@ -938,7 +943,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const wrap = document.createElement("div");
     wrap.className = "msg-container assistant";
     wrap.id = "streaming-msg";
-    wrap.innerHTML = '<div class="avatar"><img src="/logo.png" alt="K"></div><div class="msg assistant streaming"><span class="cursor"></span></div>';
+    wrap.innerHTML = '<div class="avatar"><img src="/avatar.jpg" alt="K"></div><div class="msg assistant streaming"><span class="cursor"></span></div>';
     msgs.appendChild(wrap);
     scrollBottom();
   }

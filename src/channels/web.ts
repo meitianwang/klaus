@@ -310,6 +310,38 @@ function serveHtmlPage(res: ServerResponse, html: string): void {
   res.end(html);
 }
 
+async function servePublicFile(
+  res: ServerResponse,
+  filename: string,
+  contentType: string,
+): Promise<void> {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname } = await import("node:path");
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const candidates = [
+    join(__dirname, "..", "public", filename),
+    join(__dirname, "..", "..", "public", filename),
+    join(process.cwd(), "public", filename),
+  ];
+  for (const p of candidates) {
+    try {
+      const data = readFileSync(p);
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400",
+      });
+      res.end(data);
+      return;
+    } catch {
+      // try next
+    }
+  }
+  res.writeHead(404);
+  res.end("not found");
+}
+
 function getClientIp(req: IncomingMessage): string {
   // Only use socket address for rate limiting — X-Forwarded-For is client-spoofable
   return req.socket.remoteAddress ?? "unknown";
@@ -975,39 +1007,10 @@ async function handleRequest(
       return serveLogin(res, cfg);
     case "/admin":
       return serveAdmin(req, res);
-    case "/logo.png": {
-      const { readFileSync } = await import("node:fs");
-      const { fileURLToPath } = await import("node:url");
-      const { dirname } = await import("node:path");
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      // Look for logo relative to the package root (works for both dev and npm global install)
-      const candidates = [
-        join(__dirname, "..", "public", "logo.png"), // dev: dist/../public or src/../public
-        join(__dirname, "..", "..", "public", "logo.png"), // npm global: dist/../public may need extra level
-        join(process.cwd(), "public", "logo.png"), // fallback: cwd
-      ];
-      let logoData: Buffer | null = null;
-      for (const p of candidates) {
-        try {
-          logoData = readFileSync(p);
-          break;
-        } catch {
-          // try next
-        }
-      }
-      if (logoData) {
-        res.writeHead(200, {
-          "Content-Type": "image/png",
-          "Cache-Control": "public, max-age=86400",
-        });
-        res.end(logoData);
-      } else {
-        res.writeHead(404);
-        res.end("not found");
-      }
-      return;
-    }
+    case "/logo.png":
+      return servePublicFile(res, "logo.png", "image/png");
+    case "/avatar.jpg":
+      return servePublicFile(res, "avatar.jpg", "image/jpeg");
 
     // Auth routes
     case "/api/auth/register":
