@@ -15,6 +15,9 @@
  */
 
 import * as http from "node:http";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { loadFeishuConfig } from "../config.js";
 import type { InboundMessage, MediaFile } from "../message.js";
 import { retryAsync } from "../retry.js";
@@ -83,18 +86,70 @@ interface FeishuMessageEvent {
 
 // ---------------------------------------------------------------------------
 // Message deduplication (aligned with OpenClaw's dedup.ts)
-// 24h TTL, max 1000 entries. Feishu SDK may deliver events more than once.
+// Memory: 1000 entries, 24h TTL (fast path).
+// Disk: ~/.klaus/feishu/dedup.json, 10000 entries, 24h TTL (survives restart).
 // ---------------------------------------------------------------------------
 
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
-const DEDUP_MAX_SIZE = 1000;
+const DEDUP_MEM_MAX = 1000;
+const DEDUP_DISK_MAX = 10000;
 const dedupMap = new Map<string, number>();
+
+const DEDUP_DIR = join(homedir(), ".klaus", "feishu");
+const DEDUP_FILE = join(DEDUP_DIR, "dedup.json");
+
+/** Load disk dedup state into memory on startup. */
+function warmupDedupFromDisk(): void {
+  try {
+    if (!existsSync(DEDUP_FILE)) return;
+    const raw = JSON.parse(readFileSync(DEDUP_FILE, "utf-8")) as Record<
+      string,
+      number
+    >;
+    const now = Date.now();
+    for (const [id, ts] of Object.entries(raw)) {
+      if (now - ts < DEDUP_TTL_MS) {
+        dedupMap.set(id, ts);
+      }
+    }
+  } catch {
+    // Corrupted file — ignore, will be overwritten
+  }
+}
+
+/** Persist dedup map to disk (best-effort, async-safe via sync write). */
+function flushDedupToDisk(): void {
+  try {
+    const now = Date.now();
+    const entries: Record<string, number> = {};
+    let count = 0;
+    for (const [id, ts] of dedupMap) {
+      if (now - ts < DEDUP_TTL_MS) {
+        entries[id] = ts;
+        if (++count >= DEDUP_DISK_MAX) break;
+      }
+    }
+    mkdirSync(DEDUP_DIR, { recursive: true });
+    writeFileSync(DEDUP_FILE, JSON.stringify(entries), "utf-8");
+  } catch {
+    // Best-effort — don't crash on write failure
+  }
+}
+
+// Periodic flush every 5 minutes
+let dedupFlushTimer: ReturnType<typeof setInterval> | null = null;
+
+function startDedupFlush(): void {
+  if (dedupFlushTimer) return;
+  dedupFlushTimer = setInterval(flushDedupToDisk, 5 * 60 * 1000);
+  dedupFlushTimer.unref(); // Don't prevent process exit
+}
 
 function isDuplicate(messageId: string): boolean {
   const now = Date.now();
 
   // Prune expired entries when map is getting large
-  if (dedupMap.size >= DEDUP_MAX_SIZE) {
+  if (dedupMap.size >= DEDUP_MEM_MAX) {
     for (const [key, ts] of dedupMap) {
       if (now - ts > DEDUP_TTL_MS) dedupMap.delete(key);
     }
@@ -212,13 +267,33 @@ function isBool(v: unknown): boolean {
   return v === true || v === 1 || v === "true";
 }
 
+// Markdown special character escaping (aligned with OpenClaw's post.ts)
+const MD_SPECIAL = /([\\`*_{}\[\]()#+\-!|>~])/g;
+
+function escapeMd(text: string): string {
+  return text.replace(MD_SPECIAL, "\\$1");
+}
+
+/** Wrap text in inline code, choosing fence length to avoid collision. */
+function wrapInlineCode(text: string): string {
+  const maxRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = "`".repeat(maxRun + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+/** Sanitize code block language tag. */
+function sanitizeLang(lang: string): string {
+  return lang.trim().replace(/[^A-Za-z0-9_+#.\-]/g, "");
+}
+
 function renderPostElement(
   element: unknown,
   imageKeys: string[],
   mediaKeys: Array<{ fileKey: string; fileName?: string }>,
   mentionedOpenIds: string[],
 ): string {
-  if (!isRecord(element)) return toStr(element);
+  if (!isRecord(element)) return escapeMd(toStr(element));
 
   const tag = toStr(element.tag).toLowerCase();
   switch (tag) {
@@ -226,11 +301,13 @@ function renderPostElement(
       const text = toStr(element.text);
       const style = isRecord(element.style) ? element.style : undefined;
 
-      if (style && isBool(style.code)) return `\`${text}\``;
+      if (style && isBool(style.code)) return wrapInlineCode(text);
 
-      let rendered = text;
+      let rendered = escapeMd(text);
+      if (!rendered) return "";
       if (style && isBool(style.bold)) rendered = `**${rendered}**`;
       if (style && isBool(style.italic)) rendered = `*${rendered}*`;
+      if (style && isBool(style.underline)) rendered = `<u>${rendered}</u>`;
       if (
         style &&
         (isBool(style.strikethrough) ||
@@ -242,8 +319,11 @@ function renderPostElement(
     }
     case "a": {
       const href = toStr(element.href).trim();
-      const text = toStr(element.text) || href;
-      return href ? `[${text}](${href})` : text;
+      const rawText = toStr(element.text);
+      const text = rawText || href;
+      if (!text) return "";
+      if (!href) return escapeMd(text);
+      return `[${escapeMd(text)}](${href})`;
     }
     case "at": {
       const openId = toStr(element.open_id) || toStr(element.user_id);
@@ -252,7 +332,7 @@ function renderPostElement(
         toStr(element.user_name) ||
         toStr(element.user_id) ||
         toStr(element.open_id);
-      return name ? `@${name}` : "";
+      return name ? `@${escapeMd(name)}` : "";
     }
     case "img": {
       const imageKey = toStr(element.image_key);
@@ -270,8 +350,10 @@ function renderPostElement(
       return "[media]";
     }
     case "emotion":
-      return (
-        toStr(element.emoji) || toStr(element.text) || toStr(element.emoji_type)
+      return escapeMd(
+        toStr(element.emoji) ||
+          toStr(element.text) ||
+          toStr(element.emoji_type),
       );
     case "br":
       return "\n";
@@ -279,19 +361,20 @@ function renderPostElement(
       return "\n\n---\n\n";
     case "code": {
       const code = toStr(element.text) || toStr(element.content);
-      return code ? `\`${code}\`` : "";
+      return code ? wrapInlineCode(code) : "";
     }
     case "code_block":
     case "pre": {
-      const lang = toStr(element.language) || toStr(element.lang);
+      const lang = sanitizeLang(toStr(element.language) || toStr(element.lang));
       const code = (toStr(element.text) || toStr(element.content)).replace(
         /\r\n/g,
         "\n",
       );
-      return `\`\`\`${lang}\n${code}\n\`\`\``;
+      const trail = code.endsWith("\n") ? "" : "\n";
+      return `\`\`\`${lang}\n${code}${trail}\`\`\``;
     }
     default:
-      return toStr(element.text);
+      return escapeMd(toStr(element.text));
   }
 }
 
@@ -337,7 +420,7 @@ function parsePostContent(raw: string): PostParseResult {
       paragraphs.push(line);
     }
 
-    const title = toStr(payload.title).trim();
+    const title = escapeMd(toStr(payload.title).trim());
     const body = paragraphs.join("\n").trim();
     const textContent = [title, body].filter(Boolean).join("\n\n").trim();
 
@@ -1017,6 +1100,25 @@ async function startWebSocket(
 
 const WEBHOOK_MAX_BODY_BYTES = 1 * 1024 * 1024; // 1 MB
 
+// ---------------------------------------------------------------------------
+// Webhook rate limiting (aligned with OpenClaw: 120 req/min per IP)
+// ---------------------------------------------------------------------------
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 120;
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
 async function startWebhook(
   sdk: LarkSDK,
   cfg: ReturnType<typeof loadFeishuConfig>,
@@ -1047,6 +1149,14 @@ async function startWebhook(
     if (req.method !== "POST" || !req.url?.startsWith(webhookPath)) {
       res.writeHead(404);
       res.end("Not Found");
+      return;
+    }
+
+    // Rate limit per IP (120 req/min, aligned with OpenClaw)
+    const ip = req.socket.remoteAddress ?? "unknown";
+    if (isRateLimited(ip)) {
+      res.writeHead(429);
+      res.end("Too Many Requests");
       return;
     }
 
@@ -1112,6 +1222,10 @@ export const feishuPlugin: ChannelPlugin = {
         "[Feishu] Missing app_id or app_secret. Run: klaus setup",
       );
     }
+
+    // Warm up dedup from disk and start periodic flush
+    warmupDedupFromDisk();
+    startDedupFlush();
 
     const sdk = await ensureLarkSDK();
 
