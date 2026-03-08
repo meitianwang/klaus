@@ -7,7 +7,7 @@ export default defineConfig({
   clean: true,
   dts: true,
   sourcemap: true,
-  external: ["better-sqlite3"],
+  external: ["better-sqlite3", "@larksuiteoapi/node-sdk"],
   banner: {
     js: "#!/usr/bin/env node",
   },
