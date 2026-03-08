@@ -28,6 +28,7 @@ import type {
   StreamChunkCallback,
   PermissionRequestCallback,
 } from "./types.js";
+import { parseCronMarkers, type CronMarkerAction } from "./cron-marker.js";
 
 // ---------------------------------------------------------------------------
 // Channel registration
@@ -97,24 +98,43 @@ async function start(): Promise<void> {
     memoryStore,
   );
 
-  // Initialize cron scheduler (if configured)
+  // Build delivery registry from active channel plugins (needed by cron)
+  const deliverers = new Map<
+    string,
+    (to: string, text: string) => Promise<void>
+  >();
+  for (const p of plugins) {
+    if (p.deliver) {
+      deliverers.set(p.meta.id, p.deliver);
+    }
+  }
+
+  // Initialize cron scheduler (eagerly if configured, lazily on first AI marker)
   let cronScheduler: import("./cron.js").CronScheduler | null = null;
   const cronCfg = loadCronConfig();
   if (cronCfg.enabled) {
-    // Build delivery registry from active channel plugins
-    const deliverers = new Map<
-      string,
-      (to: string, text: string) => Promise<void>
-    >();
-    for (const p of plugins) {
-      if (p.deliver) {
-        deliverers.set(p.meta.id, p.deliver);
-      }
-    }
     const { CronScheduler } = await import("./cron.js");
     cronScheduler = new CronScheduler(cronCfg, sessions, deliverers, store);
     cronScheduler.start();
   }
+
+  /** Lazy-init cron scheduler when AI creates first task (no config.yaml needed). */
+  const ensureCronScheduler = async (): Promise<
+    import("./cron.js").CronScheduler
+  > => {
+    if (cronScheduler) return cronScheduler;
+    const { CronScheduler } = await import("./cron.js");
+    const cfg = loadCronConfig();
+    cronScheduler = new CronScheduler(
+      { ...cfg, enabled: true },
+      sessions,
+      deliverers,
+      store,
+    );
+    cronScheduler.start();
+    console.log("[Cron] Scheduler auto-started by AI task creation");
+    return cronScheduler;
+  };
 
   // Expose stores to web channel for API endpoints
   let inviteStoreInstance: { close(): void } | null = null;
@@ -200,7 +220,8 @@ async function start(): Promise<void> {
 
     // /cron [subcommand] — cron task management
     if (trimmed === "/cron" || trimmed.startsWith("/cron ")) {
-      return handleCronCommand(trimmed, cronScheduler);
+      const scheduler = await ensureCronScheduler();
+      return handleCronCommand(trimmed, scheduler);
     }
 
     // /model [name] — show or switch model
@@ -222,13 +243,25 @@ async function start(): Promise<void> {
 
     const prompt = formatPrompt(msg);
     if (!prompt) return null;
-    return sessions.chat(
+    const reply = await sessions.chat(
       msg.sessionKey,
       prompt,
       onToolEvent,
       onStreamChunk,
       onPermissionRequest,
     );
+
+    // Post-process: extract and execute [[cron:...]] markers
+    if (reply) {
+      const { text, actions } = parseCronMarkers(reply);
+      if (actions.length > 0) {
+        const scheduler = await ensureCronScheduler();
+        executeCronActions(actions, scheduler);
+        return text || null;
+      }
+    }
+
+    return reply;
   };
 
   try {
@@ -240,6 +273,62 @@ async function start(): Promise<void> {
     await sessions.close();
     inviteStoreInstance?.close();
     userStoreInstance?.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cron marker execution (AI-driven task management)
+// ---------------------------------------------------------------------------
+
+function executeCronActions(
+  actions: readonly CronMarkerAction[],
+  scheduler: import("./cron.js").CronScheduler,
+): void {
+  for (const action of actions) {
+    try {
+      switch (action.action) {
+        case "add":
+          scheduler.addTask(action.task);
+          console.log(`[CronMarker] Added task "${action.task.id}"`);
+          break;
+        case "edit":
+          if (scheduler.editTask(action.id, action.patch)) {
+            console.log(`[CronMarker] Edited task "${action.id}"`);
+          } else {
+            console.warn(`[CronMarker] Task "${action.id}" not found for edit`);
+          }
+          break;
+        case "remove":
+          if (scheduler.removeTask(action.id)) {
+            console.log(`[CronMarker] Removed task "${action.id}"`);
+          } else {
+            console.warn(
+              `[CronMarker] Task "${action.id}" not found for remove`,
+            );
+          }
+          break;
+        case "enable":
+          if (scheduler.editTask(action.id, { enabled: true })) {
+            console.log(`[CronMarker] Enabled task "${action.id}"`);
+          } else {
+            console.warn(
+              `[CronMarker] Task "${action.id}" not found for enable`,
+            );
+          }
+          break;
+        case "disable":
+          if (scheduler.editTask(action.id, { enabled: false })) {
+            console.log(`[CronMarker] Disabled task "${action.id}"`);
+          } else {
+            console.warn(
+              `[CronMarker] Task "${action.id}" not found for disable`,
+            );
+          }
+          break;
+      }
+    } catch (err) {
+      console.error(`[CronMarker] Failed to execute ${action.action}:`, err);
+    }
   }
 }
 
@@ -258,12 +347,8 @@ function validateCronId(id: string): string | null {
 
 async function handleCronCommand(
   trimmed: string,
-  cronScheduler: import("./cron.js").CronScheduler | null,
+  cronScheduler: import("./cron.js").CronScheduler,
 ): Promise<string> {
-  if (!cronScheduler) {
-    return t("cmd_cron_disabled");
-  }
-
   const args = trimmed.slice("/cron".length).trim();
 
   // /cron or /cron list — list all tasks
