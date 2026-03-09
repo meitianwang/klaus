@@ -34,30 +34,32 @@ struct MainView: View {
                         Button {
                             showSettings = true
                         } label: {
-                            Image(systemName: "gear")
+                            UserAvatarView(
+                                name: appState.currentUser?.displayName ?? "",
+                                size: 30
+                            )
                         }
                     }
                 }
             }
         } detail: {
-            // Detail: chat with session title
+            // Detail: chat
             if let chatVM {
                 ChatView(viewModel: chatVM)
-                    .navigationTitle(chatTitle)
-                    .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            Text(chatTitle)
+                                .font(.headline)
+                        }
                         ToolbarItem(placement: .navigationBarTrailing) {
                             Circle()
                                 .fill(connectionColor)
                                 .frame(width: 8, height: 8)
                         }
                     }
+                    .navigationBarTitleDisplayMode(.inline)
             } else {
-                EmptyStateView(
-                    title: L10n.noConversations,
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: L10n.startNewChat
-                )
+                WelcomeView()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -79,7 +81,7 @@ struct MainView: View {
         if let sessionId = chatVM?.currentSessionId, sessionId != "default" {
             return sessionId
         }
-        return "Chat"
+        return L10n.appName
     }
 
     private var connectionColor: Color {
@@ -88,6 +90,50 @@ struct MainView: View {
         case .connecting: return .yellow
         case .disconnected: return .red
         }
+    }
+}
+
+/// User avatar with initials, similar to Gemini's style.
+struct UserAvatarView: View {
+    let name: String
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color(.systemGray4))
+            Text(initials)
+                .font(.system(size: size * 0.4, weight: .medium))
+                .foregroundStyle(.primary)
+        }
+        .frame(width: size, height: size)
+    }
+
+    private var initials: String {
+        let parts = name.split(separator: " ")
+        if let first = parts.first?.first {
+            return String(first).uppercased()
+        }
+        return "U"
+    }
+}
+
+/// Welcome view shown when chat is empty (Gemini style).
+struct WelcomeView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image("KlausLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Text(L10n.welcomeMessage)
+                .font(.title2)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

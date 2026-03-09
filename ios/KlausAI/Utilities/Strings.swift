@@ -18,11 +18,14 @@ enum L10n {
     static let registering = "注册中..."
 
     // Chat
-    static let newChat = "新对话"
+    static let newChat = "发起新对话"
+    static let askKlaus = "问问 Klaus"
     static let messagePlaceholder = "输入消息..."
     static let conversations = "对话列表"
+    static let searchConversations = "搜索对话"
     static let noConversations = "暂无对话"
     static let startNewChat = "开始新对话吧"
+    static let welcomeMessage = "你好，需要我帮你做点什么？"
     static let thinking = "思考中..."
     static let sending = "发送中..."
 

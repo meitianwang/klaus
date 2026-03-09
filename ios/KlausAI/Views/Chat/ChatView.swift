@@ -39,21 +39,39 @@ struct ChatView: View {
                 .background(Color.blue.opacity(0.08))
             }
 
-            // Messages
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(viewModel.messages, id: \.id) { message in
-                            MessageBubble(message: message, baseURL: appState.api.baseURL)
-                                .id(message.id)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            // Messages or welcome
+            if viewModel.messages.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+                    Image("KlausLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    Text(L10n.welcomeMessage)
+                        .font(.title2)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 32)
+                    Spacer()
                 }
-                .onChange(of: viewModel.messages.count) { _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(viewModel.messages, id: \.id) { message in
+                                MessageBubble(message: message, baseURL: appState.api.baseURL)
+                                    .id(message.id)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    .onChange(of: viewModel.messages.count) { _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
+                        }
                     }
                 }
             }

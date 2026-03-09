@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Sidebar view listing all chat sessions (Chinese localized).
+/// Sidebar view listing all chat sessions (Gemini-style).
 struct SessionListView: View {
     @ObservedObject var sessionVM: SessionListViewModel
     @ObservedObject var chatVM: ChatViewModel
     @Binding var selectedSessionId: String?
     @EnvironmentObject private var appState: AppState
+    @State private var searchText = ""
 
     var body: some View {
         List(selection: $selectedSessionId) {
@@ -14,7 +15,8 @@ struct SessionListView: View {
                 chatVM.newSession()
                 selectedSessionId = chatVM.currentSessionId
             } label: {
-                Label(L10n.newChat, systemImage: "plus.bubble")
+                Label(L10n.newChat, systemImage: "square.and.pencil")
+                    .font(.body)
             }
 
             // Session list
@@ -27,14 +29,15 @@ struct SessionListView: View {
                     )
                 }
 
-                ForEach(sessionVM.sessions) { session in
+                ForEach(filteredSessions) { session in
                     SessionRow(session: session, isActive: session.sessionId == chatVM.currentSessionId)
                         .tag(session.sessionId)
                 }
                 .onDelete { indexSet in
+                    let sessions = filteredSessions
                     Task {
                         for index in indexSet {
-                            let session = sessionVM.sessions[index]
+                            let session = sessions[index]
                             await sessionVM.deleteSession(session.sessionId)
                         }
                     }
@@ -42,6 +45,7 @@ struct SessionListView: View {
             }
         }
         .listStyle(.sidebar)
+        .searchable(text: $searchText, prompt: L10n.searchConversations)
         .onChange(of: selectedSessionId) { newValue in
             guard let sessionId = newValue else { return }
             let title = sessionVM.sessions.first(where: { $0.sessionId == sessionId })?.title
@@ -60,6 +64,15 @@ struct SessionListView: View {
             if sessionVM.isLoading && sessionVM.sessions.isEmpty {
                 ProgressView()
             }
+        }
+    }
+
+    private var filteredSessions: [SessionSummary] {
+        if searchText.isEmpty {
+            return sessionVM.sessions
+        }
+        return sessionVM.sessions.filter {
+            $0.title.localizedCaseInsensitiveContains(searchText)
         }
     }
 }

@@ -41,8 +41,9 @@ struct ChatInputBar: View {
                 .padding(.vertical, 4)
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                // Attachment menu (photos + documents)
+            // Input row: [+] [text field] [send]
+            HStack(alignment: .bottom, spacing: 10) {
+                // Attachment menu
                 Menu {
                     PhotosPicker(selection: $selectedPhotoItems, matching: .any(of: [.images, .videos])) {
                         Label("照片与视频", systemImage: "photo.on.rectangle")
@@ -54,9 +55,12 @@ struct ChatInputBar: View {
                         Label("文件", systemImage: "doc")
                     }
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .medium))
                         .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .background(Color(.systemGray6))
+                        .clipShape(Circle())
                 }
                 .onChange(of: selectedPhotoItems) { newItems in
                     guard !newItems.isEmpty else { return }
@@ -69,14 +73,14 @@ struct ChatInputBar: View {
                 }
 
                 // Text input
-                TextField(L10n.messagePlaceholder, text: $viewModel.inputText, axis: .vertical)
+                TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                     .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .clipShape(RoundedRectangle(cornerRadius: 22))
                     .onSubmit {
                         if !viewModel.isProcessing {
                             Task { await viewModel.sendMessage() }
@@ -88,13 +92,13 @@ struct ChatInputBar: View {
                     Task { await viewModel.sendMessage() }
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
+                        .font(.system(size: 32))
                         .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
                 }
                 .disabled(!canSend)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
         }
         .background(.bar)
         .sheet(isPresented: $showDocumentPicker) {
