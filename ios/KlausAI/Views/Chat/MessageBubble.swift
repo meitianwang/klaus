@@ -57,14 +57,14 @@ struct MessageBubble: View {
                         if message.role == .user { Spacer() }
                         Text(message.timestamp.shortTimeString)
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(message.role == .user ? AnyShapeStyle(Color(.systemBackground).opacity(0.7)) : AnyShapeStyle(.tertiary))
+                            .foregroundStyle(.tertiary)
                         if message.role == .assistant { Spacer() }
                     }
                     .padding(.top, 2)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .foregroundStyle(message.role == .user ? Color(.systemBackground) : .primary)
+                .foregroundStyle(.primary)
                 .background(bubbleBackground)
                 .clipShape(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -80,7 +80,7 @@ struct MessageBubble: View {
     private var bubbleBackground: some View {
         switch message.role {
         case .user:
-            Color.primary
+            Color(.systemGray5)
         case .assistant:
             Color.clear
         case .system:

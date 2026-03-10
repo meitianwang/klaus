@@ -3,6 +3,7 @@ import Combine
 
 /// Core chat ViewModel: manages messages, streaming, tool events, permissions,
 /// slash commands, and config notifications.
+@MainActor
 final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var inputText = ""
@@ -81,7 +82,7 @@ final class ChatViewModel: ObservableObject {
             }
             messages = loaded
         } catch {
-            print("[Chat] Failed to load history: \(error)")
+            // Silently fail — empty chat is acceptable fallback
         }
     }
 

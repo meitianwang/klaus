@@ -59,15 +59,24 @@ actor APIClient {
     }
 
     func deleteSession(sessionId: String) async throws {
-        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        let _: [String: Bool] = try await delete("/api/sessions?sessionId=\(encoded)")
+        var components = URLComponents()
+        components.path = "/api/sessions"
+        components.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        guard let path = components.string else { throw APIError.invalidResponse }
+        let _: [String: Bool] = try await delete(path)
     }
 
     // MARK: - History
 
     func fetchHistory(sessionId: String, limit: Int = 200) async throws -> HistoryResponse {
-        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
-        return try await get("/api/history?sessionId=\(encoded)&limit=\(limit)")
+        var components = URLComponents()
+        components.path = "/api/history"
+        components.queryItems = [
+            URLQueryItem(name: "sessionId", value: sessionId),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        guard let path = components.string else { throw APIError.invalidResponse }
+        return try await get(path)
     }
 
     // MARK: - Upload
@@ -79,10 +88,12 @@ actor APIClient {
     }
 
     func uploadFile(data: Data, fileName: String, contentType: String) async throws -> UploadResponse {
-        let encoded = fileName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? fileName
-        let url = baseURL.appendingPathComponent("/api/upload").appending(queryItems: [
-            URLQueryItem(name: "name", value: encoded)
-        ])
+        var components = URLComponents()
+        components.path = "/api/upload"
+        components.queryItems = [URLQueryItem(name: "name", value: fileName)]
+        guard let url = components.url(relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -96,7 +107,11 @@ actor APIClient {
     // MARK: - File download
 
     func downloadFile(path: String) async throws -> (Data, String) {
-        let url = baseURL.appendingPathComponent(path)
+        guard !path.contains("://"),
+              let url = URL(string: path, relativeTo: baseURL),
+              url.host == baseURL.host else {
+            throw APIError.invalidResponse
+        }
         let request = URLRequest(url: url)
         let (data, response) = try await session.data(for: request)
 
@@ -112,7 +127,9 @@ actor APIClient {
     // MARK: - Private helpers
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
         let request = URLRequest(url: url)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
@@ -120,7 +137,9 @@ actor APIClient {
     }
 
     private func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -132,7 +151,9 @@ actor APIClient {
     }
 
     private func delete<T: Decodable>(_ path: String) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
 
