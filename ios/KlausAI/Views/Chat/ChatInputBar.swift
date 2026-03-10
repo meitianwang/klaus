@@ -10,6 +10,7 @@ struct ChatInputBar: View {
     @State private var isUploading = false
     @StateObject private var speech = SpeechRecognizer()
     @FocusState private var isFocused: Bool
+    @State private var isVoiceMode = false
 
     private static let maxFileSize = 10 * 1024 * 1024  // 10 MB
 
@@ -44,91 +45,65 @@ struct ChatInputBar: View {
 
             // Input container
             HStack(alignment: .center, spacing: 12) {
-                // Attachment menu
-                Menu {
-                    PhotosPicker(selection: $selectedPhotoItems, matching: .any(of: [.images, .videos])) {
-                        Label("照片与视频", systemImage: "photo.on.rectangle")
-                    }
-
+                if isVoiceMode {
+                    // Voice mode: keyboard toggle + hold-to-talk button
                     Button {
-                        showDocumentPicker = true
+                        isVoiceMode = false
+                        isFocused = true
                     } label: {
-                        Label("文件", systemImage: "doc")
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .onChange(of: selectedPhotoItems) { newItems in
-                    guard !newItems.isEmpty else { return }
-                    Task {
-                        for item in newItems {
-                            await handlePhotoSelection(item)
-                        }
-                        selectedPhotoItems = []
-                    }
-                }
-
-                // Text input
-                TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...6)
-                    .focused($isFocused)
-                    .font(.system(.body, design: .default))
-                    .padding(.vertical, 10)
-                    .onSubmit {
-                        if !viewModel.isProcessing {
-                            Task { await viewModel.sendMessage() }
-                        }
-                    }
-
-                // Send button or action icons
-                if canSend && !speech.isRecording {
-                    Button {
-                        Task { await viewModel.sendMessage() }
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.primary)
-                                .frame(width: 32, height: 32)
-
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(Color(.systemBackground))
-                        }
-                    }
-                    .padding(.bottom, 6)
-                    .padding(.trailing, 6)
-                } else {
-                    HStack(spacing: 16) {
-                        Image(systemName: speech.isRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 20))
-                            .foregroundStyle(speech.isRecording ? .red : .secondary)
-                            .gesture(
-                                LongPressGesture(minimumDuration: 0.15)
-                                    .onEnded { _ in
-                                        speech.startRecording()
-                                        HapticManager.impact(.medium)
-                                    }
-                                    .sequenced(before: DragGesture(minimumDistance: 0)
-                                        .onEnded { _ in
-                                            if speech.isRecording {
-                                                speech.stopRecording()
-                                                HapticManager.impact(.light)
-                                            }
-                                        }
-                                    )
-                            )
-
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 20))
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 20, weight: .regular))
                             .foregroundStyle(.secondary)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
                     }
-                    .padding(.vertical, 10)
-                    .padding(.trailing, 10)
+
+                    HoldToTalkButton(speech: speech, onFinish: { text in
+                        if !text.isEmpty {
+                            viewModel.inputText += text
+                        }
+                    })
+
+                    // Send button if there's text
+                    if canSend {
+                        sendButton
+                    }
+                } else {
+                    // Text mode: attachment + text field + send/mic
+                    attachmentMenu
+
+                    TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...6)
+                        .focused($isFocused)
+                        .font(.system(.body, design: .default))
+                        .padding(.vertical, 10)
+                        .onSubmit {
+                            if !viewModel.isProcessing {
+                                Task { await viewModel.sendMessage() }
+                            }
+                        }
+
+                    if canSend {
+                        sendButton
+                    } else {
+                        HStack(spacing: 16) {
+                            Button {
+                                isVoiceMode = true
+                                isFocused = false
+                            } label: {
+                                Image(systemName: "mic")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.trailing, 10)
+                    }
                 }
             }
             .padding(.leading, 8)
@@ -153,9 +128,6 @@ struct ChatInputBar: View {
                 }
             }
         }
-        .onChange(of: speech.transcript) { newValue in
-            viewModel.inputText = newValue
-        }
         .onChange(of: speech.error) { newValue in
             if let msg = newValue {
                 viewModel.errorMessage = msg
@@ -163,10 +135,63 @@ struct ChatInputBar: View {
         }
     }
 
+    // MARK: - Subviews
+
+    private var sendButton: some View {
+        Button {
+            Task { await viewModel.sendMessage() }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color.primary)
+                    .frame(width: 32, height: 32)
+
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(.systemBackground))
+            }
+        }
+        .padding(.bottom, 6)
+        .padding(.trailing, 6)
+    }
+
+    private var attachmentMenu: some View {
+        Menu {
+            PhotosPicker(selection: $selectedPhotoItems, matching: .any(of: [.images, .videos])) {
+                Label("照片与视频", systemImage: "photo.on.rectangle")
+            }
+
+            Button {
+                showDocumentPicker = true
+            } label: {
+                Label("文件", systemImage: "doc")
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .onChange(of: selectedPhotoItems) { newItems in
+            guard !newItems.isEmpty else { return }
+            Task {
+                for item in newItems {
+                    await handlePhotoSelection(item)
+                }
+                selectedPhotoItems = []
+            }
+        }
+    }
+
+    // MARK: - Computed
+
     private var canSend: Bool {
         let hasText = !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return (hasText || !viewModel.uploadedFiles.isEmpty) && !viewModel.isProcessing && !isUploading
     }
+
+    // MARK: - File handling
 
     private func handlePhotoSelection(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self) else { return }
@@ -237,6 +262,45 @@ struct ChatInputBar: View {
             viewModel.errorMessage = "\(L10n.uploadFailed): \(error.localizedDescription)"
         }
         isUploading = false
+    }
+}
+
+// MARK: - Hold to talk button (WeChat style)
+
+private struct HoldToTalkButton: View {
+    @ObservedObject var speech: SpeechRecognizer
+    let onFinish: (String) -> Void
+
+    @State private var isPressing = false
+
+    var body: some View {
+        Text(speech.isRecording ? "松开 结束" : "按住 说话")
+            .font(.system(.body, weight: .medium))
+            .foregroundStyle(speech.isRecording ? .white : .primary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(speech.isRecording ? Color.red.opacity(0.8) : Color(.systemGray5))
+            )
+            .scaleEffect(speech.isRecording ? 1.03 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: speech.isRecording)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressing else { return }
+                        isPressing = true
+                        speech.startRecording()
+                        HapticManager.impact(.medium)
+                    }
+                    .onEnded { _ in
+                        isPressing = false
+                        let text = speech.transcript
+                        speech.stopRecording()
+                        HapticManager.impact(.light)
+                        onFinish(text)
+                    }
+            )
     }
 }
 
