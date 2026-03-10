@@ -62,6 +62,8 @@ struct ChatInputBar: View {
                         if !text.isEmpty {
                             viewModel.inputText += text
                         }
+                        // Auto switch back to text mode to show result
+                        isVoiceMode = false
                     })
 
                     // Send button if there's text
