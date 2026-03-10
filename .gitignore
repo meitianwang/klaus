@@ -16,3 +16,4 @@ ios/build/
 ios/DerivedData/
 ios/**/*.xcuserstate
 ios/**/xcuserdata/
+ios/*.log
