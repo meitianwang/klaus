@@ -3,7 +3,7 @@ import Foundation
 /// Bilingual string system matching Web frontend's i18n.
 enum L10n {
     // Auth
-    static let appName = "Klaus AI"
+    static let appName = "Klaus"
     static let serverLabel = "服务器"
     static let emailPlaceholder = "邮箱"
     static let passwordPlaceholder = "密码"
@@ -25,7 +25,7 @@ enum L10n {
     static let searchConversations = "搜索对话"
     static let noConversations = "暂无对话"
     static let startNewChat = "开始新对话吧"
-    static let welcomeMessage = "你好，需要我帮你做点什么？"
+    static let welcomeMessage = "我可以帮你撰写内容、制定计划、开展研究等等。需要我帮你做什么？"
     static let thinking = "思考中..."
     static let sending = "发送中..."
 

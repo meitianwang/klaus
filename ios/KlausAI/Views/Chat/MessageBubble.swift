@@ -25,7 +25,7 @@ struct MessageBubble: View {
                         .clipShape(Circle())
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     if message.isStreaming && message.content.isEmpty {
                         StreamingIndicator()
                     } else if message.isStreaming {
@@ -33,13 +33,13 @@ struct MessageBubble: View {
                         HStack(alignment: .bottom, spacing: 0) {
                             Text(message.content)
                                 .textSelection(.enabled)
-                                .font(.body)
+                                .font(.system(.body, design: .rounded))
                             StreamingCursor()
                         }
                     } else if message.role == .system {
                         // System messages (slash command results)
                         Text(message.content)
-                            .font(.callout)
+                            .font(.system(.callout, design: .rounded))
                             .foregroundStyle(.secondary)
                     } else {
                         MarkdownText(message.content)
@@ -53,14 +53,22 @@ struct MessageBubble: View {
                     }
 
                     // Timestamp
-                    Text(message.timestamp.shortTimeString)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    HStack {
+                        if message.role == .user { Spacer() }
+                        Text(message.timestamp.shortTimeString)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(message.role == .user ? AnyShapeStyle(Color(.systemBackground).opacity(0.7)) : AnyShapeStyle(.tertiary))
+                        if message.role == .assistant { Spacer() }
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .foregroundStyle(message.role == .user ? Color(.systemBackground) : .primary)
                 .background(bubbleBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
 
                 if message.role == .assistant { Spacer(minLength: 40) }
             }
@@ -68,11 +76,15 @@ struct MessageBubble: View {
         .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     }
 
-    private var bubbleBackground: Color {
+    @ViewBuilder
+    private var bubbleBackground: some View {
         switch message.role {
-        case .user: return Color.accentColor.opacity(0.12)
-        case .assistant: return Color(.systemGray6)
-        case .system: return Color(.systemGray5).opacity(0.5)
+        case .user:
+            Color.primary
+        case .assistant:
+            Color.clear
+        case .system:
+            Color(.systemGray6).opacity(0.8)
         }
     }
 }

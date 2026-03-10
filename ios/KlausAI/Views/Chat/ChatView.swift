@@ -7,20 +7,6 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Connection status banner
-            if appState.webSocket.state != .connected {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(appState.webSocket.state == .connecting ? .yellow : .red)
-                        .frame(width: 8, height: 8)
-                    Text(appState.webSocket.state == .connecting ? L10n.connecting : L10n.disconnected)
-                        .font(.caption)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(appState.webSocket.state == .connecting ? Color.yellow.opacity(0.15) : Color.red.opacity(0.1))
-            }
-
             // Config update banner (auto-dismiss after 15s)
             if viewModel.configUpdateBanner {
                 HStack {
@@ -41,18 +27,13 @@ struct ChatView: View {
 
             // Messages or welcome
             if viewModel.messages.isEmpty {
-                VStack(spacing: 16) {
+                VStack {
                     Spacer()
                     Image("KlausLogo")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 48, height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                    Text(L10n.welcomeMessage)
-                        .font(.title2)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 32)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

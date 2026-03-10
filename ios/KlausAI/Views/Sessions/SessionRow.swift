@@ -6,39 +6,39 @@ struct SessionRow: View {
     let isActive: Bool
 
     var body: some View {
-        HStack {
+        HStack(spacing: 16) {
+            // Icon
+            Image(systemName: isActive ? "bubble.left.fill" : "bubble.left")
+                .font(.system(size: 20))
+                .foregroundStyle(isActive ? Color.primary : Color.secondary)
+                .frame(width: 36, height: 36)
+
+            // Texts
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayTitle)
-                    .font(.subheadline.weight(isActive ? .semibold : .regular))
+                    .font(.system(.body, design: .default, weight: isActive ? .semibold : .regular))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
                     Text("\(session.messageCount) 条消息")
-                        .font(.caption2)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
 
                     Text(session.updatedDate.relativeString)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-
-                    if let model = session.model {
-                        Text(modelShortName(model))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
             Spacer()
-
-            if isActive {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 8, height: 8)
-            }
         }
-        .padding(.vertical, 2)
-        .listRowBackground(isActive ? Color.accentColor.opacity(0.08) : nil)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isActive ? Color(.systemGray6) : Color.clear)
+        )
     }
 
     /// Use session title (from first message) or fallback to "新对话"

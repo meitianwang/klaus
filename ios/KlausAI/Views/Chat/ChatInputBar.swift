@@ -41,8 +41,8 @@ struct ChatInputBar: View {
                 .padding(.vertical, 4)
             }
 
-            // Input row: [+] [text field] [send]
-            HStack(alignment: .bottom, spacing: 10) {
+            // Input container
+            HStack(alignment: .center, spacing: 12) {
                 // Attachment menu
                 Menu {
                     PhotosPicker(selection: $selectedPhotoItems, matching: .any(of: [.images, .videos])) {
@@ -56,11 +56,10 @@ struct ChatInputBar: View {
                     }
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.secondary)
                         .frame(width: 36, height: 36)
-                        .background(Color(.systemGray6))
-                        .clipShape(Circle())
+                        .contentShape(Rectangle())
                 }
                 .onChange(of: selectedPhotoItems) { newItems in
                     guard !newItems.isEmpty else { return }
@@ -77,30 +76,58 @@ struct ChatInputBar: View {
                     .textFieldStyle(.plain)
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.horizontal, 14)
+                    .font(.system(.body, design: .default))
                     .padding(.vertical, 10)
-                    .background(Color(.systemGray6))
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
                     .onSubmit {
                         if !viewModel.isProcessing {
                             Task { await viewModel.sendMessage() }
                         }
                     }
 
-                // Send button
-                Button {
-                    Task { await viewModel.sendMessage() }
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
+                // Send button or decorative icons
+                if canSend {
+                    Button {
+                        Task { await viewModel.sendMessage() }
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.primary)
+                                .frame(width: 32, height: 32)
+                                
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color(.systemBackground))
+                        }
+                    }
+                    .padding(.bottom, 6)
+                    .padding(.trailing, 6)
+                } else {
+                    HStack(spacing: 16) {
+                        Image(systemName: "mic")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.secondary)
+                        
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 10)
                 }
-                .disabled(!canSend)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.leading, 8)
+            .padding(.trailing, 4)
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color(.systemGray4), lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .padding(.top, 4)
         }
-        .background(.bar)
+        .background(Color(.systemGroupedBackground))
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPickerView { urls in
                 Task {
