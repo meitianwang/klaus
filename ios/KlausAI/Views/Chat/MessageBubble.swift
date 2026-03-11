@@ -27,18 +27,25 @@ struct MessageBubble: View {
                 // Attached files
                 if !message.attachedFiles.isEmpty {
                     ForEach(message.attachedFiles) { file in
-                        FileAttachmentCard(file: file, baseURL: baseURL)
+                        if file.type == .image, let thumbnail = file.thumbnail,
+                           let uiImage = UIImage(data: thumbnail) {
+                            ImageThumbnailView(image: uiImage)
+                        } else {
+                            FileAttachmentCard(file: file, baseURL: baseURL)
+                        }
                     }
                 }
 
-                Text(message.content)
-                    .font(.system(size: 14.5))
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                if !message.isFileOnlyMessage {
+                    Text(message.content)
+                        .font(.system(size: 14.5))
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray5))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
 
                 Text(message.timestamp.shortTimeString)
                     .font(.system(size: 11, weight: .regular))
@@ -179,5 +186,18 @@ private struct FileAttachmentCard: View {
     private var extensionBadge: String {
         let ext = (file.name as NSString).pathExtension.uppercased()
         return ext.isEmpty ? file.type.rawValue.uppercased() : ext
+    }
+}
+
+/// Inline image thumbnail for user-sent images.
+private struct ImageThumbnailView: View {
+    let image: UIImage
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: 200, maxHeight: 200)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }

@@ -205,8 +205,17 @@ struct ChatInputBar: View {
                 contentType: mimeType
             )
             var thumbnail: Data?
-            if mimeType.hasPrefix("image/") && data.count < 100_000 {
-                thumbnail = data
+            if mimeType.hasPrefix("image/") {
+                thumbnail = await Task.detached(priority: .utility) {
+                    guard let uiImage = UIImage(data: data) else { return nil as Data? }
+                    let maxDim: CGFloat = 400
+                    let scale = min(maxDim / uiImage.size.width, maxDim / uiImage.size.height, 1.0)
+                    if scale >= 1.0 && data.count < 200_000 { return data }
+                    let newSize = CGSize(width: uiImage.size.width * scale, height: uiImage.size.height * scale)
+                    let renderer = UIGraphicsImageRenderer(size: newSize)
+                    let resized = renderer.image { _ in uiImage.draw(in: CGRect(origin: .zero, size: newSize)) }
+                    return resized.jpegData(compressionQuality: 0.7)
+                }.value
             }
             viewModel.uploadedFiles.append(UploadedFile(
                 id: response.id,
@@ -222,10 +231,13 @@ struct ChatInputBar: View {
     }
 
     private func handleDocumentSelection(_ url: URL) async {
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
 
-        guard let data = try? Data(contentsOf: url) else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            viewModel.errorMessage = "无法读取文件"
+            return
+        }
 
         guard data.count <= Self.maxFileSize else {
             viewModel.errorMessage = "文件超过 10 MB 限制"

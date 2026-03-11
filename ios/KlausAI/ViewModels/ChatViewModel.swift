@@ -47,12 +47,11 @@ final class ChatViewModel: ObservableObject {
                 id: file.id,
                 name: file.name,
                 url: nil,
-                type: file.type
+                type: file.type,
+                thumbnail: file.thumbnail
             )
         }
-        let displayText = text.isEmpty && !uploadedFiles.isEmpty
-            ? "[发送了 \(uploadedFiles.count) 个文件]"
-            : text
+        let displayText = text
         let userMessage = ChatMessage(
             role: .user,
             content: displayText,
