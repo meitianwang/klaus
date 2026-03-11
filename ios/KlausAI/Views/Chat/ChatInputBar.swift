@@ -10,7 +10,7 @@ struct ChatInputBar: View {
     @State private var isUploading = false
     @StateObject private var speech = SpeechRecognizer()
     @FocusState private var isFocused: Bool
-    @State private var isVoiceMode = false
+    @State private var showVoiceSheet = false
     @State private var showPhotoPicker = false
 
     private static let maxFileSize = 10 * 1024 * 1024  // 10 MB
@@ -46,67 +46,33 @@ struct ChatInputBar: View {
 
             // Input container
             HStack(alignment: .center, spacing: 12) {
-                if isVoiceMode {
-                    // Voice mode: keyboard toggle + hold-to-talk button
-                    Button {
-                        isVoiceMode = false
-                        isFocused = true
-                    } label: {
-                        Image(systemName: "keyboard")
-                            .font(.system(size: 20, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
+                attachmentMenu
 
-                    HoldToTalkButton(speech: speech, onFinish: { text in
-                        if !text.isEmpty {
-                            viewModel.inputText += text
+                TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...6)
+                    .focused($isFocused)
+                    .font(.system(.body, design: .default))
+                    .padding(.vertical, 10)
+                    .onSubmit {
+                        if !viewModel.isProcessing {
+                            Task { await viewModel.sendMessage() }
                         }
-                        // Auto switch back to text mode to show result
-                        isVoiceMode = false
-                    })
-
-                    // Send button if there's text
-                    if canSend {
-                        sendButton
                     }
+
+                if canSend {
+                    sendButton
                 } else {
-                    // Text mode: attachment + text field + send/mic
-                    attachmentMenu
-
-                    TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...6)
-                        .focused($isFocused)
-                        .font(.system(.body, design: .default))
-                        .padding(.vertical, 10)
-                        .onSubmit {
-                            if !viewModel.isProcessing {
-                                Task { await viewModel.sendMessage() }
-                            }
-                        }
-
-                    if canSend {
-                        sendButton
-                    } else {
-                        HStack(spacing: 16) {
-                            Button {
-                                isVoiceMode = true
-                                isFocused = false
-                            } label: {
-                                Image(systemName: "mic")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 10)
-                        .padding(.trailing, 10)
+                    Button {
+                        isFocused = false
+                        showVoiceSheet = true
+                    } label: {
+                        Image(systemName: "mic")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 10)
                 }
             }
             .padding(.leading, 8)
@@ -130,6 +96,15 @@ struct ChatInputBar: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showVoiceSheet) {
+            VoiceInputSheet(speech: speech) { text in
+                if !text.isEmpty {
+                    viewModel.inputText += text
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: speech.error) { newValue in
             if let msg = newValue {
@@ -200,7 +175,17 @@ struct ChatInputBar: View {
     // MARK: - File handling
 
     private func handlePhotoSelection(_ item: PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+        let data: Data
+        do {
+            guard let loaded = try await item.loadTransferable(type: Data.self) else {
+                viewModel.errorMessage = "无法加载所选照片"
+                return
+            }
+            data = loaded
+        } catch {
+            viewModel.errorMessage = "加载照片失败: \(error.localizedDescription)"
+            return
+        }
 
         guard data.count <= Self.maxFileSize else {
             viewModel.errorMessage = "文件超过 10 MB 限制"
@@ -271,42 +256,130 @@ struct ChatInputBar: View {
     }
 }
 
-// MARK: - Hold to talk button (WeChat style)
+// MARK: - Siri-style voice input sheet
 
-private struct HoldToTalkButton: View {
+private struct VoiceInputSheet: View {
     @ObservedObject var speech: SpeechRecognizer
     let onFinish: (String) -> Void
 
-    @State private var isPressing = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var pulseScale: CGFloat = 1.0
 
     var body: some View {
-        Text(speech.isRecording ? "松开 结束" : "按住 说话")
-            .font(.system(.body, weight: .medium))
-            .foregroundStyle(speech.isRecording ? .white : .primary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(speech.isRecording ? Color.red.opacity(0.8) : Color(.systemGray5))
-            )
-            .scaleEffect(speech.isRecording ? 1.03 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: speech.isRecording)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !isPressing else { return }
-                        isPressing = true
-                        speech.startRecording()
-                        HapticManager.impact(.medium)
+        VStack(spacing: 0) {
+            Spacer()
+
+            // Transcript
+            ScrollView {
+                Text(speech.transcript.isEmpty ? "正在聆听..." : speech.transcript)
+                    .font(.system(.title3, weight: .medium))
+                    .foregroundStyle(speech.transcript.isEmpty ? .secondary : .primary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(maxHeight: 120)
+
+            Spacer()
+
+            // Pulsating mic indicator
+            ZStack {
+                // Outer pulse rings
+                if speech.isRecording {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.08))
+                        .frame(width: 140, height: 140)
+                        .scaleEffect(pulseScale)
+
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 110, height: 110)
+                        .scaleEffect(pulseScale * 0.95)
+                }
+
+                // Main circle
+                Circle()
+                    .fill(speech.isRecording ? Color.accentColor : Color(.systemGray4))
+                    .frame(width: 80, height: 80)
+                    .shadow(color: speech.isRecording ? Color.accentColor.opacity(0.3) : .clear, radius: 12)
+
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+            .animation(.easeInOut(duration: 0.3), value: speech.isRecording)
+
+            Spacer()
+
+            // Action buttons
+            HStack(spacing: 48) {
+                // Cancel
+                Button {
+                    speech.stopRecording()
+                    HapticManager.impact(.light)
+                    dismiss()
+                } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            Circle()
+                                .fill(Color(.systemGray5))
+                                .frame(width: 52, height: 52)
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("取消")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .onEnded { _ in
-                        isPressing = false
-                        let text = speech.transcript
-                        speech.stopRecording()
-                        HapticManager.impact(.light)
-                        onFinish(text)
+                }
+
+                // Done
+                Button {
+                    let text = speech.transcript
+                    speech.stopRecording()
+                    HapticManager.impact(.medium)
+                    onFinish(text)
+                    dismiss()
+                } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 52, height: 52)
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        Text("完成")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-            )
+                }
+                .disabled(speech.transcript.isEmpty)
+                .opacity(speech.transcript.isEmpty ? 0.4 : 1.0)
+            }
+            .padding(.bottom, 40)
+        }
+        .onAppear {
+            speech.startRecording()
+            HapticManager.impact(.medium)
+            startPulseAnimation()
+        }
+        .onDisappear {
+            if speech.isRecording {
+                speech.stopRecording()
+            }
+        }
+    }
+
+    private func startPulseAnimation() {
+        withAnimation(
+            .easeInOut(duration: 1.5)
+            .repeatForever(autoreverses: true)
+        ) {
+            pulseScale = 1.15
+        }
     }
 }
 

@@ -50,11 +50,20 @@ struct ChatView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom-anchor")
                     }
                     .onTapGesture { dismissKeyboard() }
                     .onChange(of: viewModel.messages.count) { _ in
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
+                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: viewModel.scrollTrigger) { _ in
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            proxy.scrollTo("bottom-anchor", anchor: .bottom)
                         }
                     }
                 }

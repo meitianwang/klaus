@@ -14,6 +14,7 @@ final class ChatViewModel: ObservableObject {
     @Published var currentSessionTitle: String?
     @Published var uploadedFiles: [UploadedFile] = []
     @Published var configUpdateBanner = false
+    @Published var scrollTrigger = 0
 
     let appState: AppState
     private var streamBuffer = ""
@@ -40,7 +41,23 @@ final class ChatViewModel: ObservableObject {
             return
         }
 
-        let userMessage = ChatMessage(role: .user, content: text)
+        // Build user message with attached file info
+        let attachedFiles = uploadedFiles.map { file in
+            AttachedFile(
+                id: file.id,
+                name: file.name,
+                url: nil,
+                type: file.type
+            )
+        }
+        let displayText = text.isEmpty && !uploadedFiles.isEmpty
+            ? "[发送了 \(uploadedFiles.count) 个文件]"
+            : text
+        let userMessage = ChatMessage(
+            role: .user,
+            content: displayText,
+            attachedFiles: attachedFiles
+        )
         messages.append(userMessage)
         inputText = ""
         isProcessing = true
@@ -265,12 +282,14 @@ final class ChatViewModel: ObservableObject {
         // Mutating via index triggers @Published change detection
         messages[idx].content += streamBuffer
         streamBuffer = ""
+        scrollTrigger += 1
     }
 
     private func finalizeAssistantMessage(_ text: String) {
         streamThrottleTask?.cancel()
         streamThrottleTask = nil
         streamBuffer = ""
+        scrollTrigger += 1
 
         guard let idx = lastStreamingIndex() else { return }
         messages[idx].content = text
