@@ -35,6 +35,7 @@ import {
 import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { ensureWorkspace, getWorkspacePath } from "../workspace.js";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { ChannelPlugin } from "./types.js";
 import type {
@@ -79,9 +80,6 @@ import { DEFAULT_PERSONA } from "../persona.js";
 // File upload storage
 // ---------------------------------------------------------------------------
 
-const UPLOAD_DIR = join(tmpdir(), "klaus-web-uploads");
-mkdirSync(UPLOAD_DIR, { recursive: true });
-
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
 
@@ -116,12 +114,16 @@ function registerDownloadToken(
 ): { token: string; name: string } {
   // Resolve to absolute path and block path traversal
   const resolved = resolve(filePath);
-  const allowed = DOWNLOAD_ALLOWED_DIRS.some(
-    (dir) => resolved === dir || resolved.startsWith(dir + "/"),
-  );
+  const userWorkspace = getWorkspacePath(userId);
+  const allowed =
+    DOWNLOAD_ALLOWED_DIRS.some(
+      (dir) => resolved === dir || resolved.startsWith(dir + "/"),
+    ) ||
+    resolved === userWorkspace ||
+    resolved.startsWith(userWorkspace + "/");
   if (!allowed) {
     throw new Error(
-      `Download path not allowed: ${resolved} (must be under /tmp)`,
+      `Download path not allowed: ${resolved} (must be under /tmp or user workspace)`,
     );
   }
 
@@ -785,7 +787,11 @@ async function handleUpload(
   const baseName = fileName.split(/[\\/]/).pop() ?? "upload";
   const safeBase = baseName.replace(/[^\w.\-]/g, "_");
   const diskName = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${safeBase}`;
-  const filePath = join(UPLOAD_DIR, diskName);
+
+  // Store uploads in user's workspace uploads/ subdirectory
+  const userUploadDir = join(ensureWorkspace(auth.user.id), "uploads");
+  mkdirSync(userUploadDir, { recursive: true });
+  const filePath = join(userUploadDir, diskName);
   const { writeFile } = await import("node:fs/promises");
   await writeFile(filePath, data);
 

@@ -9,6 +9,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import { getToolConfig } from "./tool-config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
+import { ensureWorkspace, extractUserId } from "./workspace.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
 import { type MemoryStore, buildMemoryFlushPrompt } from "./memory-store.js";
@@ -76,6 +77,7 @@ function createDeferred<T>(): Deferred<T> {
 interface ChatOptions {
   systemPrompt: string;
   model?: string;
+  cwd?: string;
 }
 
 interface PendingMessage {
@@ -153,6 +155,7 @@ export class ClaudeChat {
       options: {
         systemPrompt: this.options.systemPrompt || undefined,
         permissionMode: onPermissionRequest ? "default" : "bypassPermissions",
+        ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
         ...(onPermissionRequest
           ? {
               canUseTool: async (
@@ -530,9 +533,14 @@ export class ChatSessionManager {
       return existing;
     }
 
+    // Resolve per-user workspace directory (isolates file access)
+    const userId = extractUserId(sessionKey);
+    const cwd = userId ? ensureWorkspace(userId) : undefined;
+
     const sessionOptions: ChatOptions = {
       ...this.options,
       systemPrompt: this.buildSystemPrompt(sessionKey),
+      ...(cwd ? { cwd } : {}),
     };
     const chat = new ClaudeChat(sessionOptions);
 
@@ -663,9 +671,12 @@ export class ChatSessionManager {
       this.sessions.delete(sessionKey);
       this.sessions.set(sessionKey, existing);
     } else {
+      const userId = extractUserId(sessionKey);
+      const cwd = userId ? ensureWorkspace(userId) : undefined;
       const chat = new ClaudeChat({
         systemPrompt: "You are a helpful assistant. Be concise.",
         model: this.options.model,
+        ...(cwd ? { cwd } : {}),
       });
 
       // Restore from store if available
