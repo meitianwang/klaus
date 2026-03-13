@@ -78,9 +78,22 @@ struct SessionListView: View {
                 .onDelete { indexSet in
                     let sessions = filteredSessions
                     Task {
+                        var deletedCurrent = false
                         for index in indexSet {
                             let session = sessions[index]
+                            if session.sessionId == chatVM.currentSessionId {
+                                deletedCurrent = true
+                            }
                             await sessionVM.deleteSession(session.sessionId)
+                        }
+                        if deletedCurrent {
+                            if let next = sessionVM.sessions.first {
+                                selectedSessionId = next.sessionId
+                                await chatVM.switchSession(next.sessionId, title: next.title)
+                            } else {
+                                chatVM.newSession()
+                                selectedSessionId = chatVM.currentSessionId
+                            }
                         }
                     }
                 }

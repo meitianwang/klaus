@@ -109,32 +109,48 @@ async function start(): Promise<void> {
     }
   }
 
-  // Initialize cron scheduler (eagerly if configured, lazily on first AI marker)
+  // Initialize cron scheduler (eagerly if configured, lazily on first tool call)
   let cronScheduler: import("./cron.js").CronScheduler | null = null;
   const cronCfg = loadCronConfig();
-  if (cronCfg.enabled) {
-    const { CronScheduler } = await import("./cron.js");
-    cronScheduler = new CronScheduler(cronCfg, sessions, deliverers, store);
-    cronScheduler.start();
-  }
 
-  /** Lazy-init cron scheduler when AI creates first task (no config.yaml needed). */
-  const ensureCronScheduler = async (): Promise<
+  /** Lazy-init with Promise cache to prevent concurrent double-init. */
+  let schedulerPromise: Promise<import("./cron.js").CronScheduler> | null =
+    null;
+  const ensureCronScheduler = (): Promise<
     import("./cron.js").CronScheduler
   > => {
-    if (cronScheduler) return cronScheduler;
-    const { CronScheduler } = await import("./cron.js");
-    const cfg = loadCronConfig();
-    cronScheduler = new CronScheduler(
-      { ...cfg, enabled: true },
-      sessions,
-      deliverers,
-      store,
-    );
-    cronScheduler.start();
-    console.log("[Cron] Scheduler auto-started by AI task creation");
-    return cronScheduler;
+    schedulerPromise ??= (async () => {
+      const { CronScheduler } = await import("./cron.js");
+      cronScheduler = new CronScheduler(
+        { ...cronCfg, enabled: true },
+        sessions,
+        deliverers,
+        store,
+      );
+      cronScheduler.start();
+      console.log("[Cron] Scheduler started");
+      return cronScheduler;
+    })();
+    return schedulerPromise;
   };
+
+  // Eagerly start if cron is configured
+  if (cronCfg.enabled) {
+    await ensureCronScheduler();
+  }
+
+  // Always inject cron MCP tool so Claude can create tasks via tool_use.
+  // Uses lazy scheduler init — first tool call starts the scheduler if needed.
+  {
+    const { createCronMcpServer } = await import("./cron-tool.js");
+    const cronMcp = createCronMcpServer({
+      get scheduler() {
+        return cronScheduler;
+      },
+      ensureScheduler: ensureCronScheduler,
+    });
+    sessions.setMcpServers({ "klaus-cron": cronMcp });
+  }
 
   // Expose stores to web channel for API endpoints
   let inviteStoreInstance: { close(): void } | null = null;
@@ -271,7 +287,7 @@ async function start(): Promise<void> {
     // If any rejects, Promise.all rejects → finally runs → process.exit(1) in main().
     await Promise.all(plugins.map((p) => p.start(handler)));
   } finally {
-    cronScheduler?.stop();
+    (cronScheduler as import("./cron.js").CronScheduler | null)?.stop();
     await sessions.close();
     inviteStoreInstance?.close();
     userStoreInstance?.close();

@@ -20,12 +20,20 @@ final class ChatViewModel: ObservableObject {
     private var streamBuffer = ""
     private var streamThrottleTask: Task<Void, Never>?
     private var configBannerDismissTask: Task<Void, Never>?
+    private var wsStateObserver: AnyCancellable?
 
     init(appState: AppState) {
         self.appState = appState
         appState.webSocket.onServerMessage = { [weak self] msg in
             self?.handleServerMessage(msg)
         }
+        // Finalize streaming message when WebSocket disconnects
+        wsStateObserver = appState.webSocket.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newState in
+                guard let self, case .disconnected = newState else { return }
+                self.handleDisconnectDuringStream()
+            }
     }
 
     // MARK: - Actions
@@ -293,6 +301,43 @@ final class ChatViewModel: ObservableObject {
         guard let idx = lastStreamingIndex() else { return }
         messages[idx].content = text
         messages[idx].isStreaming = false
+    }
+
+    /// Called when WebSocket disconnects while a message is still streaming.
+    /// Finalizes the streaming state, then reloads history from server to get complete content.
+    private func handleDisconnectDuringStream() {
+        guard lastStreamingIndex() != nil else { return }
+        streamThrottleTask?.cancel()
+        streamThrottleTask = nil
+        streamBuffer = ""
+        isProcessing = false
+
+        // Reload history after a short delay to let the backend finish processing
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await reloadCurrentSession()
+        }
+    }
+
+    /// Reloads messages from server history, replacing local messages with complete server data.
+    private func reloadCurrentSession() async {
+        do {
+            let response = try await appState.api.fetchHistory(sessionId: currentSessionId)
+            let loaded = response.messages.map { transcript in
+                ChatMessage(
+                    role: transcript.role == "user" ? .user : .assistant,
+                    content: transcript.content,
+                    timestamp: transcript.date
+                )
+            }
+            messages = loaded
+            scrollTrigger += 1
+        } catch {
+            // If reload fails, at least finalize the streaming message with what we have
+            if let idx = lastStreamingIndex() {
+                messages[idx].isStreaming = false
+            }
+        }
     }
 
     private func removeStreamingMessage() {

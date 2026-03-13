@@ -5,7 +5,7 @@
  * ChatSessionManager: per-session instances with LRU eviction.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import { getToolConfig } from "./tool-config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
@@ -78,6 +78,7 @@ interface ChatOptions {
   systemPrompt: string;
   model?: string;
   cwd?: string;
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 interface PendingMessage {
@@ -196,6 +197,9 @@ export class ClaudeChat {
         ...(this.model ? { model: this.model } : {}),
         ...(this.sessionId ? { resume: this.sessionId } : {}),
         ...(onStreamChunk ? { includePartialMessages: true } : {}),
+        ...(this.options.mcpServers
+          ? { mcpServers: this.options.mcpServers }
+          : {}),
       },
     });
 
@@ -473,6 +477,11 @@ export class ChatSessionManager {
     this.options = { ...this.options, systemPrompt: persona };
   }
 
+  /** Inject MCP servers into all future sessions (called after CronScheduler init). */
+  setMcpServers(servers: Record<string, McpServerConfig>): void {
+    this.options = { ...this.options, mcpServers: servers };
+  }
+
   private persistSession(key: string, session: ClaudeChat): void {
     if (!this.store) return;
     const sessionId = session.getSessionId();
@@ -679,6 +688,9 @@ export class ChatSessionManager {
         systemPrompt: "You are a helpful assistant. Be concise.",
         model: this.options.model,
         ...(cwd ? { cwd } : {}),
+        ...(this.options.mcpServers
+          ? { mcpServers: this.options.mcpServers }
+          : {}),
       });
 
       // Restore from store if available

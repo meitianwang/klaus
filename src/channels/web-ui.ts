@@ -547,7 +547,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     });
   }
 
-  function openSidebar() { sidebar.classList.add("open"); sidebarOverlay.classList.add("show"); }
+  function openSidebar() { sidebar.classList.add("open"); sidebarOverlay.classList.add("show"); loadSessionList(); }
   function closeSidebar() { sidebar.classList.remove("open"); sidebarOverlay.classList.remove("show"); }
   menuBtn.addEventListener("click", function() { sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); });
   sidebarOverlay.addEventListener("click", closeSidebar);

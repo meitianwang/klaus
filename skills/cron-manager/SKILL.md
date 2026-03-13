@@ -8,6 +8,12 @@ metadata: { "klaus": { "emoji": "⏰", "always": true } }
 
 Create, edit, and manage scheduled tasks (cron jobs) for the user. When a user asks you to do something on a schedule — "每天推送新闻", "每周一提醒我写周报", "5分钟后提醒我开会" — use this skill to create a cron task.
 
+## Preferred Method: `cron` Tool
+
+If the `cron` tool is available in your tool list, **always use it** instead of the `[[cron:...]]` marker syntax below. The tool provides structured input/output, validation, and immediate feedback.
+
+The marker syntax below is a **fallback** for when the tool is not available.
+
 ## When to Use
 
 - User asks to schedule a recurring task: "每天早上9点给我推送新闻"

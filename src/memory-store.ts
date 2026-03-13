@@ -1,17 +1,13 @@
 /**
- * Per-user memory store — aligned with OpenClaw's design.
+ * Per-user memory store.
  *
  * Directory layout (per user):
- *   ~/.klaus/memory/{memoryKey}/MEMORY.md          — curated long-term facts
+ *   ~/.klaus/memory/{memoryKey}/MEMORY.md          — sectioned long-term facts
  *   ~/.klaus/memory/{memoryKey}/memory/YYYY-MM-DD.md — daily append-only logs
  *
- * Design principles (from OpenClaw):
- *   - Memory is plain Markdown on disk. The model only "remembers" what gets written.
- *   - MEMORY.md (long-term) is loaded at session start for PRIVATE chats only.
- *   - Daily logs (today + yesterday) are always loaded.
- *   - The system prompt tells the agent WHERE files are and HOW to use them.
- *   - The agent uses Read/Grep/Edit/Write tools to access memory — no custom tools needed.
- *   - Memory flush: a silent agent turn is triggered periodically to persist context.
+ * MEMORY.md uses `## Section` headings to organize facts by topic.
+ * The agent uses Edit tool to update entries in-place (not append).
+ * Periodic flush compresses and deduplicates sections.
  *
  * Memory key isolation:
  *   "web:user1:sess2"   → "web__user1"      (Web — strip session suffix)
@@ -26,6 +22,12 @@ import { CONFIG_DIR } from "./config.js";
 // ---------------------------------------------------------------------------
 
 const MEMORY_ROOT = join(CONFIG_DIR, "memory");
+
+/**
+ * Max characters to inject from MEMORY.md into the system prompt.
+ * Sectioned format should keep it well under this, but cap as safety net.
+ */
+const MEMORY_MAX_CHARS = 8_000;
 
 function sanitize(raw: string): string {
   return raw
@@ -84,7 +86,7 @@ function readFileSafe(path: string, maxBytes: number = 50_000): string {
 }
 
 // ---------------------------------------------------------------------------
-// Memory flush prompt (aligned with OpenClaw's pre-compaction flush)
+// Memory flush prompt
 // ---------------------------------------------------------------------------
 
 /** Build the memory flush prompt with the current date (not cached). */
@@ -92,11 +94,21 @@ export function buildMemoryFlushPrompt(): string {
   return [
     "[系统] Pre-compaction memory flush.",
     `Store durable memories now. Today is ${todayDateStr()}.`,
-    "- Write lasting facts/preferences/decisions to MEMORY.md (create if needed).",
-    `- Write session notes/context to memory/${todayDateStr()}.md (APPEND only, do not overwrite).`,
-    "- If the file already exists, APPEND new content; do not overwrite existing entries.",
+    "",
+    "MEMORY.md rules:",
+    "- Use `## Section` headings to organize by topic (e.g. ## 个人信息, ## 饮食, ## 家人).",
+    "- Each section contains bullet-point facts, one fact per line, concise.",
+    "- UPDATE existing entries when information changes (use Edit tool), do not duplicate.",
+    "- REMOVE outdated entries instead of keeping both old and new.",
+    "- If a section exceeds ~15 lines, consolidate: merge related items, drop trivial details.",
+    "- Total file should stay under ~50 lines. If it's longer, compress aggressively.",
+    "- Do NOT create separate files. All long-term memory goes in MEMORY.md.",
+    "",
+    `Daily log rules:`,
+    `- Write session notes/context to memory/${todayDateStr()}.md (APPEND only).`,
     "- If nothing worth storing, reply with a single period (.).",
-    "Do NOT mention this memory flush to the user. Just silently store memories and reply with a period.",
+    "",
+    "Do NOT mention this memory flush to the user. Silently store memories and reply with a period.",
   ].join("\n");
 }
 
@@ -142,7 +154,7 @@ export class MemoryStore {
 
   /** Read long-term memory. */
   readLongTerm(sessionKey: string): string {
-    return readFileSafe(this.getLongTermPath(sessionKey));
+    return readFileSafe(this.getLongTermPath(sessionKey), MEMORY_MAX_CHARS);
   }
 
   /** Read today's daily log. */
@@ -158,10 +170,9 @@ export class MemoryStore {
   /**
    * Build the memory section for the system prompt.
    *
-   * Aligned with OpenClaw:
-   * - MEMORY.md content is injected only for private chats (not groups).
+   * - MEMORY.md (sectioned facts) is injected for private chats only.
    * - Daily logs (today + yesterday) are always injected.
-   * - System prompt includes paths and mandatory recall instructions.
+   * - Prompt instructs agent to use Edit for updates, not append.
    */
   buildMemoryPrompt(sessionKey: string): string {
     const memDir = this.getMemoryDir(sessionKey);
@@ -177,36 +188,32 @@ export class MemoryStore {
 
     const lines: string[] = [];
 
-    // --- Section: Memory Recall (mandatory instructions) ---
+    // --- Section: Memory instructions ---
     lines.push("## Memory");
     lines.push("");
-    lines.push("### Memory Recall (mandatory)");
+
+    lines.push("### Recall");
     lines.push(
-      "Before answering anything about prior conversations, decisions, dates, people, preferences, or todos: " +
-        `search memory files first. Use the Grep tool to search in \`${dailyDir}\` for keywords, ` +
-        `or use the Read tool to read \`${longTermPath}\`. ` +
-        "If low confidence after search, tell the user you checked but didn't find anything.",
+      "Before answering questions about prior conversations, preferences, people, or plans: " +
+        "check the memory content below first. " +
+        `For older history, use Grep to search in \`${dailyDir}\`.`,
     );
     lines.push("");
 
-    // --- Section: Memory Paths ---
-    lines.push("### Memory Files");
-    lines.push(`- Long-term memory: \`${longTermPath}\``);
-    lines.push(`- Daily logs directory: \`${dailyDir}\``);
-    lines.push(`- Today's log: \`${dailyPath}\``);
-    lines.push("");
-
-    // --- Section: When to write ---
-    lines.push("### When to Write Memory");
+    lines.push("### How to Remember");
+    lines.push(`- Long-term facts → \`${longTermPath}\``);
     lines.push(
-      "- **MEMORY.md**: Decisions, preferences, durable facts (name, projects, contacts). Use Write or Edit tool.",
+      "  - Organize with `## Section` headings (e.g. ## 个人信息, ## 喜好, ## 家人).",
     );
     lines.push(
-      `- **memory/${todayDateStr()}.md**: Running notes, day-to-day context. APPEND only — never overwrite existing entries.`,
+      "  - Bullet-point facts, one per line, concise. Update in-place with Edit tool when info changes.",
     );
-    lines.push('- If someone says "remember this" — write it immediately.');
     lines.push(
-      "- When important information emerges during conversation — proactively save it.",
+      "  - Do NOT create new files. All durable memory goes in this single file.",
+    );
+    lines.push(`- Daily notes → \`${dailyPath}\` (append only)`);
+    lines.push(
+      '- When the user says "记住" / "remember" → write immediately.',
     );
     lines.push("");
 

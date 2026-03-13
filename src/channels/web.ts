@@ -32,7 +32,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdirSync, watch, type FSWatcher } from "node:fs";
+import { mkdirSync, rmSync, watch, type FSWatcher } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { ensureWorkspace, getWorkspacePath } from "../workspace.js";
@@ -210,6 +210,7 @@ let chatManagerRef: {
   getDefaultModel(): string | undefined;
   setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
+  reset(sessionKey: string): Promise<void>;
 } | null = null;
 
 export function setMessageStore(store: MessageStore): void {
@@ -232,6 +233,7 @@ export function setChatManager(manager: {
   getDefaultModel(): string | undefined;
   setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
+  reset(sessionKey: string): Promise<void>;
 }): void {
   chatManagerRef = manager;
 }
@@ -1423,6 +1425,12 @@ async function handleRequest(
           jsonResponse(res, 404, { error: "session not found" });
           return;
         }
+
+        // Clean up Claude SDK session (in-memory + SessionStore)
+        chatManagerRef?.reset(delKey).catch((err) => {
+          console.error("[Web] Failed to reset Claude session:", delKey, err);
+        });
+
         jsonResponse(res, 200, { deleted: true });
         return;
       }

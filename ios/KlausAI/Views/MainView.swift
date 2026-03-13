@@ -109,6 +109,11 @@ struct MainView: View {
                 sessionVM = SessionListViewModel(appState: appState)
             }
         }
+        .onChange(of: isSidebarOpened) { opened in
+            if opened {
+                Task { await sessionVM?.loadSessions() }
+            }
+        }
     }
 
     private var chatTitle: String {
