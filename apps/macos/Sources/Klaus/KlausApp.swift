@@ -59,6 +59,11 @@ final class KlausAppDelegate: NSObject, NSApplicationDelegate {
         ExecApprovalsSocket.shared.start()
         HeartbeatStore.shared.start()
         CanvasA2UIBridge.shared.startListening()
+        ConfigFileWatcher.shared.start()
+        ConfigFileWatcher.shared.onChange = {
+            // Reload config-dependent state
+            DaemonEnvironment.shared.refresh()
+        }
         OnboardingController.shared.showIfNeeded()
 
         // Refresh usage on launch
@@ -66,9 +71,12 @@ final class KlausAppDelegate: NSObject, NSApplicationDelegate {
 
         // Start voice wake if enabled
         if AppState.shared.voiceWakeEnabled {
-            Task {
-                await VoiceWakeRuntime.shared.start()
-            }
+            Task { await VoiceWakeRuntime.shared.start() }
+        }
+
+        // Start push-to-talk if accessibility is granted
+        if PermissionManager.shared.check(.accessibility) == .granted {
+            VoicePushToTalk.shared.start()
         }
 
         Self.logger.info("Klaus macOS app launched")
@@ -78,6 +86,8 @@ final class KlausAppDelegate: NSObject, NSApplicationDelegate {
         ControlChannel.shared.stop()
         ExecApprovalsSocket.shared.stop()
         HeartbeatStore.shared.stop()
+        ConfigFileWatcher.shared.stop()
+        VoicePushToTalk.shared.stop()
         Task { await VoiceWakeRuntime.shared.stop() }
         Self.logger.info("Klaus macOS app terminating")
     }
