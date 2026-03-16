@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // Klaus macOS companion app — menu bar app + IPC library.
 
 import PackageDescription
@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "Klaus",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
     ],
     products: [
         .library(name: "KlausIPC", targets: ["KlausIPC"]),
