@@ -5,6 +5,7 @@ dist/
 .claude/
 openclaw/
 picoclaw/
+claude-code-router/
 release.sh
 OPENCLAW-ANALYSIS.md
 *.md
