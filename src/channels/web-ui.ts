@@ -120,7 +120,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   width:32px;height:32px;border-radius:50%;background:var(--bg-hover);
   display:flex;align-items:center;justify-content:center;font-size:13px;
   font-weight:600;color:var(--fg);flex-shrink:0;border:1px solid var(--border);
+  overflow:hidden;
 }
+.sidebar-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
 .sidebar-username{font-size:14px;font-weight:500;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-useremail{font-size:12px;color:var(--fg-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar.collapsed .sidebar-footer{padding:12px 8px;display:flex;justify-content:center}
@@ -499,8 +501,15 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .settings-avatar{
   width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   font-size:22px;font-weight:600;color:var(--bg);background:var(--accent);flex-shrink:0;
+  position:relative;cursor:pointer;overflow:hidden;
 }
 .settings-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.settings-avatar-overlay{
+  position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,0.45);
+  display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;
+}
+.settings-avatar:hover .settings-avatar-overlay{opacity:1}
+.settings-avatar-overlay svg{width:20px;height:20px;color:#fff}
 .settings-profile-name{font-size:16px;font-weight:600}
 .settings-profile-email{font-size:13px;color:var(--fg-tertiary);margin-top:2px}
 .settings-field{margin-bottom:20px}
@@ -631,7 +640,10 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
         <div class="settings-section">
           <div class="settings-section-title" data-i18n="settings_profile">Profile</div>
           <div class="settings-profile-header">
-            <div class="settings-avatar" id="settings-avatar"></div>
+            <div class="settings-avatar" id="settings-avatar">
+              <div class="settings-avatar-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+              <input type="file" id="settings-avatar-input" accept="image/jpeg,image/png,image/webp" style="display:none">
+            </div>
             <div class="settings-profile-info">
               <div class="settings-profile-name" id="settings-profile-name"></div>
               <div class="settings-profile-email" id="settings-profile-email"></div>
@@ -879,7 +891,11 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   var avatarEl = document.getElementById("sidebar-avatar");
   var usernameEl = document.getElementById("sidebar-username");
   var initial = (currentUser.name || currentUser.email || "U").charAt(0).toUpperCase();
-  avatarEl.textContent = initial;
+  if (currentUser.avatar) {
+    avatarEl.innerHTML = '<img src="' + currentUser.avatar + '" alt="">';
+  } else {
+    avatarEl.textContent = initial;
+  }
   usernameEl.textContent = currentUser.name || currentUser.email || "User";
 
   // --- User menu ---
@@ -1049,6 +1065,36 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       status.textContent = "Error"; status.style.color = "#dc2626";
       setTimeout(function() { status.textContent = ""; status.style.color = ""; }, 2000);
     }).finally(function() { btn.disabled = false; });
+  });
+
+  // Avatar upload
+  var settingsAvatarEl = document.getElementById("settings-avatar");
+  var avatarInput = document.getElementById("settings-avatar-input");
+  settingsAvatarEl.addEventListener("click", function() { avatarInput.click(); });
+  avatarInput.addEventListener("change", function() {
+    var file = avatarInput.files[0];
+    if (!file) return;
+    fetch("/api/auth/avatar", {
+      method: "POST",
+      headers: { "Content-Type": file.type },
+      credentials: "same-origin",
+      body: file
+    }).then(function(r) {
+      if (!r.ok) throw new Error();
+      return r.json();
+    }).then(function(data) {
+      var url = data.user.avatarUrl;
+      currentUser.avatar = url;
+      settingsAvatarEl.querySelector("img") ?
+        settingsAvatarEl.querySelector("img").src = url + "?t=" + Date.now() :
+        settingsAvatarEl.insertAdjacentHTML("afterbegin", '<img src="' + url + '" alt="">');
+      avatarEl.innerHTML = '<img src="' + url + '?t=' + Date.now() + '" alt="">';
+    }).catch(function() {
+      var status = document.getElementById("settings-save-status");
+      status.textContent = "Upload failed"; status.style.color = "#dc2626";
+      setTimeout(function() { status.textContent = ""; status.style.color = ""; }, 2000);
+    });
+    avatarInput.value = "";
   });
 
   // Theme
