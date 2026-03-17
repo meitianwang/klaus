@@ -27,8 +27,15 @@ export function getAdminHtml(): string {
   --font-main: 'Plus Jakarta Sans', -apple-system, sans-serif;
   --font-mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
 }
+[data-theme="dark"] {
+  --bg: #0f172a; --fg: #f8fafc; --border: #334155;
+  --card-bg: #1e293b; --accent: #f8fafc; --accent-text: #0f172a;
+  --accent-hover: #e2e8f0; --danger: #ef4444; --danger-hover: #dc2626;
+  --success: #22c55e; --muted: #94a3b8; --user-bg: #1e293b; --bot-bg: #0f172a;
+  --bg-hover: #334155;
+}
 @media(prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f172a; --fg: #f8fafc; --border: #334155;
     --card-bg: #1e293b; --accent: #f8fafc; --accent-text: #0f172a;
     --accent-hover: #e2e8f0; --danger: #ef4444; --danger-hover: #dc2626;
@@ -185,9 +192,11 @@ tr.clickable:hover { background: var(--card-bg); }
 .badge-green { background: #dcfce7; color: #166534; }
 .badge-red { background: #fee2e2; color: #991b1b; }
 .badge-gray { background: var(--card-bg); color: var(--muted); border: 1px solid var(--border); }
+[data-theme="dark"] .badge-green, :root:not([data-theme="light"]) .badge-green { background: #14532d; color: #86efac; }
+[data-theme="dark"] .badge-red, :root:not([data-theme="light"]) .badge-red { background: #450a0a; color: #fca5a5; }
 @media(prefers-color-scheme: dark) {
-  .badge-green { background: #14532d; color: #86efac; }
-  .badge-red { background: #450a0a; color: #fca5a5; }
+  :root:not([data-theme="light"]) .badge-green { background: #14532d; color: #86efac; }
+  :root:not([data-theme="light"]) .badge-red { background: #450a0a; color: #fca5a5; }
 }
 
 /* Scheduler status bar */
@@ -525,6 +534,14 @@ tr.clickable:hover { background: var(--card-bg); }
 
 <script>
 (function(){
+  // --- Theme sync (with parent page) ---
+  function applyTheme(t) {
+    if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  applyTheme(localStorage.getItem("klaus_theme") || "auto");
+
   fetch("/api/auth/me", { credentials: "same-origin" })
     .then(function(r) {
       if (!r.ok) { location.href = "/login"; throw new Error("not auth"); }
@@ -616,7 +633,17 @@ tr.clickable:hover { background: var(--card-bg); }
   };
   var lang = localStorage.getItem("klaus_lang") || "en";
   function tt(k) { return (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k; }
-  document.querySelectorAll("[data-i18n]").forEach(function(el) { el.textContent = tt(el.getAttribute("data-i18n")); });
+  function applyI18n() {
+    document.querySelectorAll("[data-i18n]").forEach(function(el) { el.textContent = tt(el.getAttribute("data-i18n")); });
+  }
+  applyI18n();
+
+  // Listen for language/theme changes from parent page (via postMessage)
+  window.addEventListener("message", function(e) {
+    if (!e.data || e.data.type !== "klaus-settings") return;
+    if (e.data.lang && I18N[e.data.lang]) { lang = e.data.lang; applyI18n(); }
+    if (e.data.theme !== undefined) { applyTheme(e.data.theme); }
+  });
 
   // --- Helpers ---
   function esc(s) { if (s == null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }

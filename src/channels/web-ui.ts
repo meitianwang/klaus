@@ -861,11 +861,17 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
   function tt(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
+  function notifyIframes(data) {
+    document.querySelectorAll("iframe").forEach(function(f) {
+      if (f.contentWindow) f.contentWindow.postMessage(data, "*");
+    });
+  }
   function setLang(lang) {
     if (!I18N[lang]) return;
     currentLang = lang;
     localStorage.setItem("klaus_lang", lang);
     applyI18n();
+    notifyIframes({ type: "klaus-settings", lang: lang });
   }
   function applyI18n() {
     document.querySelectorAll("[data-i18n]").forEach(function(el) {
@@ -1161,8 +1167,8 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       c.classList.toggle("active", c.getAttribute("data-theme") === theme);
     });
     applyTheme(theme);
+    notifyIframes({ type: "klaus-settings", theme: theme });
   });
-
 
   // --- Welcome state ---
   function getGreeting() {
