@@ -856,7 +856,10 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       return r.json();
     })
     .then(function(data) {
-      initChat(data.user, data.user.role === "admin");
+      var u = data.user;
+      u.name = u.displayName || u.name || "";
+      u.avatar = u.avatarUrl || u.avatar || null;
+      initChat(u, u.role === "admin");
     })
     .catch(function() {});
 
