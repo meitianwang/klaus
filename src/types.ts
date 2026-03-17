@@ -167,7 +167,6 @@ export interface CronTask {
   readonly description?: string;
   readonly schedule: string | CronScheduleType;
   readonly prompt: string;
-  readonly model?: string;
   readonly fallbacks?: readonly string[];
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
   readonly lightContext?: boolean;

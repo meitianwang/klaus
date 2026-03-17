@@ -120,7 +120,6 @@ function parseAddAction(
     ...(data.description != null
       ? { description: String(data.description) }
       : {}),
-    ...(data.model != null ? { model: String(data.model) } : {}),
     ...(data.lightContext === true ? { lightContext: true } : {}),
     ...(data.timeoutSeconds != null
       ? { timeoutSeconds: Math.floor(Number(data.timeoutSeconds)) }
@@ -146,7 +145,6 @@ function parseEditAction(
   if (data.prompt != null) patch.prompt = String(data.prompt);
   if (data.name != null) patch.name = String(data.name);
   if (data.description != null) patch.description = String(data.description);
-  if (data.model != null) patch.model = String(data.model);
   if (data.lightContext != null)
     patch.lightContext = data.lightContext === true;
   if (data.timeoutSeconds != null)

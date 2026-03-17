@@ -41,16 +41,6 @@ import { generateLocalToken, generateExecToken } from "./local-token.js";
 
 registerChannel(webPlugin);
 
-// ---------------------------------------------------------------------------
-// Model alias mapping
-// ---------------------------------------------------------------------------
-
-const MODEL_ALIASES: Record<string, string> = {
-  sonnet: "claude-sonnet-4-6",
-  opus: "claude-opus-4-6",
-  haiku: "claude-haiku-4-5-20251001",
-};
-
 async function start(): Promise<void> {
   if (!existsSync(CONFIG_FILE)) {
     console.log("No config found. Starting setup wizard...\n");
@@ -262,7 +252,6 @@ async function start(): Promise<void> {
       return t("cmd_session_info", {
         key: msg.sessionKey,
         status: info.busy ? t("cmd_session_active") : t("cmd_session_idle"),
-        model: info.model ?? t("cmd_default_model"),
       });
     }
 
@@ -288,23 +277,6 @@ async function start(): Promise<void> {
     if (trimmed === "/cron" || trimmed.startsWith("/cron ")) {
       const scheduler = await ensureCronScheduler();
       return handleCronCommand(trimmed, scheduler);
-    }
-
-    // /model [name] — show or switch model
-    if (trimmed === "/model" || trimmed.startsWith("/model ")) {
-      const arg = trimmed.slice("/model".length).trim();
-      if (!arg) {
-        const current = sessions.getModel(msg.sessionKey);
-        return t("cmd_model_current", {
-          model: current ?? t("cmd_default_model"),
-        });
-      }
-      const resolved = MODEL_ALIASES[arg.toLowerCase()] ?? MODEL_ALIASES[arg];
-      if (!resolved) {
-        return t("cmd_model_unknown", { name: arg });
-      }
-      sessions.setModel(msg.sessionKey, resolved);
-      return t("cmd_model_switched", { model: resolved });
     }
 
     const prompt = formatPrompt(msg);
@@ -531,7 +503,7 @@ async function handleCronCommand(
     });
   }
 
-  // /cron add <id> <schedule> <prompt> [--model=X] [--light] [--name=X] [--timeout=N]
+  // /cron add <id> <schedule> <prompt> [--light] [--name=X] [--timeout=N]
   if (args.startsWith("add ")) {
     const parts = args.slice(4).trim().split(/\s+/);
     if (parts.length < 3) return t("cmd_cron_help");
@@ -541,13 +513,11 @@ async function handleCronCommand(
 
     // Separate flags from positional args
     const positional: string[] = [];
-    let model: string | undefined;
     let light = false;
     let name: string | undefined;
     let timeoutSeconds: number | undefined;
     for (const p of parts.slice(1)) {
-      if (p.startsWith("--model=")) model = p.slice(8);
-      else if (p === "--light") light = true;
+      if (p === "--light") light = true;
       else if (p.startsWith("--name=")) name = p.slice(7);
       else if (p.startsWith("--timeout=")) {
         const n = parseInt(p.slice(10), 10);
@@ -563,7 +533,6 @@ async function handleCronCommand(
       schedule,
       prompt,
       enabled: true,
-      ...(model ? { model } : {}),
       ...(light ? { lightContext: true } : {}),
       ...(name ? { name } : {}),
       ...(timeoutSeconds != null ? { timeoutSeconds } : {}),
@@ -599,7 +568,6 @@ async function handleCronCommand(
       } else if (
         key === "schedule" ||
         key === "prompt" ||
-        key === "model" ||
         key === "name" ||
         key === "description" ||
         key === "webhook_url" ||

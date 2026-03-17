@@ -26,7 +26,6 @@ interface PersistedSession {
   readonly sessionKey: string;
   readonly createdAt: number;
   readonly updatedAt: number;
-  readonly model?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +66,6 @@ interface DbRow {
   session_id: string;
   created_at: number;
   updated_at: number;
-  model: string | null;
 }
 
 function rowToSession(row: DbRow): PersistedSession {
@@ -76,7 +74,6 @@ function rowToSession(row: DbRow): PersistedSession {
     sessionId: row.session_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    ...(row.model ? { model: row.model } : {}),
   };
 }
 
@@ -119,15 +116,14 @@ export class SessionStore {
 
     // Pre-compile statements
     this.stmtGet = this.db.prepare(
-      "SELECT session_key, session_id, created_at, updated_at, model FROM sessions WHERE session_key = ?",
+      "SELECT session_key, session_id, created_at, updated_at FROM sessions WHERE session_key = ?",
     );
     this.stmtSet = this.db.prepare(`
-      INSERT INTO sessions (session_key, session_id, created_at, updated_at, model)
-      VALUES (@sessionKey, @sessionId, @createdAt, @updatedAt, @model)
+      INSERT INTO sessions (session_key, session_id, created_at, updated_at)
+      VALUES (@sessionKey, @sessionId, @createdAt, @updatedAt)
       ON CONFLICT(session_key) DO UPDATE SET
         session_id = @sessionId,
-        updated_at = @updatedAt,
-        model = @model
+        updated_at = @updatedAt
     `);
     this.stmtDelete = this.db.prepare(
       "DELETE FROM sessions WHERE session_key = ?",
@@ -176,7 +172,6 @@ export class SessionStore {
       sessionId: entry.sessionId,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
-      model: entry.model ?? null,
     });
   }
 
@@ -189,7 +184,7 @@ export class SessionStore {
   listSessions(): PersistedSession[] {
     const rows = this.db
       .prepare(
-        "SELECT session_key, session_id, created_at, updated_at, model FROM sessions ORDER BY updated_at DESC",
+        "SELECT session_key, session_id, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
       )
       .all() as DbRow[];
     return rows.map(rowToSession);
@@ -259,7 +254,6 @@ export class SessionStore {
                   sessionId: entry.sessionId,
                   createdAt: entry.createdAt,
                   updatedAt: entry.updatedAt,
-                  model: entry.model ?? null,
                 });
               }
             },

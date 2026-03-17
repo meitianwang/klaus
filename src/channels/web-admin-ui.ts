@@ -178,7 +178,6 @@ tr.clickable:hover { background: var(--card-bg); }
 .chat-msg.user { background: var(--user-bg); margin-left: 40px; }
 .chat-msg.assistant { background: var(--bot-bg); border: 1px solid var(--border); margin-right: 40px; }
 .chat-role { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; letter-spacing: 0.5px; }
-.model-tag { font-family: var(--font-mono); font-size: 12px; color: var(--muted); background: var(--card-bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); }
 
 /* Badge */
 .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
@@ -267,10 +266,6 @@ tr.clickable:hover { background: var(--card-bg); }
       <div class="section">
         <div class="section-header" data-i18n="sec_general">General</div>
         <div class="card">
-          <div class="card-row">
-            <div class="card-label" data-i18n="lbl_model">Default Model</div>
-            <div class="card-control"><select id="s-model" class="f-select"><option>Loading...</option></select></div>
-          </div>
           <div class="card-row">
             <div class="card-label">
               <div data-i18n="lbl_persona">System Prompt</div>
@@ -428,9 +423,6 @@ tr.clickable:hover { background: var(--card-bg); }
           <div><label data-i18n="lbl_task_id">Task ID</label><input id="cf-id" class="f-input" placeholder="e.g. daily-summary"></div>
           <div><label data-i18n="lbl_task_name">Name</label><input id="cf-name" class="f-input" placeholder="Optional display name"></div>
           <div><label data-i18n="lbl_task_schedule">Schedule</label><input id="cf-schedule" class="f-input" placeholder="e.g. 0 9 * * *"></div>
-          <div><label data-i18n="lbl_task_model">Model</label>
-            <select id="cf-model" class="f-select"><option value="">Default</option></select>
-          </div>
           <div class="task-form-full"><label data-i18n="lbl_task_prompt">Prompt</label><textarea id="cf-prompt" class="f-textarea" rows="3" placeholder="Prompt to send to Claude"></textarea></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -468,7 +460,7 @@ tr.clickable:hover { background: var(--card-bg); }
       tab_settings: "Settings", tab_users: "Users", tab_invites: "Invites", tab_cron: "Scheduled Tasks",
       back_chat: "Back to Chat",
       sec_general: "General", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts",
-      lbl_model: "Default Model", lbl_persona: "System Prompt",
+      lbl_persona: "System Prompt",
       lbl_port: "Port", lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
       hint_restart: "Restart required", hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire", hint_idle: "New session after inactivity",
       lbl_idle: "Idle Timeout", lbl_max_sessions: "Max Stored Sessions", lbl_ses_age: "Session Retention",
@@ -478,7 +470,7 @@ tr.clickable:hover { background: var(--card-bg); }
       on: "On", off: "Off",
       saved: "Saved!", failed: "Failed",
       no_invites: "No invite codes yet.", no_tasks: "No scheduled tasks.",
-      lbl_task_id: "Task ID", lbl_task_name: "Name", lbl_task_schedule: "Schedule", lbl_task_model: "Model", lbl_task_prompt: "Prompt",
+      lbl_task_id: "Task ID", lbl_task_name: "Name", lbl_task_schedule: "Schedule", lbl_task_prompt: "Prompt",
       code: "Code", label: "Label", created: "Created", actions: "Actions",
       copy_code: "Copy", delete: "Delete", used_codes: "Used Codes", used_by: "Used By", used_at: "Used At",
       code_copied: "Code copied!", confirm_delete: "Delete this?", deleted: "Deleted",
@@ -493,7 +485,7 @@ tr.clickable:hover { background: var(--card-bg); }
       tab_settings: "设置", tab_users: "用户", tab_invites: "邀请码", tab_cron: "定时任务",
       back_chat: "返回对话",
       sec_general: "通用", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录",
-      lbl_model: "默认模型", lbl_persona: "系统提示词",
+      lbl_persona: "系统提示词",
       lbl_port: "端口", lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",
       hint_restart: "需要重启", hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数", hint_idle: "空闲后自动创建新会话",
       lbl_idle: "空闲超时", lbl_max_sessions: "最大存储会话数", lbl_ses_age: "会话保留时间",
@@ -503,7 +495,7 @@ tr.clickable:hover { background: var(--card-bg); }
       on: "开启", off: "关闭",
       saved: "已保存!", failed: "失败",
       no_invites: "还没有邀请码。", no_tasks: "没有定时任务。",
-      lbl_task_id: "任务 ID", lbl_task_name: "名称", lbl_task_schedule: "调度表达式", lbl_task_model: "模型", lbl_task_prompt: "提示词",
+      lbl_task_id: "任务 ID", lbl_task_name: "名称", lbl_task_schedule: "调度表达式", lbl_task_prompt: "提示词",
       code: "代码", label: "标签", created: "创建时间", actions: "操作",
       copy_code: "复制", delete: "删除", used_codes: "已使用", used_by: "使用者", used_at: "使用时间",
       code_copied: "已复制!", confirm_delete: "确定删除？", deleted: "已删除",
@@ -554,7 +546,6 @@ tr.clickable:hover { background: var(--card-bg); }
   // =====================================================
   // SETTINGS TAB
   // =====================================================
-  var sModel = document.getElementById("s-model");
   var sPersona = document.getElementById("s-persona");
   var sPort = document.getElementById("s-port");
   var sPerm = document.getElementById("s-permissions");
@@ -572,20 +563,6 @@ tr.clickable:hover { background: var(--card-bg); }
 
   function loadSettings() {
     api("settings", "GET").then(function(d) {
-      // Model
-      sModel.innerHTML = "";
-      (d.availableModels || []).forEach(function(m) {
-        var o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
-        if (m.id === d.model) o.selected = true;
-        sModel.appendChild(o);
-      });
-      // Also populate cron task form model select
-      var cfModel = document.getElementById("cf-model");
-      cfModel.innerHTML = "<option value=\\"\\">" + (lang === "zh" ? "默认" : "Default") + "</option>";
-      (d.availableModels || []).forEach(function(m) {
-        var o = document.createElement("option"); o.value = m.id; o.textContent = m.label;
-        cfModel.appendChild(o);
-      });
       sPersona.value = d.persona || "";
       // Web
       sPort.value = d.web.port;
@@ -605,7 +582,6 @@ tr.clickable:hover { background: var(--card-bg); }
   saveBtn.onclick = function() {
     saveBtn.disabled = true;
     api("settings", "PATCH", {
-      model: sModel.value,
       persona: sPersona.value.trim(),
       web: {
         port: parseInt(sPort.value, 10),
@@ -792,7 +768,6 @@ tr.clickable:hover { background: var(--card-bg); }
   var cfId = document.getElementById("cf-id");
   var cfName = document.getElementById("cf-name");
   var cfSchedule = document.getElementById("cf-schedule");
-  var cfModel = document.getElementById("cf-model");
   var cfPrompt = document.getElementById("cf-prompt");
   var cfSave = document.getElementById("cf-save");
   var cfCancel = document.getElementById("cf-cancel");
@@ -838,7 +813,7 @@ tr.clickable:hover { background: var(--card-bg); }
 
   cronAddBtn.onclick = function() {
     editingTaskId = null;
-    cfId.value = ""; cfName.value = ""; cfSchedule.value = ""; cfModel.value = ""; cfPrompt.value = "";
+    cfId.value = ""; cfName.value = ""; cfSchedule.value = ""; cfPrompt.value = "";
     cfId.disabled = false;
     cronForm.style.display = "block";
     cfId.focus();
@@ -853,7 +828,7 @@ tr.clickable:hover { background: var(--card-bg); }
     if (!id || !schedule || !prompt) return;
 
     cfSave.disabled = true;
-    var payload = { id: id, schedule: schedule, prompt: prompt, name: cfName.value.trim() || undefined, model: cfModel.value || undefined, enabled: true };
+    var payload = { id: id, schedule: schedule, prompt: prompt, name: cfName.value.trim() || undefined, enabled: true };
 
     api("cron/tasks", "POST", payload)
       .then(function() {

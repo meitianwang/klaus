@@ -474,8 +474,6 @@ const TEXTS: Record<string, Record<Lang, string>> = {
       "/new /reset /clear — Reset conversation\n" +
       "/help — Show this help\n" +
       "/session — Show session info\n" +
-      "/model — Show current model\n" +
-      "/model <name> — Switch model (sonnet/opus/haiku)\n" +
       "/skills — Show enabled skills\n" +
       "/cron — Scheduled tasks (list/run/add/edit/remove/status)",
     zh:
@@ -483,14 +481,12 @@ const TEXTS: Record<string, Record<Lang, string>> = {
       "/new /reset /clear — 重置对话\n" +
       "/help — 显示帮助\n" +
       "/session — 查看会话信息\n" +
-      "/model — 查看当前模型\n" +
-      "/model <名称> — 切换模型 (sonnet/opus/haiku)\n" +
       "/skills — 查看已启用的技能\n" +
       "/cron — 定时任务 (列表/触发/添加/编辑/删除/状态)",
   },
   cmd_session_info: {
-    en: "Session: {key}\nStatus: {status}\nModel: {model}",
-    zh: "会话: {key}\n状态: {status}\n模型: {model}",
+    en: "Session: {key}\nStatus: {status}",
+    zh: "会话: {key}\n状态: {status}",
   },
   cmd_session_active: {
     en: "active",
@@ -499,22 +495,6 @@ const TEXTS: Record<string, Record<Lang, string>> = {
   cmd_session_idle: {
     en: "idle",
     zh: "空闲",
-  },
-  cmd_model_current: {
-    en: "Current model: {model}",
-    zh: "当前模型: {model}",
-  },
-  cmd_model_switched: {
-    en: "Model switched to: {model}",
-    zh: "模型已切换为: {model}",
-  },
-  cmd_model_unknown: {
-    en: "Unknown model: {name}\nAvailable: sonnet, opus, haiku",
-    zh: "未知模型: {name}\n可选: sonnet, opus, haiku",
-  },
-  cmd_default_model: {
-    en: "default",
-    zh: "默认",
   },
   cmd_skills_list: {
     en: "Enabled skills ({count}):\n{list}\n\nSkills are auto-gated by binary/env presence.\nUser overrides: ~/.klaus/skills/<name>/SKILL.md",

@@ -365,7 +365,6 @@ export function loadCronConfig(): CronConfig {
         description: t.description != null ? String(t.description) : undefined,
         schedule: resolvedSchedule,
         prompt: String(t.prompt ?? ""),
-        model: t.model != null ? String(t.model) : undefined,
         enabled: t.enabled !== false,
         fallbacks: Array.isArray(t.fallbacks)
           ? t.fallbacks.map(String)

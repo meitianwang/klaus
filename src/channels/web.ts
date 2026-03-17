@@ -218,8 +218,6 @@ let inviteStoreRef: InviteStore | null = null;
 let sessionStoreRef: SessionStore | null = null;
 let userStoreRef: UserStore | null = null;
 let chatManagerRef: {
-  getDefaultModel(): string | undefined;
-  setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
   reset(sessionKey: string): Promise<void>;
 } | null = null;
@@ -241,8 +239,6 @@ export function setUserStore(store: UserStore): void {
 }
 
 export function setChatManager(manager: {
-  getDefaultModel(): string | undefined;
-  setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
   reset(sessionKey: string): Promise<void>;
 }): void {
@@ -1350,13 +1346,7 @@ async function handleAdminSessions(
   const prefix = `web:${userId}:`;
   const sessions = await messageStoreRef.listSessions(prefix);
 
-  const enriched = sessions.map((s) => {
-    const sessionKey = `web:${userId}:${s.sessionId}`;
-    const persisted = sessionStoreRef?.get(sessionKey);
-    return { ...s, model: persisted?.model ?? null };
-  });
-
-  jsonResponse(res, 200, { sessions: enriched });
+  jsonResponse(res, 200, { sessions });
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,12 +1389,6 @@ async function handleAdminHistory(
 // Admin: settings (all config sections except tunnel)
 // ---------------------------------------------------------------------------
 
-const ALLOWED_MODELS: Record<string, string> = {
-  "claude-sonnet-4-6": "Claude Sonnet 4.6",
-  "claude-opus-4-6": "Claude Opus 4.6",
-  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-};
-
 /** Read a positive number from a raw value, fallback if invalid. */
 function posNum(raw: unknown, fallback: number): number {
   const n = Number(raw ?? fallback);
@@ -1421,12 +1405,7 @@ function buildSettingsResponse(): Record<string, unknown> {
 
   return {
     // General
-    model: chatManagerRef?.getDefaultModel() ?? (cfg.model as string) ?? "",
     persona: (cfg.persona as string) ?? "",
-    availableModels: Object.entries(ALLOWED_MODELS).map(([id, label]) => ({
-      id,
-      label,
-    })),
     // Web
     web: {
       port: Number(webCfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
@@ -1481,21 +1460,6 @@ async function handleAdminSettings(
     const cfg = loadConfig();
 
     // --- General ---
-
-    if ("model" in parsed) {
-      const model = String(parsed.model ?? "").trim();
-      if (model && !ALLOWED_MODELS[model]) {
-        jsonResponse(res, 400, { error: "invalid_model" });
-        return;
-      }
-      if (model) {
-        cfg.model = model;
-        chatManagerRef?.setDefaultModel(model);
-      } else {
-        delete cfg.model;
-        chatManagerRef?.setDefaultModel(undefined);
-      }
-    }
 
     if ("persona" in parsed) {
       const persona = String(parsed.persona ?? "").trim();
@@ -1632,7 +1596,6 @@ async function handleAdminCronTasks(
         description: t.description,
         schedule: t.schedule,
         prompt: t.prompt,
-        model: t.model,
         enabled: t.enabled !== false,
         nextRun: null,
         lastRun: null,
@@ -1682,7 +1645,6 @@ async function handleAdminCronTasks(
       prompt,
       name: parsed.name ? String(parsed.name) : undefined,
       description: parsed.description ? String(parsed.description) : undefined,
-      model: parsed.model ? String(parsed.model) : undefined,
       enabled: parsed.enabled !== false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1732,8 +1694,6 @@ async function handleAdminCronTasks(
       patch.description = parsed.description
         ? String(parsed.description)
         : undefined;
-    if ("model" in parsed)
-      patch.model = parsed.model ? String(parsed.model) : undefined;
     if ("enabled" in parsed) patch.enabled = Boolean(parsed.enabled);
 
     if (cronSchedulerRef) {

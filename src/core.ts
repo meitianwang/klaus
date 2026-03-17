@@ -13,7 +13,7 @@ import { createInterface } from "node:readline";
 import { loadConfig } from "./config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
 import { ensureWorkspace, extractUserId } from "./workspace.js";
-import { writeWorkspacePersona, writeGlobalSettings, getClaudeBin } from "./claude-setup.js";
+import { writeWorkspacePersona, getClaudeBin } from "./claude-setup.js";
 import type { SessionStore } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
 import type {
@@ -65,8 +65,6 @@ function createDeferred<T>(): Deferred<T> {
 // ---------------------------------------------------------------------------
 
 interface ChatOptions {
-  /** Per-session model override (from /model command). Global default is in settings.json. */
-  model?: string;
   /** Workspace directory — Claude reads CLAUDE.md, .mcp.json, etc. from here. */
   cwd?: string;
 }
@@ -81,7 +79,6 @@ class ClaudeChat {
   private busy = false;
   private pending: PendingMessage[] = [];
   private options: ChatOptions;
-  private model: string | undefined;
   /** Currently running claude subprocess (for shutdown cleanup). */
   private activeChild: import("node:child_process").ChildProcess | null = null;
   /** Promise for the ongoing doChatInner call (so close() can await it). */
@@ -89,7 +86,6 @@ class ClaudeChat {
 
   constructor(options: ChatOptions = {}) {
     this.options = options;
-    this.model = options.model;
   }
 
   /** Get the current Claude SDK session ID (for persistence). */
@@ -152,7 +148,6 @@ class ClaudeChat {
     //   model & permissions → ~/.claude/settings.json
     //   persona            → <cwd>/CLAUDE.md
     //   rules              → ~/.claude/rules/*.md
-    // Only --model is passed when the user explicitly overrides via /model.
 
     const args = [
       "-p",
@@ -163,11 +158,6 @@ class ClaudeChat {
 
     if (onStreamChunk) {
       args.push("--include-partial-messages");
-    }
-
-    // Per-session model override (from /model command); default is in settings.json
-    if (this.model) {
-      args.push("--model", this.model);
     }
 
     // Resume previous session for multi-turn conversations
@@ -435,14 +425,6 @@ class ClaudeChat {
     return this.busy;
   }
 
-  getModel(): string | undefined {
-    return this.model;
-  }
-
-  setModel(model: string): void {
-    this.model = model;
-  }
-
   async reset(): Promise<void> {
     this.sessionId = undefined;
   }
@@ -487,20 +469,6 @@ export class ChatSessionManager {
   }
 
   /**
-   * Update the default model (admin operation).
-   * Writes to ~/.claude/settings.json so Claude reads it natively.
-   */
-  setDefaultModel(model: string | undefined): void {
-    writeGlobalSettings({ model: model ?? undefined });
-  }
-
-  /** Get the current default model from config. */
-  getDefaultModel(): string | undefined {
-    const cfg = loadConfig();
-    return (cfg.model as string) || undefined;
-  }
-
-  /**
    * Update the persona text (admin operation).
    * Rewrites CLAUDE.md in all active user workspaces so running sessions
    * pick up the new persona on their next turn.
@@ -527,7 +495,6 @@ export class ChatSessionManager {
       sessionKey: key,
       createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-      model: session.getModel(),
     });
   }
 
@@ -573,9 +540,6 @@ export class ChatSessionManager {
       const persisted = this.store.get(sessionKey);
       if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
         chat.restoreSessionId(persisted.sessionId);
-        if (persisted.model) {
-          chat.setModel(persisted.model);
-        }
         console.log(`[Session] Restored from store: ${sessionKey}`);
       }
     }
@@ -642,7 +606,6 @@ export class ChatSessionManager {
       this.sessions.delete(sessionKey);
       this.sessions.set(sessionKey, existing);
     } else {
-      // No model override — Claude reads default from settings.json
       const chat = new ClaudeChat();
 
       // Restore from store if available
@@ -650,7 +613,6 @@ export class ChatSessionManager {
         const persisted = this.store.get(sessionKey);
         if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
           chat.restoreSessionId(persisted.sessionId);
-          if (persisted.model) chat.setModel(persisted.model);
         }
       }
 
@@ -670,25 +632,14 @@ export class ChatSessionManager {
     return result;
   }
 
-  setModel(sessionKey: string, model: string): void {
-    const session = this.getSession(sessionKey);
-    session.setModel(model);
-  }
-
-  getModel(sessionKey: string): string | undefined {
-    return this.sessions.get(sessionKey)?.getModel();
-  }
-
   getSessionInfo(sessionKey: string): {
     active: boolean;
     busy: boolean;
-    model: string | undefined;
   } {
     const session = this.sessions.get(sessionKey);
     return {
       active: !!session,
       busy: session?.isBusy ?? false,
-      model: session?.getModel(),
     };
   }
 

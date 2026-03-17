@@ -1114,7 +1114,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     scrollBottom();
   }
 
-  var SLASH_COMMANDS = ["/new", "/reset", "/clear", "/help", "/session", "/model"];
+  var SLASH_COMMANDS = ["/new", "/reset", "/clear", "/help", "/session"];
   function isSlashCommand(text) {
     var lower = text.toLowerCase();
     return SLASH_COMMANDS.some(function(cmd) { return lower === cmd || lower.startsWith(cmd + " "); });

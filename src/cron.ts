@@ -297,11 +297,6 @@ export class CronScheduler {
       `[Cron] Executing task "${task.id}": ${task.prompt.slice(0, 80)}`,
     );
 
-    // Set task-specific model if configured
-    if (task.model) {
-      this.sessions.setModel(sessionKey, task.model);
-    }
-
     // Light context mode
     const useLight = task.lightContext === true;
 
@@ -684,7 +679,6 @@ export class CronScheduler {
       durationMs,
       ...(error ? { error } : {}),
       ...(summary ? { summary } : {}),
-      ...(task.model ? { model: task.model } : {}),
       ...(delivery?.delivered != null ? { delivered: delivery.delivered } : {}),
       ...(delivery?.deliveryStatus
         ? { deliveryStatus: delivery.deliveryStatus }
