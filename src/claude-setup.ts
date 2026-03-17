@@ -42,7 +42,7 @@ export function writeClaudeSettings(cfg: ClaudeModelConfig): void {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
 
-  const modelValue = `${cfg.model}[1m]`;
+  const modelValue = cfg.model;
   const settings: Record<string, unknown> = {
     model: modelValue,
     skipDangerousModePermissionPrompt: true,
