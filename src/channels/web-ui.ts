@@ -65,8 +65,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   .sidebar{position:relative;transform:none!important;visibility:visible!important;pointer-events:auto!important;transition:width .2s ease}
   .sidebar.collapsed{width:60px}
 }
-.sidebar-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sidebar-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
 .sidebar.collapsed .sidebar-header{padding:14px 12px;justify-content:center}
+.sidebar.collapsed .sidebar-brand{display:none}
 .sidebar-toggle{
   width:32px;height:32px;border-radius:var(--radius-sm);
   background:transparent;border:none;
@@ -92,16 +93,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .sidebar.collapsed .sidebar-nav-item{justify-content:center;padding:10px}
 .sidebar-section-label{font-size:11px;font-weight:600;color:var(--fg-quaternary);text-transform:uppercase;letter-spacing:0.06em;padding:12px 12px 4px}
 .sidebar.collapsed .sidebar-section-label{display:none}
-.new-chat-btn{
-  width:32px;height:32px;border-radius:var(--radius-sm);
-  background:transparent;border:1px solid var(--border);
-  color:var(--fg-secondary);cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  transition:all var(--transition);flex-shrink:0;
-}
-.new-chat-btn:hover{background:var(--bg-hover);color:var(--fg);border-color:var(--input-border)}
-.new-chat-btn svg{width:16px;height:16px;stroke-width:2}
-.sidebar.collapsed .new-chat-btn{display:none}
 .session-list{flex:1;overflow-y:auto;padding:4px 8px}
 .sidebar.collapsed .session-list{display:none}
 .session-item{
@@ -466,18 +457,15 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 <div id="app">
   <div id="sidebar" class="sidebar">
     <div class="sidebar-header">
+      <div class="sidebar-brand"><img src="/logo.png" alt="K"><span>Klaus</span></div>
       <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
       </button>
-      <div class="sidebar-brand"><img src="/logo.png" alt="K"><span>Klaus</span></div>
-      <button class="new-chat-btn" id="new-chat-btn" title="New chat">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
     </div>
     <div class="sidebar-nav">
-      <button class="sidebar-nav-item" id="nav-new-chat">
+      <button class="sidebar-nav-item" id="new-chat-btn">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        <span data-i18n="new_chat_title">New Chat</span>
+        <span data-i18n="new_chat_nav">New chat</span>
       </button>
     </div>
     <div class="sidebar-section-label" data-i18n="recents">Recents</div>
@@ -568,6 +556,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       chip_explain: "Explain a concept",
       chip_brainstorm: "Brainstorm ideas",
       recents: "Recents",
+      new_chat_nav: "New chat",
     },
     zh: {
       chats: "对话",
@@ -605,6 +594,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       chip_explain: "解释一个概念",
       chip_brainstorm: "头脑风暴",
       recents: "最近",
+      new_chat_nav: "新对话",
     }
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
@@ -671,7 +661,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   var sessionListEl = document.getElementById("session-list");
   var welcomeEl = document.getElementById("welcome");
   var sidebarToggleBtn = document.getElementById("sidebar-toggle");
-  var navNewChatBtn = document.getElementById("nav-new-chat");
   var busy = false;
 
   // --- Sidebar collapse (desktop only) ---
@@ -878,7 +867,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   menuBtn.addEventListener("click", function() { sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); });
   sidebarOverlay.addEventListener("click", closeSidebar);
   newChatBtn.addEventListener("click", createNewChat);
-  navNewChatBtn.addEventListener("click", createNewChat);
 
   var pendingFiles = [];
 
