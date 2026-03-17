@@ -460,15 +460,16 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .user-menu-item svg{width:18px;height:18px;flex-shrink:0;color:var(--fg-tertiary);stroke-width:1.5}
 .user-menu-item .menu-arrow{margin-left:auto;color:var(--fg-quaternary);width:14px;height:14px}
 .user-menu-sep{height:1px;background:var(--border);margin:4px 8px}
-.user-menu-sub{
-  position:absolute;left:calc(100% + 8px);bottom:0;min-width:200px;
-  background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;
-  box-shadow:var(--shadow-lg);padding:4px;display:none;flex-direction:column;
+.user-menu-back{
+  display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;
+  cursor:pointer;color:var(--fg-tertiary);font-size:13px;font-weight:500;
+  border:none;background:transparent;font-family:var(--font);width:100%;text-align:left;
+  transition:background var(--transition);margin-bottom:2px;
 }
-.user-menu-item:hover .user-menu-sub{display:flex}
-.user-menu-sub .user-menu-item{font-size:14px;padding:8px 12px}
-.user-menu-sub .user-menu-item .menu-check{margin-left:auto;color:var(--fg-tertiary);width:16px;height:16px;display:none}
-.user-menu-sub .user-menu-item.active .menu-check{display:block}
+.user-menu-back:hover{background:var(--bg-hover)}
+.user-menu-back svg{width:16px;height:16px;flex-shrink:0}
+.user-menu-item .menu-check{margin-left:auto;color:var(--fg-tertiary);width:16px;height:16px;display:none}
+.user-menu-item.active .menu-check{display:block}
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar{width:6px;height:6px}
@@ -722,12 +723,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     userMenuEl.innerHTML =
       '<div class="user-menu-email">' + escHtml(currentUser.email || "") + '</div>' +
       (isAdmin ? '<button class="user-menu-item" id="menu-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>' + tt("menu_settings") + '</span></button>' : '') +
-      '<button class="user-menu-item" id="menu-language" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>' + tt("menu_language") + '</span>' + arrowSvg +
-        '<div class="user-menu-sub">' +
-          '<button class="user-menu-item' + (currentLang === "en" ? " active" : "") + '" data-lang="en"><span>English</span>' + checkSvg + '</button>' +
-          '<button class="user-menu-item' + (currentLang === "zh" ? " active" : "") + '" data-lang="zh"><span>中文</span>' + checkSvg + '</button>' +
-        '</div>' +
-      '</button>' +
+      '<button class="user-menu-item" id="menu-language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>' + tt("menu_language") + '</span>' + arrowSvg + '</button>' +
       '<button class="user-menu-item" id="menu-help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>' + tt("menu_help") + '</span></button>' +
       '<div class="user-menu-sep"></div>' +
       '<button class="user-menu-item" id="menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>' + tt("menu_logout") + '</span></button>';
@@ -748,12 +744,23 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     e.stopPropagation();
     toggleUserMenu();
   });
+  function showLanguagePanel() {
+    var checkSvg = '<svg class="menu-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    var backSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>';
+    userMenuEl.innerHTML =
+      '<button class="user-menu-back" id="menu-lang-back">' + backSvg + '<span>' + tt("menu_language") + '</span></button>' +
+      '<button class="user-menu-item' + (currentLang === "en" ? " active" : "") + '" data-lang="en"><span>English</span>' + checkSvg + '</button>' +
+      '<button class="user-menu-item' + (currentLang === "zh" ? " active" : "") + '" data-lang="zh"><span>中文</span>' + checkSvg + '</button>';
+  }
+
   userMenuEl.addEventListener("click", function(e) {
     e.stopPropagation();
+    var back = e.target.closest("#menu-lang-back");
+    if (back) { renderUserMenu(); return; }
     var target = e.target.closest("[data-lang]");
     if (target) {
       setLang(target.getAttribute("data-lang"));
-      renderUserMenu();
+      showLanguagePanel();
       return;
     }
     var item = e.target.closest(".user-menu-item");
@@ -761,6 +768,8 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     if (item.id === "menu-settings") {
       closeUserMenu();
       window.location.href = "/admin";
+    } else if (item.id === "menu-language") {
+      showLanguagePanel();
     } else if (item.id === "menu-help") {
       closeUserMenu();
       window.open("https://github.com/meitianwang/klaus", "_blank");
