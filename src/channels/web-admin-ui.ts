@@ -327,39 +327,6 @@ tr.clickable:hover { background: var(--card-bg); }
             <div class="card-label" data-i18n="lbl_max_sessions">Max Stored Sessions</div>
             <div class="card-control"><input id="s-ses-max" type="number" class="f-input f-input-sm" min="1"></div>
           </div>
-          <div class="card-row">
-            <div class="card-label">
-              <div data-i18n="lbl_ses_age">Session Retention</div>
-            </div>
-            <div class="card-control">
-              <div style="display:flex;align-items:center;gap:8px">
-                <input id="s-ses-age" type="number" class="f-input f-input-sm" min="1">
-                <span class="stat-muted" data-i18n="unit_days">days</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Transcripts -->
-      <div class="section">
-        <div class="section-header" data-i18n="sec_transcripts">Transcripts</div>
-        <div class="card">
-          <div class="card-row">
-            <div class="card-label" data-i18n="lbl_tx_max_files">Max Files</div>
-            <div class="card-control"><input id="s-tx-files" type="number" class="f-input f-input-sm" min="1"></div>
-          </div>
-          <div class="card-row">
-            <div class="card-label">
-              <div data-i18n="lbl_tx_age">Retention</div>
-            </div>
-            <div class="card-control">
-              <div style="display:flex;align-items:center;gap:8px">
-                <input id="s-tx-age" type="number" class="f-input f-input-sm" min="1">
-                <span class="stat-muted" data-i18n="unit_days">days</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -667,9 +634,6 @@ tr.clickable:hover { background: var(--card-bg); }
   var sPermLabel = document.getElementById("s-permissions-label");
   var sWebSesAge = document.getElementById("s-web-session-age");
   var sSesMax = document.getElementById("s-ses-max");
-  var sSesAge = document.getElementById("s-ses-age");
-  var sTxFiles = document.getElementById("s-tx-files");
-  var sTxAge = document.getElementById("s-tx-age");
   var saveBtn = document.getElementById("save-settings-btn");
   var saveStatus = document.getElementById("settings-status");
 
@@ -684,10 +648,6 @@ tr.clickable:hover { background: var(--card-bg); }
       sWebSesAge.value = d.web.session_max_age_days;
       // Session
       sSesMax.value = d.session.max_entries;
-      sSesAge.value = d.session.max_age_days;
-      // Transcripts
-      sTxFiles.value = d.transcripts.max_files;
-      sTxAge.value = d.transcripts.max_age_days;
     });
   }
 
@@ -701,11 +661,6 @@ tr.clickable:hover { background: var(--card-bg); }
       },
       session: {
         max_entries: parseInt(sSesMax.value, 10),
-        max_age_days: parseInt(sSesAge.value, 10),
-      },
-      transcripts: {
-        max_files: parseInt(sTxFiles.value, 10),
-        max_age_days: parseInt(sTxAge.value, 10),
       },
     })
     .then(function() {

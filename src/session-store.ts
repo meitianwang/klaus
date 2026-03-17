@@ -32,7 +32,6 @@ interface PersistedSession {
 // Defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAX_ENTRIES = 100;
 
 // ---------------------------------------------------------------------------
@@ -191,7 +190,7 @@ export class SessionStore {
 
   // -- Maintenance ----------------------------------------------------------
 
-  pruneStale(maxAgeMs: number = DEFAULT_MAX_AGE_MS): number {
+  pruneStale(maxAgeMs: number): number {
     if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return 0;
     const cutoff = Date.now() - maxAgeMs;
     const result = this.stmtPrune.run(cutoff);

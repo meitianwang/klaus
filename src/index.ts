@@ -101,7 +101,6 @@ async function start(): Promise<void> {
   const { SessionStore } = await import("./session-store.js");
   const store = new SessionStore();
   await store.load();
-  store.pruneStale(sessionCfg.maxAgeMs);
   store.capEntries(sessionCfg.maxEntries);
   await store.save();
 

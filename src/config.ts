@@ -201,7 +201,6 @@ export function loadSessionConfig(): SessionConfig {
   const cfg = (loadConfig().session as Record<string, unknown>) ?? {};
   return {
     maxEntries: Math.floor(positiveNumber(cfg.max_entries, 100)),
-    maxAgeMs: positiveNumber(cfg.max_age_days, 7) * 24 * 60 * 60 * 1000,
   };
 }
 

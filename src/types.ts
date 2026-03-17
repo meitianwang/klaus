@@ -98,7 +98,6 @@ export interface WebConfig {
 
 export interface SessionConfig {
   readonly maxEntries: number;
-  readonly maxAgeMs: number;
 }
 
 // ---------------------------------------------------------------------------

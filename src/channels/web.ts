@@ -1408,7 +1408,6 @@ function buildSettingsResponse(): Record<string, unknown> {
   const cfg = loadConfig();
   const webCfg = (cfg.web as Record<string, unknown>) ?? {};
   const sessionCfg = (cfg.session as Record<string, unknown>) ?? {};
-  const transcriptsCfg = (cfg.transcripts as Record<string, unknown>) ?? {};
   const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
 
   return {
@@ -1424,12 +1423,6 @@ function buildSettingsResponse(): Record<string, unknown> {
     // Session
     session: {
       max_entries: Math.floor(posNum(sessionCfg.max_entries, 100)),
-      max_age_days: posNum(sessionCfg.max_age_days, 7),
-    },
-    // Transcripts
-    transcripts: {
-      max_files: Math.floor(posNum(transcriptsCfg.max_files, 200)),
-      max_age_days: posNum(transcriptsCfg.max_age_days, 30),
     },
     // Cron (global settings only, tasks via separate endpoint)
     cron: {
@@ -1509,34 +1502,8 @@ async function handleAdminSettings(
         const v = Math.floor(Number(sesPatch.max_entries));
         if (v > 0) sesCfg.max_entries = v;
       }
-      if ("max_age_days" in sesPatch) {
-        const v = Number(sesPatch.max_age_days);
-        if (Number.isFinite(v) && v > 0) sesCfg.max_age_days = v;
-      }
 
       cfg.session = sesCfg;
-    }
-
-    // --- Transcripts ---
-
-    if (
-      "transcripts" in parsed &&
-      typeof parsed.transcripts === "object" &&
-      parsed.transcripts
-    ) {
-      const txPatch = parsed.transcripts as Record<string, unknown>;
-      const txCfg = (cfg.transcripts as Record<string, unknown>) ?? {};
-
-      if ("max_files" in txPatch) {
-        const v = Math.floor(Number(txPatch.max_files));
-        if (v > 0) txCfg.max_files = v;
-      }
-      if ("max_age_days" in txPatch) {
-        const v = Number(txPatch.max_age_days);
-        if (Number.isFinite(v) && v > 0) txCfg.max_age_days = v;
-      }
-
-      cfg.transcripts = txCfg;
     }
 
     // --- Cron (global settings) ---
