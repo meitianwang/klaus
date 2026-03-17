@@ -32,6 +32,9 @@ const MAX_STDERR_BUF = 8192;
 function isSessionExpiredError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
+  // CLI error: "No conversation found with session ID: ..."
+  if (msg.includes("no conversation found")) return true;
+  // SDK-style errors
   return (
     msg.includes("session") &&
     (msg.includes("not found") ||
@@ -224,8 +227,16 @@ class ClaudeChat {
       }
 
       // Final result
-      if (msg.type === "result" && msg.subtype === "success") {
-        resultText = msg.result as string;
+      if (msg.type === "result") {
+        if (msg.subtype === "success") {
+          resultText = msg.result as string;
+        } else if (msg.is_error && Array.isArray(msg.errors) && msg.errors.length > 0) {
+          // CLI reports errors (e.g. invalid session) in the result JSON, not stderr
+          throw new Error(String(msg.errors[0]));
+        } else if (msg.is_error && typeof msg.result === "string" && msg.result) {
+          // Some errors come as result text (e.g. "Not logged in")
+          throw new Error(msg.result);
+        }
       }
 
       // Tool use events for Web channel visualization
