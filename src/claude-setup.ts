@@ -121,7 +121,6 @@ export function startClaudeLogin(): Promise<{ url: string | null }> {
   return new Promise((resolve) => {
     const child = nodeSpawn(getClaudeBin(), ["auth", "login"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, BROWSER: "echo" },
     });
 
     let resolved = false;
