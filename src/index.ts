@@ -115,7 +115,6 @@ async function start(): Promise<void> {
 
   const sessions = new ChatSessionManager(
     store,
-    sessionCfg.idleMs,
     messageStore,
   );
 

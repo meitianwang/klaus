@@ -32,7 +32,6 @@ interface PersistedSession {
 // Defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_IDLE_MS = 4 * 60 * 60 * 1000; // 4 hours
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAX_ENTRIES = 100;
 
@@ -188,12 +187,6 @@ export class SessionStore {
       )
       .all() as DbRow[];
     return rows.map(rowToSession);
-  }
-
-  isFresh(sessionKey: string, idleMs: number = DEFAULT_IDLE_MS): boolean {
-    const entry = this.get(sessionKey);
-    if (!entry) return false;
-    return Date.now() - entry.updatedAt < idleMs;
   }
 
   // -- Maintenance ----------------------------------------------------------

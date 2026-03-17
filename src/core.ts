@@ -453,20 +453,17 @@ export class ChatSessionManager {
   private sessions = new Map<string, ClaudeChat>();
   private store: SessionStore | undefined;
   private messageStore: MessageStore | undefined;
-  private idleMs: number;
   /** Persona text written to each workspace's CLAUDE.md. */
   private persona: string;
 
   constructor(
     store?: SessionStore,
-    idleMs?: number,
     messageStore?: MessageStore,
   ) {
     const cfg = loadConfig();
     this.persona = (cfg.persona as string) || DEFAULT_PERSONA;
     this.store = store;
     this.messageStore = messageStore;
-    this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
   }
 
   /**
@@ -536,10 +533,10 @@ export class ChatSessionManager {
 
     const chat = new ClaudeChat(cwd ? { cwd } : {});
 
-    // Restore sessionId from persistent store if fresh
+    // Restore sessionId from persistent store
     if (this.store) {
       const persisted = this.store.get(sessionKey);
-      if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
+      if (persisted) {
         chat.restoreSessionId(persisted.sessionId);
         console.log(`[Session] Restored from store: ${sessionKey}`);
       }
@@ -612,7 +609,7 @@ export class ChatSessionManager {
       // Restore from store if available
       if (this.store) {
         const persisted = this.store.get(sessionKey);
-        if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
+        if (persisted) {
           chat.restoreSessionId(persisted.sessionId);
         }
       }

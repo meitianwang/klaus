@@ -1423,7 +1423,6 @@ function buildSettingsResponse(): Record<string, unknown> {
     },
     // Session
     session: {
-      idle_minutes: posNum(sessionCfg.idle_minutes, 240),
       max_entries: Math.floor(posNum(sessionCfg.max_entries, 100)),
       max_age_days: posNum(sessionCfg.max_age_days, 7),
     },
@@ -1506,10 +1505,6 @@ async function handleAdminSettings(
       const sesPatch = parsed.session as Record<string, unknown>;
       const sesCfg = (cfg.session as Record<string, unknown>) ?? {};
 
-      if ("idle_minutes" in sesPatch) {
-        const v = Number(sesPatch.idle_minutes);
-        if (Number.isFinite(v) && v > 0) sesCfg.idle_minutes = v;
-      }
       if ("max_entries" in sesPatch) {
         const v = Math.floor(Number(sesPatch.max_entries));
         if (v > 0) sesCfg.max_entries = v;

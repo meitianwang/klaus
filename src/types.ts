@@ -97,7 +97,6 @@ export interface WebConfig {
 }
 
 export interface SessionConfig {
-  readonly idleMs: number;
   readonly maxEntries: number;
   readonly maxAgeMs: number;
 }

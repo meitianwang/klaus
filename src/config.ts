@@ -200,7 +200,6 @@ function positiveNumber(raw: unknown, fallback: number): number {
 export function loadSessionConfig(): SessionConfig {
   const cfg = (loadConfig().session as Record<string, unknown>) ?? {};
   return {
-    idleMs: positiveNumber(cfg.idle_minutes, 240) * 60 * 1000,
     maxEntries: Math.floor(positiveNumber(cfg.max_entries, 100)),
     maxAgeMs: positiveNumber(cfg.max_age_days, 7) * 24 * 60 * 60 * 1000,
   };

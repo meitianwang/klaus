@@ -324,18 +324,6 @@ tr.clickable:hover { background: var(--card-bg); }
         <div class="section-header" data-i18n="sec_session">Chat Sessions</div>
         <div class="card">
           <div class="card-row">
-            <div class="card-label">
-              <div data-i18n="lbl_idle">Idle Timeout</div>
-              <div class="card-hint" data-i18n="hint_idle">New session after inactivity</div>
-            </div>
-            <div class="card-control">
-              <div style="display:flex;align-items:center;gap:8px">
-                <input id="s-ses-idle" type="number" class="f-input f-input-sm" min="1">
-                <span class="stat-muted" data-i18n="unit_minutes">min</span>
-              </div>
-            </div>
-          </div>
-          <div class="card-row">
             <div class="card-label" data-i18n="lbl_max_sessions">Max Stored Sessions</div>
             <div class="card-control"><input id="s-ses-max" type="number" class="f-input f-input-sm" min="1"></div>
           </div>
@@ -566,8 +554,8 @@ tr.clickable:hover { background: var(--card-bg); }
       sec_general: "General", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts",
       lbl_persona: "System Prompt",
       lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
-      hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire", hint_idle: "New session after inactivity",
-      lbl_idle: "Idle Timeout", lbl_max_sessions: "Max Stored Sessions", lbl_ses_age: "Session Retention",
+      hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire",
+      lbl_max_sessions: "Max Stored Sessions", lbl_ses_age: "Session Retention",
       lbl_tx_max_files: "Max Files", lbl_tx_age: "Retention",
       unit_days: "days", unit_minutes: "min",
       btn_save: "Save", btn_create: "Create", btn_cancel: "Cancel", btn_add_task: "+ Add Task",
@@ -598,8 +586,8 @@ tr.clickable:hover { background: var(--card-bg); }
       sec_general: "通用", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录",
       lbl_persona: "系统提示词",
       lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",
-      hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数", hint_idle: "空闲后自动创建新会话",
-      lbl_idle: "空闲超时", lbl_max_sessions: "最大存储会话数", lbl_ses_age: "会话保留时间",
+      hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数",
+      lbl_max_sessions: "最大存储会话数", lbl_ses_age: "会话保留时间",
       lbl_tx_max_files: "最大文件数", lbl_tx_age: "保留时间",
       unit_days: "天", unit_minutes: "分钟",
       btn_save: "保存", btn_create: "创建", btn_cancel: "取消", btn_add_task: "+ 添加任务",
@@ -678,7 +666,6 @@ tr.clickable:hover { background: var(--card-bg); }
   var sPerm = document.getElementById("s-permissions");
   var sPermLabel = document.getElementById("s-permissions-label");
   var sWebSesAge = document.getElementById("s-web-session-age");
-  var sSesIdle = document.getElementById("s-ses-idle");
   var sSesMax = document.getElementById("s-ses-max");
   var sSesAge = document.getElementById("s-ses-age");
   var sTxFiles = document.getElementById("s-tx-files");
@@ -696,7 +683,6 @@ tr.clickable:hover { background: var(--card-bg); }
       sPermLabel.textContent = d.web.permissions ? tt("on") : tt("off");
       sWebSesAge.value = d.web.session_max_age_days;
       // Session
-      sSesIdle.value = d.session.idle_minutes;
       sSesMax.value = d.session.max_entries;
       sSesAge.value = d.session.max_age_days;
       // Transcripts
@@ -714,7 +700,6 @@ tr.clickable:hover { background: var(--card-bg); }
         session_max_age_days: parseInt(sWebSesAge.value, 10),
       },
       session: {
-        idle_minutes: parseInt(sSesIdle.value, 10),
         max_entries: parseInt(sSesMax.value, 10),
         max_age_days: parseInt(sSesAge.value, 10),
       },
