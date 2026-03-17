@@ -171,6 +171,7 @@ class ClaudeChat {
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
     let stderrBuf = "";
+    let streamedText = ""; // accumulate streamed text as fallback
 
     const child = spawn(getClaudeBin(), args, {
       cwd: this.options.cwd,
@@ -236,8 +237,15 @@ class ClaudeChat {
       }
 
       // Streaming text deltas
-      if (msg.type === "stream_event" && onStreamChunk) {
-        this.emitStreamChunk(msg, onStreamChunk);
+      if (msg.type === "stream_event") {
+        const event = msg.event as Record<string, unknown> | undefined;
+        if (event?.type === "content_block_delta" && typeof msg.parent_tool_use_id !== "string") {
+          const delta = event.delta as Record<string, unknown> | undefined;
+          if (delta?.type === "text_delta" && typeof delta.text === "string") {
+            streamedText += delta.text;
+          }
+        }
+        if (onStreamChunk) this.emitStreamChunk(msg, onStreamChunk);
       }
     }
 
@@ -245,8 +253,14 @@ class ClaudeChat {
     const exitCode = await exitPromise;
 
     if (exitCode !== 0 && !resultText) {
-      const errMsg = stderrBuf.trim() || `claude process exited with code ${exitCode}`;
-      throw new Error(errMsg);
+      // If we have partial streamed content, use it instead of throwing
+      if (streamedText.trim()) {
+        console.warn(`[Chat] Process exited with code ${exitCode} but has partial response (${streamedText.length} chars)`);
+        resultText = streamedText.trim();
+      } else {
+        const errMsg = stderrBuf.trim() || `claude process exited with code ${exitCode}`;
+        throw new Error(errMsg);
+      }
     }
 
     if (lastSessionId) {
