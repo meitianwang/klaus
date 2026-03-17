@@ -469,6 +469,68 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .user-menu-item .menu-check{margin-left:auto;color:var(--fg-tertiary);width:16px;height:16px;display:none}
 .user-menu-item.active .menu-check{display:block}
 
+/* ─── Settings View ─── */
+#settings-view{
+  position:absolute;inset:0;background:var(--bg);z-index:5;
+  overflow-y:auto;padding:48px 24px;
+}
+.settings-inner{max-width:600px;margin:0 auto}
+.settings-back{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 0;margin-bottom:24px;
+  font-size:14px;color:var(--fg-tertiary);background:none;border:none;
+  cursor:pointer;font-family:var(--font);transition:color .15s;
+}
+.settings-back:hover{color:var(--fg)}
+.settings-back svg{width:16px;height:16px}
+.settings-title{font-size:24px;font-weight:600;margin-bottom:32px}
+.settings-section{margin-bottom:36px}
+.settings-section-title{font-size:18px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.settings-profile-header{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.settings-avatar{
+  width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:22px;font-weight:600;color:var(--bg);background:var(--accent);flex-shrink:0;
+}
+.settings-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.settings-profile-name{font-size:16px;font-weight:600}
+.settings-profile-email{font-size:13px;color:var(--fg-tertiary);margin-top:2px}
+.settings-field{margin-bottom:20px}
+.settings-field-label{display:block;font-size:13px;font-weight:500;color:var(--fg-secondary);margin-bottom:6px}
+.settings-field-input{
+  width:100%;max-width:320px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;
+  font-size:14px;font-family:var(--font);background:var(--bg);color:var(--fg);outline:none;
+  transition:border-color .15s;
+}
+.settings-field-input:focus{border-color:var(--accent)}
+.settings-btn-save{
+  padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:500;
+  font-family:var(--font);background:var(--accent);color:var(--bg);cursor:pointer;transition:opacity .15s;
+}
+.settings-btn-save:hover{opacity:0.85}
+.settings-btn-save:disabled{opacity:0.5;cursor:not-allowed}
+.settings-save-status{display:inline-block;margin-left:12px;font-size:13px;color:var(--fg-tertiary)}
+.settings-theme-options{display:flex;gap:16px;flex-wrap:wrap}
+.settings-theme-card{
+  cursor:pointer;border:2px solid var(--border);border-radius:12px;padding:4px;
+  transition:border-color .15s;width:120px;
+}
+.settings-theme-card:hover{border-color:var(--fg-tertiary)}
+.settings-theme-card.active{border-color:var(--accent)}
+.settings-theme-preview{width:100%;aspect-ratio:4/3;border-radius:8px;overflow:hidden;position:relative}
+.settings-theme-preview-light{background:#f8fafc;border:1px solid #e2e8f0}
+.settings-theme-preview-light::after{content:'';position:absolute;bottom:8px;left:8px;right:8px;height:12px;background:#020617;border-radius:4px}
+.settings-theme-preview-dark{background:#1e293b;border:1px solid #334155}
+.settings-theme-preview-dark::after{content:'';position:absolute;bottom:8px;left:8px;right:8px;height:12px;background:#f8fafc;border-radius:4px}
+.settings-theme-preview-auto{background:linear-gradient(135deg,#f8fafc 50%,#1e293b 50%);border:1px solid #e2e8f0}
+.settings-theme-preview-auto::after{content:'';position:absolute;bottom:8px;left:8px;right:8px;height:12px;background:linear-gradient(90deg,#020617 50%,#f8fafc 50%);border-radius:4px}
+.settings-theme-label{text-align:center;font-size:13px;color:var(--fg-secondary);margin-top:8px;padding-bottom:4px}
+.settings-lang-options{display:flex;gap:8px}
+.settings-lang-option{
+  padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;
+  font-family:var(--font);cursor:pointer;background:transparent;color:var(--fg);transition:all .15s;
+}
+.settings-lang-option:hover{border-color:var(--fg-tertiary)}
+.settings-lang-option.active{border-color:var(--accent);background:var(--accent);color:var(--bg)}
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -537,6 +599,62 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
         </div>
       </div>
     </div>
+    <!-- Settings view (hidden by default) -->
+    <div id="settings-view" style="display:none">
+      <div class="settings-inner">
+        <button class="settings-back" id="settings-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span data-i18n="settings_back">Back</span>
+        </button>
+        <h1 class="settings-title" data-i18n="settings_title">Settings</h1>
+
+        <div class="settings-section">
+          <div class="settings-section-title" data-i18n="settings_profile">Profile</div>
+          <div class="settings-profile-header">
+            <div class="settings-avatar" id="settings-avatar"></div>
+            <div class="settings-profile-info">
+              <div class="settings-profile-name" id="settings-profile-name"></div>
+              <div class="settings-profile-email" id="settings-profile-email"></div>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-field-label" data-i18n="settings_display_name">Display name</label>
+            <input class="settings-field-input" type="text" id="settings-input-name" maxlength="50">
+          </div>
+          <button class="settings-btn-save" id="settings-btn-save" data-i18n="settings_save">Save</button>
+          <span class="settings-save-status" id="settings-save-status"></span>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title" data-i18n="settings_appearance">Appearance</div>
+          <div class="settings-field">
+            <label class="settings-field-label" data-i18n="settings_color_mode">Color mode</label>
+            <div class="settings-theme-options" id="settings-theme-options">
+              <div class="settings-theme-card" data-theme="light">
+                <div class="settings-theme-preview settings-theme-preview-light"></div>
+                <div class="settings-theme-label" data-i18n="settings_theme_light">Light</div>
+              </div>
+              <div class="settings-theme-card" data-theme="dark">
+                <div class="settings-theme-preview settings-theme-preview-dark"></div>
+                <div class="settings-theme-label" data-i18n="settings_theme_dark">Dark</div>
+              </div>
+              <div class="settings-theme-card active" data-theme="auto">
+                <div class="settings-theme-preview settings-theme-preview-auto"></div>
+                <div class="settings-theme-label" data-i18n="settings_theme_auto">System</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title" data-i18n="settings_language">Language</div>
+          <div class="settings-lang-options" id="settings-lang-options">
+            <button class="settings-lang-option" data-lang="en">English</button>
+            <button class="settings-lang-option" data-lang="zh">中文</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <script>
@@ -589,6 +707,18 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       toggle_sidebar: "Toggle sidebar",
       admin: "Admin",
       bot_name: "Klaus",
+      settings_title: "Settings",
+      settings_back: "Back",
+      settings_profile: "Profile",
+      settings_display_name: "Display name",
+      settings_save: "Save",
+      settings_saved: "Saved",
+      settings_appearance: "Appearance",
+      settings_color_mode: "Color mode",
+      settings_theme_light: "Light",
+      settings_theme_dark: "Dark",
+      settings_theme_auto: "System",
+      settings_language: "Language",
     },
     zh: {
       chats: "对话",
@@ -636,6 +766,18 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       toggle_sidebar: "切换侧边栏",
       admin: "管理",
       bot_name: "Klaus",
+      settings_title: "设置",
+      settings_back: "返回",
+      settings_profile: "个人资料",
+      settings_display_name: "显示名称",
+      settings_save: "保存",
+      settings_saved: "已保存",
+      settings_appearance: "外观",
+      settings_color_mode: "颜色模式",
+      settings_theme_light: "浅色",
+      settings_theme_dark: "深色",
+      settings_theme_auto: "跟随系统",
+      settings_language: "语言",
     }
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
@@ -793,7 +935,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     if (!item) return;
     if (item.id === "menu-settings") {
       closeUserMenu();
-      window.location.href = "/settings";
+      showSettings();
     } else if (item.id === "menu-admin") {
       closeUserMenu();
       window.location.href = "/admin";
@@ -809,6 +951,89 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     }
   });
   document.addEventListener("click", function() { closeUserMenu(); closeLangPanel(); });
+
+  // --- Settings view ---
+  var settingsView = document.getElementById("settings-view");
+  var chatElements = [document.getElementById("header"), document.getElementById("welcome"), document.getElementById("messages"), document.getElementById("input-wrapper")];
+
+  function showSettings() {
+    settingsView.style.display = "block";
+    chatElements.forEach(function(el) { if (el) el.style.display = "none"; });
+    // Populate
+    var initial = (currentUser.name || currentUser.email || "U").charAt(0).toUpperCase();
+    var avatarEl = document.getElementById("settings-avatar");
+    if (currentUser.avatar) {
+      avatarEl.innerHTML = '<img src="' + currentUser.avatar + '" alt="">';
+    } else {
+      avatarEl.textContent = initial;
+    }
+    document.getElementById("settings-profile-name").textContent = currentUser.name || currentUser.email || "";
+    document.getElementById("settings-profile-email").textContent = currentUser.email || "";
+    document.getElementById("settings-input-name").value = currentUser.name || "";
+    // Theme
+    var curTheme = localStorage.getItem("klaus_theme") || "auto";
+    document.querySelectorAll(".settings-theme-card").forEach(function(c) {
+      c.classList.toggle("active", c.getAttribute("data-theme") === curTheme);
+    });
+    // Language
+    document.querySelectorAll(".settings-lang-option").forEach(function(el) {
+      el.classList.toggle("active", el.getAttribute("data-lang") === currentLang);
+    });
+  }
+  function hideSettings() {
+    settingsView.style.display = "none";
+    chatElements.forEach(function(el) { if (el) el.style.display = ""; });
+  }
+
+  document.getElementById("settings-back").addEventListener("click", hideSettings);
+
+  // Save profile
+  document.getElementById("settings-btn-save").addEventListener("click", function() {
+    var btn = this;
+    var name = document.getElementById("settings-input-name").value.trim();
+    var status = document.getElementById("settings-save-status");
+    btn.disabled = true; status.textContent = "";
+    fetch("/api/auth/profile", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      credentials: "same-origin", body: JSON.stringify({ displayName: name })
+    }).then(function(r) {
+      if (!r.ok) throw new Error();
+      status.textContent = tt("settings_saved");
+      currentUser.name = name;
+      document.getElementById("settings-profile-name").textContent = name || currentUser.email;
+      usernameEl.textContent = name || currentUser.email || "User";
+      var ini = (name || currentUser.email || "U").charAt(0).toUpperCase();
+      document.getElementById("sidebar-avatar").textContent = ini;
+      setTimeout(function() { status.textContent = ""; }, 2000);
+    }).catch(function() {
+      status.textContent = "Error"; status.style.color = "#dc2626";
+      setTimeout(function() { status.textContent = ""; status.style.color = ""; }, 2000);
+    }).finally(function() { btn.disabled = false; });
+  });
+
+  // Theme
+  document.getElementById("settings-theme-options").addEventListener("click", function(e) {
+    var card = e.target.closest(".settings-theme-card");
+    if (!card) return;
+    var theme = card.getAttribute("data-theme");
+    localStorage.setItem("klaus_theme", theme);
+    document.querySelectorAll(".settings-theme-card").forEach(function(c) {
+      c.classList.toggle("active", c.getAttribute("data-theme") === theme);
+    });
+    if (theme === "dark") document.documentElement.style.colorScheme = "dark";
+    else if (theme === "light") document.documentElement.style.colorScheme = "light";
+    else document.documentElement.style.colorScheme = "";
+  });
+
+  // Language (in settings)
+  document.getElementById("settings-lang-options").addEventListener("click", function(e) {
+    var btn = e.target.closest(".settings-lang-option");
+    if (!btn) return;
+    setLang(btn.getAttribute("data-lang"));
+    document.querySelectorAll(".settings-lang-option").forEach(function(el) {
+      el.classList.toggle("active", el.getAttribute("data-lang") === currentLang);
+    });
+  });
 
   // --- Welcome state ---
   function getGreeting() {
