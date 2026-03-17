@@ -461,7 +461,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .user-menu-item .menu-arrow{margin-left:auto;color:var(--fg-quaternary);width:14px;height:14px}
 .user-menu-sep{height:1px;background:var(--border);margin:4px 8px}
 .user-menu-sub{
-  position:absolute;left:calc(100%);bottom:56px;min-width:200px;
+  position:fixed;min-width:200px;
   background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;
   box-shadow:var(--shadow-lg);padding:4px;display:none;flex-direction:column;
   animation:fade-in .1s ease-out;z-index:51;
@@ -483,7 +483,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   <div id="sidebar" class="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand"><img src="/logo.png" alt="K"><span>Klaus</span></div>
-      <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">
+      <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar" data-i18n-title="toggle_sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
       </button>
     </div>
@@ -515,7 +515,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
         </button>
       </div>
       <div class="header-right">
-        <a id="admin-link" href="/admin" style="display:none">Admin</a>
+        <a id="admin-link" href="/admin" style="display:none" data-i18n="admin">Admin</a>
         <span id="status" data-i18n="connected">Connected</span>
       </div>
     </div>
@@ -529,7 +529,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       <div id="input-area">
         <div id="previews"></div>
         <div class="input-row">
-          <button id="attach" title="Attach file">
+          <button id="attach" title="Attach file" data-i18n-title="attach_file">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
           <input type="file" id="file-input" multiple hidden accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.json,.csv,.xml,.html,.js,.ts,.py,.go,.rs,.java,.c,.cpp,.h,.yaml,.yml,.toml,.log,.sh,.bat">
@@ -587,6 +587,10 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       menu_language: "Language",
       menu_help: "Get help",
       menu_logout: "Log out",
+      attach_file: "Attach file",
+      toggle_sidebar: "Toggle sidebar",
+      admin: "Admin",
+      bot_name: "Klaus",
     },
     zh: {
       chats: "对话",
@@ -629,6 +633,10 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       menu_language: "语言",
       menu_help: "获取帮助",
       menu_logout: "退出登录",
+      attach_file: "附加文件",
+      toggle_sidebar: "切换侧边栏",
+      admin: "管理",
+      bot_name: "Klaus",
     }
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
@@ -761,7 +769,12 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     langPanelEl.classList.toggle("open", show);
     var langItem = document.getElementById("menu-language");
     if (langItem) langItem.classList.toggle("selected", show);
-    if (show) renderLangPanel();
+    if (show) {
+      renderLangPanel();
+      var rect = langItem.getBoundingClientRect();
+      langPanelEl.style.left = (rect.right + 8) + "px";
+      langPanelEl.style.top = rect.top + "px";
+    }
   }
   function closeLangPanel() { toggleLangPanel(false); }
 
@@ -1401,7 +1414,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     var wrap = document.createElement("div");
     wrap.className = "msg-group assistant";
     wrap.id = "streaming-msg";
-    wrap.innerHTML = '<div class="msg-label">Klaus</div><div class="msg assistant streaming"><span class="cursor"></span></div>';
+    wrap.innerHTML = '<div class="msg-label">' + escHtml(tt("bot_name")) + '</div><div class="msg assistant streaming"><span class="cursor"></span></div>';
     msgs.appendChild(wrap);
     scrollBottom();
   }
@@ -1500,7 +1513,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     if (role === "assistant") {
       var label = document.createElement("div");
       label.className = "msg-label";
-      label.textContent = "Klaus";
+      label.textContent = tt("bot_name");
       wrap.appendChild(label);
     }
 
@@ -1535,7 +1548,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     wrap.className = "msg-group assistant";
     var nameLabel = document.createElement("div");
     nameLabel.className = "msg-label";
-    nameLabel.textContent = "Klaus";
+    nameLabel.textContent = tt("bot_name");
     wrap.appendChild(nameLabel);
     var card = document.createElement("div");
     card.className = "file-card";
