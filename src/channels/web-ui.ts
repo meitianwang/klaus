@@ -1353,17 +1353,19 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   var historyLoaded = new Set();
 
   async function loadHistory(sessionId) {
+    console.log("[loadHistory] called for:", sessionId, "current:", currentSessionId, "loaded:", historyLoaded.has(sessionId));
     if (historyLoaded.has(sessionId)) return;
     historyLoaded.add(sessionId);
     try {
       var res = await fetch("/api/history?sessionId=" + encodeURIComponent(sessionId), { credentials: "same-origin" });
-      if (!res.ok) { historyLoaded.delete(sessionId); return; }
+      if (!res.ok) { console.log("[loadHistory] fetch failed:", res.status); historyLoaded.delete(sessionId); return; }
       var data = await res.json();
+      console.log("[loadHistory] got", data.messages ? data.messages.length : 0, "messages, total:", data.total);
       if (!data.messages || !data.messages.length) {
         if (sessionId === currentSessionId) showWelcome();
         return;
       }
-      if (sessionId !== currentSessionId) return;
+      if (sessionId !== currentSessionId) { console.log("[loadHistory] session changed, discarding. was:", sessionId, "now:", currentSessionId); return; }
       hideWelcome();
       data.messages.forEach(function(m) {
         appendMsg(m.role === "user" ? "user" : "assistant", m.content);
