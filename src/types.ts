@@ -64,10 +64,6 @@ export interface WebConfig {
   readonly google?: GoogleOAuthConfig;
 }
 
-export interface SessionConfig {
-  readonly maxEntries: number;
-}
-
 export interface TranscriptsConfig {
   readonly transcriptsDir: string;
   readonly maxFiles: number;

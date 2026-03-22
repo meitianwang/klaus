@@ -44,13 +44,8 @@ import type { WebConfig } from "../types.js";
 import {
   loadWebConfig,
   loadConfig,
-  saveConfig,
-  loadSessionConfig,
-  loadTranscriptsConfig,
-  loadCronConfig,
   CONFIG_FILE,
   CONFIG_DIR,
-  positiveNumber,
 } from "../config.js";
 import type {
   CronTask,
@@ -208,6 +203,7 @@ const ALLOWED_EXTENSIONS = new Set([
 let messageStoreRef: MessageStore | null = null;
 let inviteStoreRef: InviteStore | null = null;
 let userStoreRef: UserStore | null = null;
+let settingsStoreRef: import("../settings-store.js").SettingsStore | null = null;
 
 export function setMessageStore(store: MessageStore): void {
   messageStoreRef = store;
@@ -219,6 +215,10 @@ export function setInviteStore(store: InviteStore): void {
 
 export function setUserStore(store: UserStore): void {
   userStoreRef = store;
+}
+
+export function setSettingsStore(store: import("../settings-store.js").SettingsStore): void {
+  settingsStoreRef = store;
 }
 
 // Cron scheduler reference (optional — set from index.ts when cron is available)
@@ -247,7 +247,7 @@ interface KlausWebSocket extends WebSocket {
 
 const wsClients = new Map<string, Set<KlausWebSocket>>();
 
-type WsEvent =
+export type WsEvent =
   | {
       readonly type: "message";
       readonly text: string;
@@ -289,7 +289,7 @@ function removeWsClient(userId: string, ws: KlausWebSocket): void {
   if (clients.size === 0) wsClients.delete(userId);
 }
 
-function sendWsEvent(userId: string, event: WsEvent): void {
+export function sendWsEvent(userId: string, event: WsEvent): void {
   const clients = wsClients.get(userId);
   if (!clients) return;
   const data = JSON.stringify(event);
@@ -707,13 +707,8 @@ async function handleRpcRequest(
     }
 
     case "config.set": {
-      const data = params.config as Record<string, unknown>;
-      if (!data || typeof data !== "object") {
-        sendError("missing config parameter");
-        return;
-      }
-      saveConfig(data);
-      sendResult({ ok: true });
+      // Deprecated: config is now managed via settings store
+      sendError("config.set is deprecated, use admin API endpoints");
       break;
     }
 
@@ -1198,34 +1193,24 @@ async function handleAdminHistory(
 }
 
 // ---------------------------------------------------------------------------
-// Admin: settings (all config sections except tunnel)
+// Admin: settings (KV store)
 // ---------------------------------------------------------------------------
 
-/** Build the full settings response from current config. */
 function buildSettingsResponse(): Record<string, unknown> {
-  const cfg = loadConfig();
-  const webCfg = (cfg.web as Record<string, unknown>) ?? {};
-  const sessionCfg = (cfg.session as Record<string, unknown>) ?? {};
-  const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
-
+  if (!settingsStoreRef) return {};
   return {
-    // General
-    persona: (cfg.persona as string) ?? "",
-    // Web
+    max_sessions: settingsStoreRef.getNumber("max_sessions", 20),
+    yolo: settingsStoreRef.getBool("yolo", true),
     web: {
-      session_max_age_days: positiveNumber(webCfg.session_max_age_days, 7),
+      session_max_age_days: settingsStoreRef.getNumber("web.session_max_age_days", 7),
     },
-    // Session
-    session: {
-      max_entries: Math.floor(positiveNumber(sessionCfg.max_entries, 100)),
+    transcripts: {
+      max_files: settingsStoreRef.getNumber("transcripts.max_files", 200),
+      max_age_days: settingsStoreRef.getNumber("transcripts.max_age_days", 30),
     },
-    // Cron (global settings only, tasks via separate endpoint)
     cron: {
-      enabled: cronCfg.enabled === true,
-      max_concurrent_runs:
-        cronCfg.max_concurrent_runs != null
-          ? Math.floor(positiveNumber(cronCfg.max_concurrent_runs, 0))
-          : null,
+      enabled: settingsStoreRef.getBool("cron.enabled", false),
+      max_concurrent_runs: settingsStoreRef.getNumber("cron.max_concurrent_runs", 0) || null,
     },
   };
 }
@@ -1235,6 +1220,10 @@ async function handleAdminSettings(
   res: ServerResponse,
 ): Promise<void> {
   if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
 
   if (req.method === "GET") {
     jsonResponse(res, 200, buildSettingsResponse());
@@ -1251,74 +1240,40 @@ async function handleAdminSettings(
       return;
     }
 
-    const cfg = loadConfig();
-
-    // --- General ---
-
-    if ("persona" in parsed) {
-      const persona = String(parsed.persona ?? "").trim();
-      if (persona) {
-        cfg.persona = persona;
-      } else {
-        delete cfg.persona;
-      }
+    if ("max_sessions" in parsed) {
+      const v = Math.floor(Number(parsed.max_sessions));
+      if (v > 0) settingsStoreRef.set("max_sessions", String(v));
     }
-
-    // --- Web ---
-
+    if ("yolo" in parsed) {
+      settingsStoreRef.set("yolo", String(Boolean(parsed.yolo)));
+    }
     if ("web" in parsed && typeof parsed.web === "object" && parsed.web) {
-      const webPatch = parsed.web as Record<string, unknown>;
-      const webCfg = (cfg.web as Record<string, unknown>) ?? {};
-
-      if ("session_max_age_days" in webPatch) {
-        const v = Number(webPatch.session_max_age_days);
-        if (Number.isFinite(v) && v > 0) webCfg.session_max_age_days = v;
+      const w = parsed.web as Record<string, unknown>;
+      if ("session_max_age_days" in w) {
+        const v = Number(w.session_max_age_days);
+        if (Number.isFinite(v) && v > 0) settingsStoreRef.set("web.session_max_age_days", String(v));
       }
-
-      cfg.web = webCfg;
     }
-
-    // --- Session ---
-
-    if (
-      "session" in parsed &&
-      typeof parsed.session === "object" &&
-      parsed.session
-    ) {
-      const sesPatch = parsed.session as Record<string, unknown>;
-      const sesCfg = (cfg.session as Record<string, unknown>) ?? {};
-
-      if ("max_entries" in sesPatch) {
-        const v = Math.floor(Number(sesPatch.max_entries));
-        if (v > 0) sesCfg.max_entries = v;
+    if ("transcripts" in parsed && typeof parsed.transcripts === "object" && parsed.transcripts) {
+      const t = parsed.transcripts as Record<string, unknown>;
+      if ("max_files" in t) {
+        const v = Math.floor(Number(t.max_files));
+        if (v > 0) settingsStoreRef.set("transcripts.max_files", String(v));
       }
-
-      cfg.session = sesCfg;
+      if ("max_age_days" in t) {
+        const v = Number(t.max_age_days);
+        if (Number.isFinite(v) && v > 0) settingsStoreRef.set("transcripts.max_age_days", String(v));
+      }
     }
-
-    // --- Cron (global settings) ---
-
     if ("cron" in parsed && typeof parsed.cron === "object" && parsed.cron) {
-      const cronPatch = parsed.cron as Record<string, unknown>;
-      const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
-
-      if ("enabled" in cronPatch) {
-        cronCfg.enabled = Boolean(cronPatch.enabled);
+      const c = parsed.cron as Record<string, unknown>;
+      if ("enabled" in c) settingsStoreRef.set("cron.enabled", String(Boolean(c.enabled)));
+      if ("max_concurrent_runs" in c) {
+        const v = c.max_concurrent_runs;
+        settingsStoreRef.set("cron.max_concurrent_runs", v ? String(Math.floor(Number(v))) : "0");
       }
-      if ("max_concurrent_runs" in cronPatch) {
-        const v = cronPatch.max_concurrent_runs;
-        if (v === null || v === "") {
-          delete cronCfg.max_concurrent_runs;
-        } else {
-          const n = Math.floor(Number(v));
-          if (n > 0) cronCfg.max_concurrent_runs = n;
-        }
-      }
-
-      cfg.cron = cronCfg;
     }
 
-    saveConfig(cfg);
     jsonResponse(res, 200, buildSettingsResponse());
     return;
   }
@@ -1335,6 +1290,10 @@ async function handleAdminCronTasks(
   res: ServerResponse,
 ): Promise<void> {
   if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
 
   // GET — list all tasks with status
   if (req.method === "GET") {
@@ -1343,9 +1302,7 @@ async function handleAdminCronTasks(
       const scheduler = cronSchedulerRef.getSchedulerStatus();
       jsonResponse(res, 200, { tasks, scheduler });
     } else {
-      // No scheduler — read from config
-      const cronCfg = loadCronConfig();
-      const tasks = cronCfg.tasks.map((t) => ({
+      const tasks = settingsStoreRef.listTasks().map((t) => ({
         id: t.id,
         name: t.name,
         description: t.description,
@@ -1360,14 +1317,7 @@ async function handleAdminCronTasks(
       }));
       jsonResponse(res, 200, {
         tasks,
-        scheduler: {
-          running: false,
-          taskCount: tasks.length,
-          activeJobs: 0,
-          runningTasks: 0,
-          maxConcurrentRuns: null,
-          nextWakeAt: null,
-        },
+        scheduler: { running: false, taskCount: tasks.length, activeJobs: 0, runningTasks: 0, maxConcurrentRuns: null, nextWakeAt: null },
       });
     }
     return;
@@ -1388,16 +1338,12 @@ async function handleAdminCronTasks(
     const schedule = String(parsed.schedule ?? "").trim();
     const prompt = String(parsed.prompt ?? "").trim();
     if (!id || !schedule || !prompt) {
-      jsonResponse(res, 400, {
-        error: "id, schedule, and prompt are required",
-      });
+      jsonResponse(res, 400, { error: "id, schedule, and prompt are required" });
       return;
     }
 
     const task: CronTask = {
-      id,
-      schedule,
-      prompt,
+      id, schedule, prompt,
       name: parsed.name ? String(parsed.name) : undefined,
       description: parsed.description ? String(parsed.description) : undefined,
       enabled: parsed.enabled !== false,
@@ -1405,19 +1351,8 @@ async function handleAdminCronTasks(
       updatedAt: Date.now(),
     };
 
-    if (cronSchedulerRef) {
-      cronSchedulerRef.addTask(task);
-    } else {
-      // Persist to config directly
-      const cfg = loadConfig();
-      const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
-      const tasks = Array.isArray(cronCfg.tasks) ? [...cronCfg.tasks] : [];
-      tasks.push(task);
-      cronCfg.tasks = tasks;
-      cfg.cron = cronCfg;
-      saveConfig(cfg);
-    }
-
+    settingsStoreRef.upsertTask(task);
+    cronSchedulerRef?.addTask(task);
     jsonResponse(res, 201, { ok: true, task });
     return;
   }
@@ -1428,6 +1363,12 @@ async function handleAdminCronTasks(
     const id = url.searchParams.get("id") ?? "";
     if (!id) {
       jsonResponse(res, 400, { error: "id query parameter required" });
+      return;
+    }
+
+    const existing = settingsStoreRef.getTask(id);
+    if (!existing) {
+      jsonResponse(res, 404, { error: "task not found" });
       return;
     }
 
@@ -1443,25 +1384,13 @@ async function handleAdminCronTasks(
     const patch: Record<string, unknown> = {};
     if ("schedule" in parsed) patch.schedule = String(parsed.schedule);
     if ("prompt" in parsed) patch.prompt = String(parsed.prompt);
-    if ("name" in parsed)
-      patch.name = parsed.name ? String(parsed.name) : undefined;
-    if ("description" in parsed)
-      patch.description = parsed.description
-        ? String(parsed.description)
-        : undefined;
+    if ("name" in parsed) patch.name = parsed.name ? String(parsed.name) : undefined;
+    if ("description" in parsed) patch.description = parsed.description ? String(parsed.description) : undefined;
     if ("enabled" in parsed) patch.enabled = Boolean(parsed.enabled);
 
-    if (cronSchedulerRef) {
-      const ok = cronSchedulerRef.editTask(id, patch as Partial<CronTask>);
-      if (!ok) {
-        jsonResponse(res, 404, { error: "task not found" });
-        return;
-      }
-    } else {
-      jsonResponse(res, 503, { error: "cron scheduler not running" });
-      return;
-    }
-
+    const updated = { ...existing, ...patch, updatedAt: Date.now() };
+    settingsStoreRef.upsertTask(updated);
+    cronSchedulerRef?.editTask(id, patch as Partial<CronTask>);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -1475,17 +1404,294 @@ async function handleAdminCronTasks(
       return;
     }
 
-    if (cronSchedulerRef) {
-      const ok = cronSchedulerRef.removeTask(id);
-      if (!ok) {
-        jsonResponse(res, 404, { error: "task not found" });
-        return;
-      }
-    } else {
-      jsonResponse(res, 503, { error: "cron scheduler not running" });
+    const deleted = settingsStoreRef.deleteTask(id);
+    if (!deleted) {
+      jsonResponse(res, 404, { error: "task not found" });
+      return;
+    }
+    cronSchedulerRef?.removeTask(id);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: models CRUD
+// ---------------------------------------------------------------------------
+
+async function handleAdminModels(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  if (req.method === "GET") {
+    jsonResponse(res, 200, {
+      models: settingsStoreRef.listModels().map(({ apiKey, ...safe }) => safe),
+    });
+    return;
+  }
+
+  if (req.method === "POST") {
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const id = String(parsed.id ?? "").trim();
+    const model = String(parsed.model ?? "").trim();
+    if (!id || !model) {
+      jsonResponse(res, 400, { error: "id and model are required" });
+      return;
+    }
+    if (!/^[\w\-]{1,64}$/.test(id)) {
+      jsonResponse(res, 400, { error: "id must be 1-64 alphanumeric/dash chars" });
+      return;
+    }
+    const maxTokens = Number(parsed.max_context_tokens ?? 200_000);
+    if (!Number.isFinite(maxTokens) || maxTokens < 1000 || maxTokens > 2_000_000) {
+      jsonResponse(res, 400, { error: "max_context_tokens must be 1000-2000000" });
       return;
     }
 
+    const now = Date.now();
+    settingsStoreRef.upsertModel({
+      id,
+      name: String(parsed.name ?? id),
+      provider: String(parsed.provider ?? "anthropic"),
+      model,
+      apiKey: parsed.api_key ? String(parsed.api_key) : undefined,
+      baseUrl: parsed.base_url ? String(parsed.base_url) : undefined,
+      maxContextTokens: maxTokens,
+      thinking: String(parsed.thinking ?? "off"),
+      isDefault: Boolean(parsed.is_default),
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (parsed.is_default) settingsStoreRef.setDefaultModel(id);
+    jsonResponse(res, 201, { ok: true });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+
+    const existing = settingsStoreRef.getModel(id);
+    if (!existing) { jsonResponse(res, 404, { error: "model not found" }); return; }
+
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const updated = {
+      ...existing,
+      ...(parsed.name != null ? { name: String(parsed.name) } : {}),
+      ...(parsed.provider != null ? { provider: String(parsed.provider) } : {}),
+      ...(parsed.model != null ? { model: String(parsed.model) } : {}),
+      ...("api_key" in parsed ? { apiKey: parsed.api_key ? String(parsed.api_key) : undefined } : {}),
+      ...("base_url" in parsed ? { baseUrl: parsed.base_url ? String(parsed.base_url) : undefined } : {}),
+      ...(parsed.max_context_tokens != null ? { maxContextTokens: Number(parsed.max_context_tokens) } : {}),
+      ...(parsed.thinking != null ? { thinking: String(parsed.thinking) } : {}),
+      updatedAt: Date.now(),
+    };
+    settingsStoreRef.upsertModel(updated);
+    if (parsed.is_default) settingsStoreRef.setDefaultModel(id);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+    const deleted = settingsStoreRef.deleteModel(id);
+    if (!deleted) { jsonResponse(res, 404, { error: "model not found" }); return; }
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: prompts CRUD
+// ---------------------------------------------------------------------------
+
+async function handleAdminPrompts(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  if (req.method === "GET") {
+    jsonResponse(res, 200, { prompts: settingsStoreRef.listPrompts() });
+    return;
+  }
+
+  if (req.method === "POST") {
+    const body = await readBody(req, 16384);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const id = String(parsed.id ?? "").trim();
+    const content = String(parsed.content ?? "").trim();
+    if (!id || !content) {
+      jsonResponse(res, 400, { error: "id and content are required" });
+      return;
+    }
+    if (!/^[\w\-]{1,64}$/.test(id)) {
+      jsonResponse(res, 400, { error: "id must be 1-64 alphanumeric/dash chars" });
+      return;
+    }
+
+    const now = Date.now();
+    settingsStoreRef.upsertPrompt({
+      id,
+      name: String(parsed.name ?? id),
+      content,
+      isDefault: Boolean(parsed.is_default),
+      createdAt: now,
+      updatedAt: now,
+    });
+    if (parsed.is_default) settingsStoreRef.setDefaultPrompt(id);
+    jsonResponse(res, 201, { ok: true });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+
+    const existing = settingsStoreRef.getPrompt(id);
+    if (!existing) { jsonResponse(res, 404, { error: "prompt not found" }); return; }
+
+    const body = await readBody(req, 16384);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const updated = {
+      ...existing,
+      ...(parsed.name != null ? { name: String(parsed.name) } : {}),
+      ...(parsed.content != null ? { content: String(parsed.content) } : {}),
+      updatedAt: Date.now(),
+    };
+    settingsStoreRef.upsertPrompt(updated);
+    if (parsed.is_default) settingsStoreRef.setDefaultPrompt(id);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+    const deleted = settingsStoreRef.deletePrompt(id);
+    if (!deleted) { jsonResponse(res, 404, { error: "prompt not found" }); return; }
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: rules CRUD
+// ---------------------------------------------------------------------------
+
+async function handleAdminRules(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  if (req.method === "GET") {
+    jsonResponse(res, 200, { rules: settingsStoreRef.listRules() });
+    return;
+  }
+
+  if (req.method === "POST") {
+    const body = await readBody(req, 16384);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const id = String(parsed.id ?? "").trim();
+    const content = String(parsed.content ?? "").trim();
+    if (!id || !content) {
+      jsonResponse(res, 400, { error: "id and content are required" });
+      return;
+    }
+    if (!/^[\w\-]{1,64}$/.test(id)) {
+      jsonResponse(res, 400, { error: "id must be 1-64 alphanumeric/dash chars" });
+      return;
+    }
+
+    const now = Date.now();
+    settingsStoreRef.upsertRule({
+      id,
+      name: String(parsed.name ?? id),
+      content,
+      enabled: parsed.enabled !== false,
+      sortOrder: Number(parsed.sort_order ?? 0),
+      createdAt: now,
+      updatedAt: now,
+    });
+    jsonResponse(res, 201, { ok: true });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+
+    const existing = settingsStoreRef.listRules().find((r) => r.id === id);
+    if (!existing) { jsonResponse(res, 404, { error: "rule not found" }); return; }
+
+    const body = await readBody(req, 16384);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const updated = {
+      ...existing,
+      ...(parsed.name != null ? { name: String(parsed.name) } : {}),
+      ...(parsed.content != null ? { content: String(parsed.content) } : {}),
+      ...("enabled" in parsed ? { enabled: Boolean(parsed.enabled) } : {}),
+      ...(parsed.sort_order != null ? { sortOrder: Number(parsed.sort_order) } : {}),
+      updatedAt: Date.now(),
+    };
+    settingsStoreRef.upsertRule(updated);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+    const deleted = settingsStoreRef.deleteRule(id);
+    if (!deleted) { jsonResponse(res, 404, { error: "rule not found" }); return; }
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -1701,6 +1907,12 @@ async function handleRequest(
       return handleAdminSettings(req, res);
     case "/api/admin/cron/tasks":
       return handleAdminCronTasks(req, res);
+    case "/api/admin/models":
+      return handleAdminModels(req, res);
+    case "/api/admin/prompts":
+      return handleAdminPrompts(req, res);
+    case "/api/admin/rules":
+      return handleAdminRules(req, res);
     // Upload
     case "/api/upload":
       if (req.method !== "POST") {

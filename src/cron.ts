@@ -24,7 +24,6 @@ import { resolveStaggerMs } from "./cron-stagger.js";
 import { sleep } from "./retry.js";
 import { parseRelativeTime } from "./config.js";
 import { postWebhook } from "./cron-webhook.js";
-import { CronJobStore } from "./cron-store.js";
 
 /** Delivery function: send a message to a channel target. */
 type DeliverFn = (to: string, text: string) => Promise<void>;
@@ -66,7 +65,6 @@ export class CronScheduler {
   private readonly failureAlertConfig: CronFailureAlert;
   private readonly runLog: CronRunLog;
   private readonly taskState = new Map<string, TaskState>();
-  private readonly jobStore: CronJobStore;
   /** Track last channel used for delivery inference. */
   private lastActiveChannel: string | undefined;
   private started = false;
@@ -90,13 +88,8 @@ export class CronScheduler {
         : undefined,
     );
 
-    // Load persistent job store and merge with config tasks
-    this.jobStore = new CronJobStore(config.storePath);
-    const storedJobs = this.jobStore.load();
-    const configTaskIds = new Set(config.tasks.map((t) => t.id));
-    // Config tasks take precedence; store-only tasks are appended
-    const storeOnly = storedJobs.filter((j) => !configTaskIds.has(j.id));
-    this.tasks = [...this.deduplicateTasks([...config.tasks, ...storeOnly])];
+    // Tasks are provided directly from SettingsStore via config.tasks
+    this.tasks = [...this.deduplicateTasks(config.tasks)];
 
     // Record first available channel as last-route default
     if (deliverers && deliverers.size > 0) {
@@ -745,7 +738,6 @@ export class CronScheduler {
       this.scheduleTask(withTimestamps);
     }
     // Persist to job store
-    this.jobStore.upsert(withTimestamps);
     console.log(`[Cron] Task "${withTimestamps.id}" added`);
   }
 
@@ -769,11 +761,6 @@ export class CronScheduler {
       this.scheduleTask(updated);
     }
 
-    // Persist to job store (only if it's a store-managed task)
-    if (this.jobStore.has(id)) {
-      this.jobStore.update(id, { ...patch, updatedAt: Date.now() });
-    }
-
     console.log(`[Cron] Task "${id}" edited`);
     return true;
   }
@@ -782,8 +769,6 @@ export class CronScheduler {
     const exists = this.tasks.some((t) => t.id === id);
     if (!exists) return false;
     this.removeTaskInternal(id);
-    // Remove from job store
-    this.jobStore.remove(id);
     console.log(`[Cron] Task "${id}" removed`);
     return true;
   }

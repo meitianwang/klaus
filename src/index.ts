@@ -9,8 +9,6 @@ import {
   getChannelNames,
   CONFIG_FILE,
   loadConfig,
-  loadTranscriptsConfig,
-  loadCronConfig,
   loadWebConfig,
 } from "./config.js";
 import { t } from "./i18n.js";
@@ -21,12 +19,101 @@ import {
   listSkillNames,
 } from "./skills/index.js";
 import { generateLocalToken } from "./local-token.js";
+import { AgentSessionManager } from "./agent-manager.js";
+import { SettingsStore } from "./settings-store.js";
+import { sendWsEvent } from "./channels/web.js";
+import type { AgentEvent } from "klaus-agent";
 
 // ---------------------------------------------------------------------------
 // Channel registration
 // ---------------------------------------------------------------------------
 
 registerChannel(webPlugin);
+
+// ---------------------------------------------------------------------------
+// Migration: seed DB from config.yaml on first run
+// ---------------------------------------------------------------------------
+
+function seedFromConfig(store: SettingsStore): void {
+  // Only seed if no models exist (first run)
+  if (store.listModels().length > 0) return;
+
+  const cfg = loadConfig();
+  const now = Date.now();
+
+  // Seed model from agent section (if present)
+  const agent = (cfg.agent as Record<string, unknown>) ?? {};
+  const model = String(agent.model ?? "claude-sonnet-4-20250514");
+  const provider = String(agent.provider ?? "anthropic");
+  const apiKey = (agent.api_key as string) ?? process.env.ANTHROPIC_API_KEY ?? "";
+
+  store.upsertModel({
+    id: "default",
+    name: "Default",
+    provider,
+    model,
+    ...(apiKey ? { apiKey } : {}),
+    ...(agent.base_url ? { baseUrl: String(agent.base_url) } : {}),
+    maxContextTokens: Number(agent.max_context_tokens ?? 200_000),
+    thinking: String(agent.thinking ?? "off"),
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Seed prompt from persona (if present)
+  const persona = (cfg.persona as string) ?? "";
+  if (persona) {
+    store.upsertPrompt({
+      id: "default",
+      name: "Default",
+      content: persona,
+      isDefault: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // Seed settings
+  const session = (cfg.session as Record<string, unknown>) ?? {};
+  const transcripts = (cfg.transcripts as Record<string, unknown>) ?? {};
+  const cron = (cfg.cron as Record<string, unknown>) ?? {};
+
+  if (agent.max_sessions != null) store.set("max_sessions", String(agent.max_sessions));
+  if (agent.yolo != null) store.set("yolo", String(agent.yolo));
+
+  const webCfg = (cfg.web as Record<string, unknown>) ?? {};
+  if (webCfg.session_max_age_days != null) store.set("web.session_max_age_days", String(webCfg.session_max_age_days));
+  if (session.max_entries != null) store.set("session.max_entries", String(session.max_entries));
+  if (transcripts.max_files != null) store.set("transcripts.max_files", String(transcripts.max_files));
+  if (transcripts.max_age_days != null) store.set("transcripts.max_age_days", String(transcripts.max_age_days));
+  if (cron.enabled != null) store.set("cron.enabled", String(cron.enabled));
+  if (cron.max_concurrent_runs != null) store.set("cron.max_concurrent_runs", String(cron.max_concurrent_runs));
+
+  // Seed cron tasks
+  const tasks = Array.isArray(cron.tasks) ? cron.tasks : [];
+  for (const raw of tasks) {
+    if (typeof raw !== "object" || !raw) continue;
+    const t = raw as Record<string, unknown>;
+    if (!t.id || !t.schedule || !t.prompt) continue;
+    store.upsertTask({
+      id: String(t.id),
+      name: t.name != null ? String(t.name) : undefined,
+      description: t.description != null ? String(t.description) : undefined,
+      schedule: String(t.schedule),
+      prompt: String(t.prompt),
+      enabled: t.enabled !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  console.log("[Settings] Seeded from config.yaml");
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
   if (!existsSync(CONFIG_FILE)) {
@@ -36,6 +123,17 @@ async function start(): Promise<void> {
 
   // Generate local token for macOS app authentication
   generateLocalToken();
+
+  // Initialize settings store (SQLite)
+  const settingsStore = new SettingsStore();
+  seedFromConfig(settingsStore);
+
+  // Initialize agent session manager
+  const agentManager = new AgentSessionManager(settingsStore);
+  const defaultModel = settingsStore.getDefaultModel();
+  console.log(
+    `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
+  );
 
   const channelNames = getChannelNames();
   const plugins: ChannelPlugin[] = [];
@@ -50,7 +148,17 @@ async function start(): Promise<void> {
 
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");
-  const messageStore = new MessageStore(loadTranscriptsConfig());
+  const transcriptsCfg = {
+    transcriptsDir: settingsStore.get("transcripts.dir") ?? undefined,
+    maxFiles: settingsStore.getNumber("transcripts.max_files", 200),
+    maxAgeDays: settingsStore.getNumber("transcripts.max_age_days", 30),
+  };
+  const { loadTranscriptsConfig } = await import("./config.js");
+  const messageStore = new MessageStore(
+    transcriptsCfg.transcriptsDir
+      ? { transcriptsDir: transcriptsCfg.transcriptsDir, maxFiles: transcriptsCfg.maxFiles, maxAgeDays: transcriptsCfg.maxAgeDays }
+      : loadTranscriptsConfig(),
+  );
   messageStore.prune();
 
   // Build delivery registry from active channel plugins (needed by cron)
@@ -64,14 +172,23 @@ async function start(): Promise<void> {
     }
   }
 
+  // Cron executor: uses agent manager (no streaming)
+  const cronExecutor = (sessionKey: string, prompt: string) =>
+    agentManager.chat(sessionKey, prompt);
+
   // Initialize cron scheduler if configured
   let cronScheduler: import("./cron.js").CronScheduler | null = null;
-  const cronCfg = loadCronConfig();
-  if (cronCfg.enabled) {
+  const cronEnabled = settingsStore.getBool("cron.enabled", false);
+  if (cronEnabled) {
+    const tasks = settingsStore.listTasks();
     const { CronScheduler } = await import("./cron.js");
     cronScheduler = new CronScheduler(
-      { ...cronCfg, enabled: true },
-      undefined, // no executor
+      {
+        enabled: true,
+        tasks,
+        maxConcurrentRuns: settingsStore.getNumber("cron.max_concurrent_runs", 0) || undefined,
+      },
+      cronExecutor,
       deliverers,
     );
     cronScheduler.start();
@@ -90,8 +207,10 @@ async function start(): Promise<void> {
       setMessageStore,
       setInviteStore,
       setUserStore,
+      setSettingsStore,
     } = await import("./channels/web.js");
     setMessageStore(messageStore);
+    setSettingsStore(settingsStore);
 
     const { InviteStore } = await import("./invite-store.js");
     const inviteStore = new InviteStore();
@@ -100,7 +219,8 @@ async function start(): Promise<void> {
 
     const { UserStore } = await import("./user-store.js");
     const webCfg = loadWebConfig();
-    const sessionMaxAgeMs = webCfg.sessionMaxAgeDays * 24 * 60 * 60 * 1000;
+    const sessionMaxAgeDays = settingsStore.getNumber("web.session_max_age_days", webCfg.sessionMaxAgeDays);
+    const sessionMaxAgeMs = sessionMaxAgeDays * 24 * 60 * 60 * 1000;
     const userStore = new UserStore(undefined, sessionMaxAgeMs);
     setUserStore(userStore);
     userStoreInstance = userStore;
@@ -121,6 +241,12 @@ async function start(): Promise<void> {
       return t("cmd_help");
     }
 
+    // /new, /reset, /clear — reset session
+    if (["/new", "/reset", "/clear"].includes(trimmed)) {
+      await agentManager.reset(msg.sessionKey);
+      return t("cmd_reset");
+    }
+
     // /skills — list enabled skills
     if (trimmed === "/skills") {
       const enabled = loadEnabledSkills();
@@ -139,7 +265,7 @@ async function start(): Promise<void> {
       return t("cmd_skills_list", { list, count: String(enabled.length) });
     }
 
-    // Store message in transcripts
+    // Store user message in transcripts
     const display = formatDisplayText(msg);
     if (display) {
       messageStore
@@ -147,8 +273,35 @@ async function start(): Promise<void> {
         .catch((err) => console.error("[MessageStore] Append failed:", err));
     }
 
-    // No AI backend configured — return null (no reply)
-    return null;
+    // Extract userId and sessionId for streaming
+    const parts = msg.sessionKey.split(":");
+    const userId = parts[1];
+    const sessionId = parts.slice(2).join(":");
+
+    // Stream agent events to WebSocket
+    const onEvent = (event: AgentEvent) => {
+      if (
+        event.type === "message_update" &&
+        event.event.type === "text"
+      ) {
+        sendWsEvent(userId, {
+          type: "stream",
+          chunk: event.event.text,
+          sessionId,
+        });
+      }
+    };
+
+    const reply = await agentManager.chat(msg.sessionKey, msg.text, onEvent);
+
+    // Store assistant reply in transcripts
+    if (reply) {
+      messageStore
+        .append(msg.sessionKey, "assistant", reply)
+        .catch((err) => console.error("[MessageStore] Append failed:", err));
+    }
+
+    return reply;
   };
 
   try {
@@ -156,8 +309,10 @@ async function start(): Promise<void> {
   } finally {
     console.log("[Klaus] Shutting down...");
     cronScheduler?.stop();
+    await agentManager.disposeAll();
     inviteStoreInstance?.close();
     userStoreInstance?.close();
+    settingsStore.close();
     console.log("[Klaus] Cleanup complete.");
   }
 }
