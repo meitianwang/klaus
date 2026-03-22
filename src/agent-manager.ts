@@ -1,6 +1,6 @@
 /**
  * Agent session pool — manages per-session Agent instances with LRU eviction.
- * Reads model, prompt, and rules from SettingsStore at agent creation time.
+ * Reads model, prompt, rules, and MCP servers from SettingsStore at agent creation time.
  */
 
 import {
@@ -11,10 +11,60 @@ import {
   type AssistantMessage,
   type ModelConfig,
   type ThinkingLevel,
+  type MCPServerConfig,
+  type MCPClient,
 } from "klaus-agent";
-import type { SettingsStore } from "./settings-store.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import type { SettingsStore, McpTransportConfig } from "./settings-store.js";
 
 export type AgentEventCallback = (event: AgentEvent) => void;
+
+function createMcpClient(config: MCPServerConfig): MCPClient {
+  const t = config.transport;
+  let transport: StdioClientTransport | SSEClientTransport;
+
+  if (t.type === "stdio") {
+    transport = new StdioClientTransport({
+      command: t.command,
+      args: t.args,
+      env: t.env as Record<string, string> | undefined,
+    });
+  } else {
+    transport = new SSEClientTransport(new URL(t.url), {
+      requestInit: t.headers
+        ? { headers: t.headers as Record<string, string> }
+        : undefined,
+    });
+  }
+
+  const client = new Client({ name: `klaus-${config.name}`, version: "1.0.0" });
+
+  return {
+    async connect() {
+      await client.connect(transport);
+    },
+    async listTools() {
+      const result = await client.listTools();
+      return result.tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema as Record<string, unknown>,
+      }));
+    },
+    async callTool(name: string, args: Record<string, unknown>) {
+      const result = await client.callTool({ name, arguments: args });
+      return {
+        content: (result.content as { type: string; text?: string }[]) ?? [],
+        isError: result.isError as boolean | undefined,
+      };
+    },
+    async close() {
+      await client.close();
+    },
+  };
+}
 
 export class AgentSessionManager {
   private readonly agents = new Map<string, Agent>();
@@ -96,12 +146,34 @@ export class AgentSessionManager {
 
     const yolo = this.store.getBool("yolo", true);
 
+    // Build MCP server configs from enabled servers
+    const mcpServers = this.store.getEnabledMcpServers();
+    const mcpConfigs: MCPServerConfig[] = mcpServers.map((s) => ({
+      name: s.name,
+      transport: s.transport as MCPServerConfig["transport"],
+    }));
+
     const agent = createAgent({
       model,
       systemPrompt,
       tools: [],
       approval: { yolo },
       thinkingLevel: (modelRecord.thinking || "off") as ThinkingLevel,
+      // Compaction: auto-compress when context gets large
+      compaction: {
+        enabled: true,
+        reserveTokens: Math.floor(modelRecord.maxContextTokens * 0.2),
+        keepRecentTokens: Math.floor(modelRecord.maxContextTokens * 0.3),
+      },
+      // MCP: connect to configured servers
+      ...(mcpConfigs.length > 0
+        ? {
+            mcp: {
+              servers: mcpConfigs,
+              clientFactory: createMcpClient,
+            },
+          }
+        : {}),
     });
 
     this.agents.set(sessionKey, agent);

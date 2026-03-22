@@ -1700,6 +1700,95 @@ async function handleAdminRules(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: MCP servers CRUD
+// ---------------------------------------------------------------------------
+
+async function handleAdminMcp(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  if (req.method === "GET") {
+    jsonResponse(res, 200, { servers: settingsStoreRef.listMcpServers() });
+    return;
+  }
+
+  if (req.method === "POST") {
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const id = String(parsed.id ?? "").trim();
+    if (!id) { jsonResponse(res, 400, { error: "id is required" }); return; }
+    if (!/^[\w\-]{1,64}$/.test(id)) {
+      jsonResponse(res, 400, { error: "id must be 1-64 alphanumeric/dash chars" });
+      return;
+    }
+
+    const transport = parsed.transport as Record<string, unknown> | undefined;
+    if (!transport || !transport.type) {
+      jsonResponse(res, 400, { error: "transport with type is required" });
+      return;
+    }
+
+    const now = Date.now();
+    settingsStoreRef.upsertMcpServer({
+      id,
+      name: String(parsed.name ?? id),
+      transport: transport as import("../settings-store.js").McpTransportConfig,
+      enabled: parsed.enabled !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    jsonResponse(res, 201, { ok: true });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+
+    const existing = settingsStoreRef.getMcpServer(id);
+    if (!existing) { jsonResponse(res, 404, { error: "server not found" }); return; }
+
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(body.toString()) as Record<string, unknown>; }
+    catch { jsonResponse(res, 400, { error: "invalid JSON" }); return; }
+
+    const updated = {
+      ...existing,
+      ...(parsed.name != null ? { name: String(parsed.name) } : {}),
+      ...(parsed.transport ? { transport: parsed.transport as import("../settings-store.js").McpTransportConfig } : {}),
+      ...("enabled" in parsed ? { enabled: Boolean(parsed.enabled) } : {}),
+      updatedAt: Date.now(),
+    };
+    settingsStoreRef.upsertMcpServer(updated);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
+    const deleted = settingsStoreRef.deleteMcpServer(id);
+    if (!deleted) { jsonResponse(res, 404, { error: "server not found" }); return; }
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
 // File download handler
 // ---------------------------------------------------------------------------
 
@@ -1913,6 +2002,8 @@ async function handleRequest(
       return handleAdminPrompts(req, res);
     case "/api/admin/rules":
       return handleAdminRules(req, res);
+    case "/api/admin/mcp":
+      return handleAdminMcp(req, res);
     // Upload
     case "/api/upload":
       if (req.method !== "POST") {

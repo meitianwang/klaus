@@ -251,6 +251,9 @@ tr.clickable:hover { background: var(--card-bg); }
       <button class="nav-item" data-tab="rules">
         <span data-i18n="tab_rules">Rules</span>
       </button>
+      <button class="nav-item" data-tab="mcp">
+        <span data-i18n="tab_mcp">MCP</span>
+      </button>
       <button class="nav-item" data-tab="users">
         <span data-i18n="tab_users">Users</span>
       </button>
@@ -430,6 +433,36 @@ tr.clickable:hover { background: var(--card-bg); }
       <div id="rules-empty" class="empty" style="display:none" data-i18n="no_rules">No rules configured.</div>
     </div>
 
+    <!-- ============ MCP Tab ============ -->
+    <div id="tab-mcp" class="tab-panel">
+      <h1 class="page-title" data-i18n="tab_mcp">MCP Servers</h1>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+        <button class="btn btn-primary btn-sm" id="mcp-add-btn" data-i18n="btn_add_mcp">+ Add Server</button>
+      </div>
+      <div id="mcp-form" class="task-form" style="display:none">
+        <div class="task-form-grid">
+          <div><label data-i18n="lbl_mcp_id">ID</label><input id="mcpf-id" class="f-input" placeholder="e.g. filesystem"></div>
+          <div><label data-i18n="lbl_mcp_name">Name</label><input id="mcpf-name" class="f-input" placeholder="Display name"></div>
+          <div><label data-i18n="lbl_mcp_type">Transport</label>
+            <select id="mcpf-type" class="f-select"><option value="stdio">stdio</option><option value="sse">sse</option></select>
+          </div>
+          <div id="mcpf-stdio-fields">
+            <label data-i18n="lbl_mcp_command">Command</label><input id="mcpf-command" class="f-input" placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem">
+            <label data-i18n="lbl_mcp_args" style="margin-top:8px">Args (comma-separated)</label><input id="mcpf-args" class="f-input" placeholder="e.g. /tmp,/home">
+          </div>
+          <div id="mcpf-sse-fields" style="display:none">
+            <label data-i18n="lbl_mcp_url">URL</label><input id="mcpf-url" class="f-input" placeholder="http://localhost:3001/sse">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost btn-sm" id="mcpf-cancel" data-i18n="btn_cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="mcpf-save" data-i18n="btn_save">Save</button>
+        </div>
+      </div>
+      <div id="mcp-wrap"></div>
+      <div id="mcp-empty" class="empty" style="display:none" data-i18n="no_mcp">No MCP servers configured.</div>
+    </div>
+
     <!-- ============ Users Tab ============ -->
     <div id="tab-users" class="tab-panel">
       <div id="users-list" class="sub-view active">
@@ -526,7 +559,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var I18N = {
     en: {
       admin_title: "Admin",
-      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_invites: "Invites", tab_cron: "Scheduled Tasks",
+      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_mcp: "MCP Servers", tab_users: "Users", tab_invites: "Invites", tab_cron: "Scheduled Tasks",
       back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_agent: "Agent", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts", sec_cron: "Cron",
       lbl_persona: "System Prompt",
@@ -558,6 +591,9 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "Name", lbl_rule_content: "Content", lbl_rule_order: "Sort Order", no_rules: "No rules configured.",
       default_badge: "Default", enabled_badge: "Enabled", disabled_badge: "Disabled",
       confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?", confirm_delete_rule: "Delete this rule?",
+      tab_mcp: "MCP Servers", btn_add_mcp: "+ Add Server",
+      lbl_mcp_id: "ID", lbl_mcp_name: "Name", lbl_mcp_type: "Transport", lbl_mcp_command: "Command", lbl_mcp_args: "Args", lbl_mcp_url: "URL",
+      no_mcp: "No MCP servers configured.", confirm_delete_mcp: "Delete this server?",
       sec_auth: "Authentication", sec_mode: "Mode", sec_thirdparty: "Third-party API", sec_model_map: "Model Mapping",
       lbl_auth_status: "Status", lbl_mode: "Mode", lbl_default_model: "Default Model",
       lbl_base_url: "API Base URL", lbl_auth_token: "Auth Token", lbl_api_timeout: "API Timeout (ms)",
@@ -566,7 +602,7 @@ tr.clickable:hover { background: var(--card-bg); }
     },
     zh: {
       admin_title: "管理面板",
-      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_invites: "邀请码", tab_cron: "定时任务",
+      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_mcp: "MCP 服务器", tab_users: "用户", tab_invites: "邀请码", tab_cron: "定时任务",
       back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_agent: "Agent", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录", sec_cron: "定时任务",
       lbl_persona: "系统提示词",
@@ -598,6 +634,9 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "名称", lbl_rule_content: "内容", lbl_rule_order: "排序", no_rules: "暂无规则配置。",
       default_badge: "默认", enabled_badge: "启用", disabled_badge: "禁用",
       confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？", confirm_delete_rule: "确定删除此规则？",
+      tab_mcp: "MCP 服务器", btn_add_mcp: "+ 添加服务器",
+      lbl_mcp_id: "ID", lbl_mcp_name: "名称", lbl_mcp_type: "传输方式", lbl_mcp_command: "命令", lbl_mcp_args: "参数", lbl_mcp_url: "URL",
+      no_mcp: "暂无 MCP 服务器配置。", confirm_delete_mcp: "确定删除此服务器？",
       sec_auth: "认证", sec_mode: "模式", sec_thirdparty: "第三方 API", sec_model_map: "模型映射",
       lbl_auth_status: "状态", lbl_mode: "模式", lbl_default_model: "默认模型",
       lbl_base_url: "API 地址", lbl_auth_token: "认证令牌", lbl_api_timeout: "API 超时 (ms)",
@@ -651,6 +690,7 @@ tr.clickable:hover { background: var(--card-bg); }
     if (id === "models") loadModels();
     if (id === "prompts") loadPrompts();
     if (id === "rules") loadRules();
+    if (id === "mcp") loadMcpServers();
   }
   navItems.forEach(function(b) { b.addEventListener("click", function() { switchTab(b.dataset.tab); }); });
 
@@ -1225,6 +1265,134 @@ tr.clickable:hover { background: var(--card-bg); }
         rfName.value = r.name || ""; rfContent.value = r.content || "";
         rfOrder.value = r.sortOrder || 0;
         ruleForm.style.display = "block";
+      });
+    }
+  });
+
+  // =====================================================
+  // MCP SERVERS TAB
+  // =====================================================
+  var mcpWrap = document.getElementById("mcp-wrap");
+  var mcpEmpty = document.getElementById("mcp-empty");
+  var mcpForm = document.getElementById("mcp-form");
+  var mcpAddBtn = document.getElementById("mcp-add-btn");
+  var mcpfId = document.getElementById("mcpf-id");
+  var mcpfName = document.getElementById("mcpf-name");
+  var mcpfType = document.getElementById("mcpf-type");
+  var mcpfCommand = document.getElementById("mcpf-command");
+  var mcpfArgs = document.getElementById("mcpf-args");
+  var mcpfUrl = document.getElementById("mcpf-url");
+  var mcpfStdioFields = document.getElementById("mcpf-stdio-fields");
+  var mcpfSseFields = document.getElementById("mcpf-sse-fields");
+  var mcpfSave = document.getElementById("mcpf-save");
+  var mcpfCancel = document.getElementById("mcpf-cancel");
+  var editingMcpId = null;
+
+  mcpfType.addEventListener("change", function() {
+    mcpfStdioFields.style.display = mcpfType.value === "stdio" ? "" : "none";
+    mcpfSseFields.style.display = mcpfType.value === "sse" ? "" : "none";
+  });
+
+  function loadMcpServers() {
+    api("mcp", "GET").then(function(d) {
+      var servers = d.servers || [];
+      if (!servers.length) { mcpWrap.innerHTML = ""; mcpEmpty.style.display = "block"; return; }
+      mcpEmpty.style.display = "none";
+      var h = "<table><thead><tr><th>ID</th><th>" + tt("lbl_mcp_name") + "</th><th>" + tt("lbl_mcp_type") + "</th><th>Detail</th><th>Status</th><th>" + tt("actions") + "</th></tr></thead><tbody>";
+      servers.forEach(function(s) {
+        var badge = s.enabled
+          ? "<span class='badge badge-green'>" + tt("enabled_badge") + "</span>"
+          : "<span class='badge badge-gray'>" + tt("disabled_badge") + "</span>";
+        var detail = s.transport.type === "stdio"
+          ? esc(s.transport.command || "")
+          : esc(s.transport.url || "");
+        h += "<tr>"
+          + "<td><span class='code-text'>" + esc(s.id) + "</span></td>"
+          + "<td>" + esc(s.name) + "</td>"
+          + "<td>" + esc(s.transport.type) + "</td>"
+          + "<td class='stat-muted'>" + detail + "</td>"
+          + "<td>" + badge + "</td>"
+          + "<td><div class='actions'>"
+          + "<button class='btn btn-sm btn-ghost' data-togglemcp='" + esc(s.id) + "' data-enabled='" + (s.enabled ? "1" : "0") + "'>" + (s.enabled ? "Disable" : "Enable") + "</button>"
+          + "<button class='btn btn-sm btn-ghost' data-editmcp='" + esc(s.id) + "'>Edit</button>"
+          + "<button class='btn btn-sm btn-danger' data-delmcp='" + esc(s.id) + "'>" + tt("delete") + "</button>"
+          + "</div></td></tr>";
+      });
+      h += "</tbody></table>";
+      mcpWrap.innerHTML = h;
+    });
+  }
+
+  mcpAddBtn.onclick = function() {
+    editingMcpId = null;
+    mcpfId.value = ""; mcpfName.value = ""; mcpfType.value = "stdio";
+    mcpfCommand.value = ""; mcpfArgs.value = ""; mcpfUrl.value = "";
+    mcpfId.disabled = false;
+    mcpfStdioFields.style.display = ""; mcpfSseFields.style.display = "none";
+    mcpForm.style.display = "block";
+    mcpfId.focus();
+  };
+  mcpfCancel.onclick = function() { mcpForm.style.display = "none"; };
+
+  mcpfSave.onclick = function() {
+    var id = mcpfId.value.trim();
+    if (!id) return;
+    mcpfSave.disabled = true;
+
+    var transport;
+    if (mcpfType.value === "stdio") {
+      var cmd = mcpfCommand.value.trim();
+      if (!cmd) { mcpfSave.disabled = false; return; }
+      var parts = cmd.split(/\s+/);
+      var argsStr = mcpfArgs.value.trim();
+      var args = parts.slice(1);
+      if (argsStr) args = args.concat(argsStr.split(",").map(function(a) { return a.trim(); }).filter(Boolean));
+      transport = { type: "stdio", command: parts[0], args: args.length ? args : undefined };
+    } else {
+      var url = mcpfUrl.value.trim();
+      if (!url) { mcpfSave.disabled = false; return; }
+      transport = { type: "sse", url: url };
+    }
+
+    var payload = { id: id, name: mcpfName.value.trim() || id, transport: transport, enabled: true };
+    var method = editingMcpId ? "PATCH" : "POST";
+    var path = editingMcpId ? "mcp?id=" + encodeURIComponent(editingMcpId) : "mcp";
+    api(path, method, payload)
+      .then(function() { mcpForm.style.display = "none"; showToast(tt("saved")); loadMcpServers(); })
+      .catch(function() { showToast(tt("failed")); })
+      .finally(function() { mcpfSave.disabled = false; });
+  };
+
+  mcpWrap.addEventListener("click", function(e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.dataset.delmcp) {
+      if (!confirm(tt("confirm_delete_mcp"))) return;
+      api("mcp?id=" + encodeURIComponent(btn.dataset.delmcp), "DELETE").then(function() { loadMcpServers(); showToast(tt("deleted")); });
+    } else if (btn.dataset.togglemcp) {
+      var enabled = btn.dataset.enabled === "1";
+      api("mcp?id=" + encodeURIComponent(btn.dataset.togglemcp), "PATCH", { enabled: !enabled }).then(function() { loadMcpServers(); });
+    } else if (btn.dataset.editmcp) {
+      var sid = btn.dataset.editmcp;
+      api("mcp", "GET").then(function(d) {
+        var s = (d.servers || []).find(function(x) { return x.id === sid; });
+        if (!s) return;
+        editingMcpId = sid;
+        mcpfId.value = s.id; mcpfId.disabled = true;
+        mcpfName.value = s.name || "";
+        mcpfType.value = s.transport.type || "stdio";
+        if (s.transport.type === "stdio") {
+          var fullCmd = s.transport.command || "";
+          if (s.transport.args && s.transport.args.length) fullCmd += " " + s.transport.args.join(" ");
+          mcpfCommand.value = fullCmd;
+          mcpfArgs.value = "";
+          mcpfStdioFields.style.display = ""; mcpfSseFields.style.display = "none";
+        } else {
+          mcpfUrl.value = s.transport.url || "";
+          mcpfStdioFields.style.display = "none"; mcpfSseFields.style.display = "";
+        }
+        mcpForm.style.display = "block";
       });
     }
   });
