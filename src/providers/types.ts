@@ -6,6 +6,7 @@ import type {
   AfterToolCallContext,
   AfterToolCallResult,
 } from "klaus-agent";
+import type { ProviderAPI } from "../capabilities/types.js";
 
 export interface ModelPreset {
   readonly id: string;
@@ -34,4 +35,5 @@ export interface ProviderDefinition {
   readonly auth?: ProviderAuth;
   readonly catalog?: (apiKey?: string, baseUrl?: string) => Promise<ModelPreset[]>;
   readonly hooks?: ProviderHooks;
+  readonly register?: (api: ProviderAPI) => void;
 }

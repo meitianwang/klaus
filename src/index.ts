@@ -18,7 +18,7 @@ import {
 import { generateLocalToken } from "./local-token.js";
 import { AgentSessionManager } from "./agent-manager.js";
 import { SettingsStore } from "./settings-store.js";
-import { loadExternalProviders, registerAllFactories } from "./providers/registry.js";
+import { loadExternalProviders, registerAllFactories, registerAllCapabilities, capabilities } from "./providers/registry.js";
 import { sendWsEvent } from "./channels/web.js";
 import type { AgentEvent } from "klaus-agent";
 
@@ -39,9 +39,11 @@ async function start(): Promise<void> {
   // Initialize settings store (SQLite)
   const settingsStore = new SettingsStore();
 
-  // Load external providers and register all factories
+  // Load external providers and register all factories + capabilities
   await loadExternalProviders();
   registerAllFactories();
+  registerAllCapabilities();
+  await capabilities.startServices();
 
   // Initialize agent session manager
   const agentManager = new AgentSessionManager(settingsStore);
@@ -224,6 +226,7 @@ async function start(): Promise<void> {
   } finally {
     console.log("[Klaus] Shutting down...");
     cronScheduler?.stop();
+    await capabilities.stopServices();
     await agentManager.disposeAll();
     inviteStoreInstance?.close();
     userStoreInstance?.close();

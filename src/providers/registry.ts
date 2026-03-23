@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CONFIG_DIR } from "../config.js";
+import { CapabilityRegistry } from "../capabilities/registry.js";
 import { anthropicProvider } from "./anthropic.js";
 import { openaiProvider } from "./openai.js";
 import { openaiResponsesProvider } from "./openai-responses.js";
@@ -26,12 +27,25 @@ const byId = new Map<string, ProviderDefinition>(
   providers.map((p) => [p.id, p]),
 );
 
+const BUILTIN_IDS = new Set(providers.map((p) => p.id));
+
+export const capabilities = new CapabilityRegistry();
+
 export function getAllProviders(): readonly ProviderDefinition[] {
   return providers;
 }
 
 export function getProvider(id: string): ProviderDefinition | undefined {
   return byId.get(id);
+}
+
+export function unregisterProvider(id: string): boolean {
+  if (BUILTIN_IDS.has(id) || !byId.has(id)) return false;
+  byId.delete(id);
+  const idx = providers.findIndex((p) => p.id === id);
+  if (idx !== -1) providers.splice(idx, 1);
+  capabilities.removeProvider(id);
+  return true;
 }
 
 function isValidDefinition(obj: unknown): obj is ProviderDefinition {
@@ -51,7 +65,7 @@ export async function loadExternalProviders(): Promise<void> {
 
   for (const file of files) {
     try {
-      const mod = await import(pathToFileURL(join(dir, file)).href);
+      const mod = await import(pathToFileURL(join(dir, file)).href + `?t=${Date.now()}`);
       const def: unknown = mod.default ?? mod.provider;
       if (!isValidDefinition(def)) {
         console.warn(`[Providers] Skipping ${file}: invalid provider definition`);
@@ -80,4 +94,49 @@ export function registerAllFactories(): void {
       registerProvider(def.id, def.factory);
     }
   }
+}
+
+export function registerAllCapabilities(): void {
+  for (const def of providers) {
+    if (def.register) {
+      const api = capabilities.createAPI(def.id);
+      def.register(api);
+    }
+  }
+}
+
+export async function reloadExternalProviders(): Promise<{ added: string[]; removed: string[] }> {
+  const previousExternal = providers
+    .filter((p) => !BUILTIN_IDS.has(p.id))
+    .map((p) => p.id);
+
+  // Stop services and remove all external providers and their capabilities
+  for (const id of previousExternal) {
+    await capabilities.stopProviderServices(id);
+    byId.delete(id);
+    capabilities.removeProvider(id);
+  }
+  for (let i = providers.length - 1; i >= 0; i--) {
+    if (!BUILTIN_IDS.has(providers[i].id)) providers.splice(i, 1);
+  }
+
+  // Re-scan and load
+  await loadExternalProviders();
+
+  // Re-register factories and capabilities for new externals
+  for (const def of providers) {
+    if (!BUILTIN_IDS.has(def.id)) {
+      if (def.factory) registerProvider(def.id, def.factory);
+      if (def.register) def.register(capabilities.createAPI(def.id));
+    }
+  }
+
+  const currentExternal = providers
+    .filter((p) => !BUILTIN_IDS.has(p.id))
+    .map((p) => p.id);
+
+  return {
+    added: currentExternal.filter((id) => !previousExternal.includes(id)),
+    removed: previousExternal.filter((id) => !currentExternal.includes(id)),
+  };
 }

@@ -57,7 +57,7 @@ import { getChatHtml } from "./web-ui.js";
 import { getAdminHtml } from "./web-admin-ui.js";
 import { getLoginHtml } from "./web-login-ui.js";
 import { startTunnel } from "./web-tunnel.js";
-import { getAllProviders } from "../providers/registry.js";
+import { getAllProviders, reloadExternalProviders, capabilities } from "../providers/registry.js";
 import type { MessageStore } from "../message-store.js";
 import type { InviteStore } from "../invite-store.js";
 import type { UserStore, User } from "../user-store.js";
@@ -1471,6 +1471,39 @@ async function handleAdminProviders(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: providers reload (hot reload external providers)
+// ---------------------------------------------------------------------------
+
+async function handleAdminProvidersReload(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (req.method !== "POST") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+  const result = await reloadExternalProviders();
+  jsonResponse(res, 200, { ok: true, ...result });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: capabilities (read-only)
+// ---------------------------------------------------------------------------
+
+function handleAdminCapabilities(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  if (!adminAuth(req, res)) return;
+  if (req.method !== "GET") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+  jsonResponse(res, 200, { capabilities: capabilities.getSummary() });
+}
+
+// ---------------------------------------------------------------------------
 // Admin: models CRUD
 // ---------------------------------------------------------------------------
 
@@ -2061,6 +2094,10 @@ async function handleRequest(
       return handleAdminModels(req, res);
     case "/api/admin/providers":
       return handleAdminProviders(req, res);
+    case "/api/admin/providers/reload":
+      return handleAdminProvidersReload(req, res);
+    case "/api/admin/capabilities":
+      return handleAdminCapabilities(req, res);
     case "/api/admin/prompts":
       return handleAdminPrompts(req, res);
     case "/api/admin/rules":
@@ -2174,6 +2211,17 @@ async function handleRequest(
       if (url.pathname.startsWith("/api/avatars/") && req.method === "GET") {
         const fileName = url.pathname.slice("/api/avatars/".length);
         return handleAvatarServe(req, res, fileName);
+      }
+      // Capability HTTP routes (registered by providers)
+      for (const route of capabilities.getAllHttpRoutes()) {
+        const match = route.match === "prefix"
+          ? url.pathname.startsWith(route.path)
+          : url.pathname === route.path;
+        if (match) {
+          if (route.auth === "admin" && !adminAuth(req, res)) return;
+          await route.handler(req, res);
+          return;
+        }
       }
       res.writeHead(404);
       res.end("not found");

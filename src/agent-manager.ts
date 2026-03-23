@@ -22,7 +22,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { SettingsStore } from "./settings-store.js";
-import { getProvider } from "./providers/registry.js";
+import { getProvider, capabilities } from "./providers/registry.js";
 
 type AgentEventCallback = (event: AgentEvent) => void;
 
@@ -178,6 +178,8 @@ export class AgentSessionManager {
       const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
       tools.push(...providerDef.tools(apiKey, baseUrl, modelRecord.model));
     }
+    // Add capability-based tools (web search, etc.)
+    tools.push(...capabilities.buildTools());
 
     const agent = createAgent({
       model,
