@@ -368,15 +368,29 @@ tr.clickable:hover { background: var(--card-bg); }
       </div>
       <div id="model-form" class="task-form" style="display:none">
         <div class="task-form-grid">
-          <div><label data-i18n="lbl_model_id">ID</label><input id="mf-id" class="f-input" placeholder="e.g. my-model"></div>
-          <div><label data-i18n="lbl_model_name">Name</label><input id="mf-name" class="f-input" placeholder="Display name"></div>
-          <div><label data-i18n="lbl_model_provider">Provider</label><input id="mf-provider" class="f-input" placeholder="e.g. openai, openrouter"></div>
-          <div><label data-i18n="lbl_model_model">Model ID</label><input id="mf-model" class="f-input" placeholder="e.g. gpt-4o, deepseek-chat"></div>
+          <div><label data-i18n="lbl_model_name">Name</label><input id="mf-name" class="f-input" placeholder="e.g. My Claude Sonnet"></div>
+          <div><label data-i18n="lbl_model_provider">Provider</label>
+            <select id="mf-provider" class="f-select">
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="google">Google (Gemini)</option>
+              <option value="minimax">MiniMax</option>
+              <option value="kimi">Kimi (Moonshot)</option>
+              <option value="volcengine">Volcengine (豆包)</option>
+              <option value="openai-compatible">OpenAI Compatible</option>
+              <option value="anthropic-compatible">Anthropic Compatible</option>
+              <option value="gemini-compatible">Gemini Compatible</option>
+            </select>
+          </div>
+          <div><label data-i18n="lbl_model_model">Model ID</label>
+            <select id="mf-model-select" class="f-select"></select>
+            <input id="mf-model" class="f-input" placeholder="e.g. gpt-4o, deepseek-chat" style="display:none">
+          </div>
           <div><label data-i18n="lbl_model_apikey">API Key</label><input id="mf-apikey" class="f-input" type="password" placeholder="sk-..."></div>
           <div><label data-i18n="lbl_model_baseurl">Base URL</label><input id="mf-baseurl" class="f-input" placeholder="Optional"></div>
           <div><label data-i18n="lbl_model_tokens">Max Context Tokens</label><input id="mf-tokens" class="f-input" type="number" value="200000"></div>
           <div><label data-i18n="lbl_model_thinking">Thinking</label>
-            <select id="mf-thinking" class="f-select"><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
+            <select id="mf-thinking" class="f-select"><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
           </div>
           <div><label><input type="checkbox" id="mf-default"> <span data-i18n="lbl_set_default">Set as default</span></label></div>
         </div>
@@ -994,13 +1008,66 @@ tr.clickable:hover { background: var(--card-bg); }
   // =====================================================
   // MODELS TAB
   // =====================================================
+  var PROVIDER_PRESETS = {
+    anthropic: {
+      baseUrl: "",
+      models: [
+        { id: "claude-opus-4-20250514", label: "Claude Opus 4", tokens: 200000 },
+        { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", tokens: 200000 },
+        { id: "claude-haiku-4-20250514", label: "Claude Haiku 4", tokens: 200000 }
+      ]
+    },
+    openai: {
+      baseUrl: "",
+      models: [
+        { id: "gpt-4.1", label: "GPT-4.1", tokens: 1047576 },
+        { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", tokens: 1047576 },
+        { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", tokens: 1047576 },
+        { id: "o3", label: "o3", tokens: 200000 },
+        { id: "o4-mini", label: "o4-mini", tokens: 200000 }
+      ]
+    },
+    google: {
+      baseUrl: "",
+      models: [
+        { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tokens: 1048576 },
+        { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", tokens: 1048576 },
+        { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", tokens: 1048576 }
+      ]
+    },
+    kimi: {
+      baseUrl: "https://api.moonshot.cn",
+      models: [
+        { id: "moonshot-v1-auto", label: "Moonshot v1 Auto", tokens: 128000 },
+        { id: "moonshot-v1-8k", label: "Moonshot v1 8K", tokens: 8000 },
+        { id: "moonshot-v1-32k", label: "Moonshot v1 32K", tokens: 32000 },
+        { id: "moonshot-v1-128k", label: "Moonshot v1 128K", tokens: 128000 }
+      ]
+    },
+    volcengine: {
+      baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+      models: [
+        { id: "doubao-1.5-pro-256k", label: "Doubao 1.5 Pro 256K", tokens: 256000 },
+        { id: "doubao-1.5-pro-32k", label: "Doubao 1.5 Pro 32K", tokens: 32000 },
+        { id: "doubao-1.5-lite-32k", label: "Doubao 1.5 Lite 32K", tokens: 32000 }
+      ]
+    },
+    minimax: {
+      baseUrl: "https://api.minimax.chat",
+      models: [
+        { id: "MiniMax-M1", label: "MiniMax M1", tokens: 1000000 },
+        { id: "MiniMax-T1", label: "MiniMax T1", tokens: 1000000 }
+      ]
+    }
+  };
+
   var modelsWrap = document.getElementById("models-wrap");
   var modelsEmpty = document.getElementById("models-empty");
   var modelForm = document.getElementById("model-form");
   var modelAddBtn = document.getElementById("model-add-btn");
-  var mfId = document.getElementById("mf-id");
   var mfName = document.getElementById("mf-name");
   var mfProvider = document.getElementById("mf-provider");
+  var mfModelSelect = document.getElementById("mf-model-select");
   var mfModel = document.getElementById("mf-model");
   var mfApikey = document.getElementById("mf-apikey");
   var mfBaseurl = document.getElementById("mf-baseurl");
@@ -1010,6 +1077,68 @@ tr.clickable:hover { background: var(--card-bg); }
   var mfSave = document.getElementById("mf-save");
   var mfCancel = document.getElementById("mf-cancel");
   var editingModelId = null;
+
+  function isPresetProvider(pv) { return PROVIDER_PRESETS.hasOwnProperty(pv); }
+
+  function getSelectedModel() {
+    var pv = mfProvider.value;
+    return isPresetProvider(pv) ? mfModelSelect.value : mfModel.value.trim();
+  }
+
+  function syncProviderUI(provider, currentModel) {
+    var preset = PROVIDER_PRESETS[provider];
+    if (preset) {
+      // Preset provider: show select, hide input
+      mfModelSelect.style.display = "";
+      mfModel.style.display = "none";
+      mfModelSelect.innerHTML = "";
+      preset.models.forEach(function(m) {
+        var o = document.createElement("option");
+        o.value = m.id; o.textContent = m.label;
+        mfModelSelect.appendChild(o);
+      });
+      if (currentModel) {
+        // If current model exists in list, select it; otherwise append custom option
+        var found = preset.models.some(function(m) { return m.id === currentModel; });
+        if (found) {
+          mfModelSelect.value = currentModel;
+        } else {
+          var co = document.createElement("option");
+          co.value = currentModel; co.textContent = currentModel;
+          mfModelSelect.appendChild(co);
+          mfModelSelect.value = currentModel;
+        }
+      }
+      // Auto-fill baseUrl for providers that have one
+      if (preset.baseUrl) {
+        mfBaseurl.value = preset.baseUrl;
+        mfBaseurl.readOnly = true;
+      } else {
+        if (!editingModelId) mfBaseurl.value = "";
+        mfBaseurl.readOnly = false;
+      }
+      // Auto-fill tokens from selected model
+      syncModelTokens();
+    } else {
+      // Custom/compatible provider: show input, hide select
+      mfModelSelect.style.display = "none";
+      mfModel.style.display = "";
+      if (currentModel) mfModel.value = currentModel;
+      mfBaseurl.readOnly = false;
+    }
+  }
+
+  function syncModelTokens() {
+    var pv = mfProvider.value;
+    var preset = PROVIDER_PRESETS[pv];
+    if (!preset) return;
+    var selId = mfModelSelect.value;
+    var found = preset.models.find(function(m) { return m.id === selId; });
+    if (found) mfTokens.value = found.tokens;
+  }
+
+  mfProvider.addEventListener("change", function() { syncProviderUI(mfProvider.value, ""); });
+  mfModelSelect.addEventListener("change", syncModelTokens);
 
   function loadModels() {
     api("models", "GET").then(function(d) {
@@ -1039,22 +1168,22 @@ tr.clickable:hover { background: var(--card-bg); }
 
   modelAddBtn.onclick = function() {
     editingModelId = null;
-    mfId.value = ""; mfName.value = ""; mfProvider.value = ""; mfModel.value = "";
+    mfName.value = ""; mfProvider.value = "anthropic"; mfModel.value = "";
     mfApikey.value = ""; mfBaseurl.value = ""; mfTokens.value = "200000"; mfThinking.value = "off"; mfDefault.checked = false;
-    mfId.disabled = false;
+    syncProviderUI("anthropic", "");
     modelForm.style.display = "block";
-    mfId.focus();
+    mfName.focus();
   };
   mfCancel.onclick = function() { modelForm.style.display = "none"; };
 
   mfSave.onclick = function() {
-    var id = mfId.value.trim();
-    var model = mfModel.value.trim();
+    var model = getSelectedModel();
     var provider = mfProvider.value.trim();
-    if (!id || !model || !provider) return;
+    if (!model || !provider) return;
+    var id = editingModelId || (provider + "-" + model).replace(/[^a-zA-Z0-9._-]/g, "-");
     mfSave.disabled = true;
     var payload = {
-      id: id, name: mfName.value.trim() || id, provider: provider,
+      id: id, name: mfName.value.trim() || model, provider: provider,
       model: model, max_context_tokens: parseInt(mfTokens.value, 10) || 200000,
       thinking: mfThinking.value, is_default: mfDefault.checked
     };
@@ -1084,9 +1213,22 @@ tr.clickable:hover { background: var(--card-bg); }
         var m = (d.models || []).find(function(x) { return x.id === mid; });
         if (!m) return;
         editingModelId = mid;
-        mfId.value = m.id; mfId.disabled = true;
-        mfName.value = m.name || ""; mfProvider.value = m.provider || "";
-        mfModel.value = m.model || ""; mfApikey.value = ""; mfBaseurl.value = m.baseUrl || "";
+        mfName.value = m.name || "";
+        var pv = m.provider || "anthropic";
+        if (!mfProvider.querySelector('option[value="' + pv + '"]')) {
+          var opt = document.createElement("option");
+          opt.value = pv; opt.textContent = pv;
+          mfProvider.appendChild(opt);
+        }
+        mfProvider.value = pv;
+        syncProviderUI(pv, m.model || "");
+        mfApikey.value = ""; mfBaseurl.value = m.baseUrl || "";
+        if (isPresetProvider(pv) && PROVIDER_PRESETS[pv].baseUrl) {
+          mfBaseurl.value = PROVIDER_PRESETS[pv].baseUrl;
+          mfBaseurl.readOnly = true;
+        } else {
+          mfBaseurl.readOnly = false;
+        }
         mfTokens.value = m.maxContextTokens || 200000; mfThinking.value = m.thinking || "off";
         mfDefault.checked = m.isDefault;
         modelForm.style.display = "block";

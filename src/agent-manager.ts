@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { SettingsStore, McpTransportConfig } from "./settings-store.js";
 
-export type AgentEventCallback = (event: AgentEvent) => void;
+type AgentEventCallback = (event: AgentEvent) => void;
 
 const SESSIONS_DIR = join(CONFIG_DIR, "agent-sessions");
 

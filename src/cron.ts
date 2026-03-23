@@ -12,7 +12,7 @@ import type {
   CronSchedulerStatus,
 } from "./types.js";
 /** Executor function: runs a prompt and returns the reply text. */
-export type CronExecutor = (sessionKey: string, prompt: string) => Promise<string | null>;
+type CronExecutor = (sessionKey: string, prompt: string) => Promise<string | null>;
 import { classifyCronError } from "./cron-errors.js";
 import {
   CronRunLog,
