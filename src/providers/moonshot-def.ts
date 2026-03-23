@@ -1,5 +1,5 @@
 import type { ProviderDefinition } from "./types.js";
-import { MOONSHOT_MODELS, moonshotFactory, moonshotTools } from "./moonshot-shared.js";
+import { MOONSHOT_MODELS, moonshotAuth, moonshotFactory, moonshotTools } from "./moonshot-shared.js";
 
 export const moonshotProvider: ProviderDefinition = {
   id: "moonshot",
@@ -7,6 +7,7 @@ export const moonshotProvider: ProviderDefinition = {
   protocol: "moonshot",
   defaultBaseUrl: "https://api.moonshot.ai/v1",
   models: MOONSHOT_MODELS,
+  auth: moonshotAuth,
   factory: moonshotFactory,
   tools: moonshotTools,
 };

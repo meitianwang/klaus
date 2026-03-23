@@ -5,6 +5,7 @@ export const openaiResponsesProvider: ProviderDefinition = {
   label: "OpenAI Responses",
   protocol: "openai-responses",
   defaultBaseUrl: "",
+  auth: { envVar: "OPENAI_API_KEY", label: "API Key" },
   models: [
     { id: "gpt-4.1", label: "GPT-4.1", tokens: 1047576 },
     { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", tokens: 1047576 },

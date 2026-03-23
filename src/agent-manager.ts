@@ -22,13 +22,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { SettingsStore } from "./settings-store.js";
-import { getAllProviders, getProvider } from "./providers/registry.js";
-
-for (const def of getAllProviders()) {
-  if (def.factory) {
-    registerProvider(def.id, def.factory);
-  }
-}
+import { getProvider } from "./providers/registry.js";
 
 type AgentEventCallback = (event: AgentEvent) => void;
 
@@ -144,10 +138,16 @@ export class AgentSessionManager {
       throw new Error("No valid model configured. Add a model in the admin panel.");
     }
 
+    const providerDef = getProvider(modelRecord.provider);
+
+    // Resolve API key: explicit > env var
+    const apiKey = modelRecord.apiKey
+      || (providerDef?.auth?.envVar ? process.env[providerDef.auth.envVar] : undefined);
+
     const model: ModelConfig = {
       provider: modelRecord.provider,
       model: modelRecord.model,
-      ...(modelRecord.apiKey ? { apiKey: modelRecord.apiKey } : {}),
+      ...(apiKey ? { apiKey } : {}),
       ...(modelRecord.baseUrl ? { baseUrl: modelRecord.baseUrl } : {}),
       maxContextTokens: modelRecord.maxContextTokens,
       ...(modelRecord.cost ? { cost: modelRecord.cost } : {}),
@@ -174,10 +174,9 @@ export class AgentSessionManager {
 
     // Build provider-specific tools from registry
     const tools: AgentTool[] = [];
-    const providerDef = getProvider(modelRecord.provider);
-    if (providerDef?.tools && modelRecord.apiKey) {
+    if (providerDef?.tools && apiKey) {
       const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
-      tools.push(...providerDef.tools(modelRecord.apiKey, baseUrl, modelRecord.model));
+      tools.push(...providerDef.tools(apiKey, baseUrl, modelRecord.model));
     }
 
     const agent = createAgent({
@@ -185,6 +184,7 @@ export class AgentSessionManager {
       systemPrompt,
       tools,
       approval: { yolo },
+      hooks: providerDef?.hooks,
       thinkingLevel: (modelRecord.thinking || "off") as ThinkingLevel,
       // Session persistence: JSONL files in ~/.klaus/agent-sessions/
       session: {

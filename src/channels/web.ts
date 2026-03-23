@@ -1445,11 +1445,27 @@ async function handleAdminProviders(
     jsonResponse(res, 405, { error: "method not allowed" });
     return;
   }
-  const providers = getAllProviders().map((p) => ({
-    id: p.id,
-    label: p.label,
-    defaultBaseUrl: p.defaultBaseUrl,
-    models: p.models,
+  const url = new URL(req.url ?? "", "http://localhost");
+  const refresh = url.searchParams.get("refresh") === "1";
+  const all = getAllProviders();
+
+  const providers = await Promise.all(all.map(async (p) => {
+    let models = p.models as readonly { id: string; label: string; tokens: number }[];
+    if (refresh && p.catalog) {
+      try {
+        models = await Promise.race([
+          p.catalog(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+        ]);
+      } catch { /* fall back to static models */ }
+    }
+    return {
+      id: p.id,
+      label: p.label,
+      defaultBaseUrl: p.defaultBaseUrl,
+      models,
+      auth: p.auth,
+    };
   }));
   jsonResponse(res, 200, { providers });
 }

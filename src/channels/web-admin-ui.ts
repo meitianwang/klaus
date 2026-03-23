@@ -365,6 +365,7 @@ tr.clickable:hover { background: var(--card-bg); }
       <h1 class="page-title" data-i18n="tab_models">Models</h1>
       <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
         <button class="btn btn-primary btn-sm" id="model-add-btn" data-i18n="btn_add_model">+ Add Model</button>
+        <button class="btn btn-ghost btn-sm" id="model-refresh-btn" style="margin-left:6px" data-i18n="btn_refresh_models">Refresh Models</button>
       </div>
       <div id="model-form" class="task-form" style="display:none">
         <div class="task-form-grid">
@@ -376,7 +377,7 @@ tr.clickable:hover { background: var(--card-bg); }
             <select id="mf-model-select" class="f-select"></select>
             <input id="mf-model" class="f-input" placeholder="e.g. gpt-4o, deepseek-chat" style="display:none">
           </div>
-          <div><label data-i18n="lbl_model_apikey">API Key</label><input id="mf-apikey" class="f-input" type="password" placeholder="sk-..."></div>
+          <div><label data-i18n="lbl_model_apikey">API Key</label><input id="mf-apikey" class="f-input" type="password" placeholder="sk-..."><div id="mf-apikey-hint" style="font-size:12px;color:var(--muted);margin-top:4px;display:none"></div></div>
           <div><label data-i18n="lbl_model_baseurl">Base URL</label><input id="mf-baseurl" class="f-input" placeholder="Optional"></div>
           <div><label data-i18n="lbl_model_tokens">Max Context Tokens</label><input id="mf-tokens" class="f-input" type="number" value="200000"></div>
           <div><label data-i18n="lbl_model_thinking">Thinking</label>
@@ -596,7 +597,7 @@ tr.clickable:hover { background: var(--card-bg); }
       scheduler_running: "Running", scheduler_stopped: "Stopped",
       tasks_label: "tasks", active_label: "active", next_label: "Next",
       confirm_delete_task: "Delete this task?",
-      btn_add_model: "+ Add Model", btn_add_prompt: "+ Add Prompt", btn_add_rule: "+ Add Rule",
+      btn_add_model: "+ Add Model", btn_refresh_models: "Refresh Models", btn_add_prompt: "+ Add Prompt", btn_add_rule: "+ Add Rule",
       lbl_model_id: "ID", lbl_model_name: "Name", lbl_model_provider: "Provider", lbl_model_model: "Model ID",
       lbl_model_apikey: "API Key", lbl_model_baseurl: "Base URL", lbl_model_tokens: "Max Context Tokens", lbl_model_thinking: "Thinking",
       lbl_model_cost: "Cost ($/M tokens)", lbl_cost_input: "Input", lbl_cost_output: "Output", lbl_cost_cache_read: "Cache Read", lbl_cost_cache_write: "Cache Write",
@@ -605,6 +606,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "Name", lbl_rule_content: "Content", lbl_rule_order: "Sort Order", no_rules: "No rules configured.",
       default_badge: "Default", enabled_badge: "Enabled", disabled_badge: "Disabled",
       confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?", confirm_delete_rule: "Delete this rule?",
+      models_refreshed: "Models refreshed", hint_env_fallback: "Falls back to",
       tab_mcp: "MCP Servers", btn_add_mcp: "+ Add Server",
       lbl_mcp_id: "ID", lbl_mcp_name: "Name", lbl_mcp_type: "Transport", lbl_mcp_command: "Command", lbl_mcp_args: "Args", lbl_mcp_url: "URL",
       no_mcp: "No MCP servers configured.", confirm_delete_mcp: "Delete this server?",
@@ -640,7 +642,7 @@ tr.clickable:hover { background: var(--card-bg); }
       scheduler_running: "运行中", scheduler_stopped: "已停止",
       tasks_label: "个任务", active_label: "活跃", next_label: "下次",
       confirm_delete_task: "确定删除此任务？",
-      btn_add_model: "+ 添加模型", btn_add_prompt: "+ 添加提示词", btn_add_rule: "+ 添加规则",
+      btn_add_model: "+ 添加模型", btn_refresh_models: "刷新模型", btn_add_prompt: "+ 添加提示词", btn_add_rule: "+ 添加规则",
       lbl_model_id: "ID", lbl_model_name: "名称", lbl_model_provider: "提供商", lbl_model_model: "模型 ID",
       lbl_model_apikey: "API Key", lbl_model_baseurl: "API 地址", lbl_model_tokens: "最大上下文 Token", lbl_model_thinking: "思考",
       lbl_model_cost: "成本 ($/百万 Token)", lbl_cost_input: "输入", lbl_cost_output: "输出", lbl_cost_cache_read: "缓存读取", lbl_cost_cache_write: "缓存写入",
@@ -649,6 +651,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "名称", lbl_rule_content: "内容", lbl_rule_order: "排序", no_rules: "暂无规则配置。",
       default_badge: "默认", enabled_badge: "启用", disabled_badge: "禁用",
       confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？", confirm_delete_rule: "确定删除此规则？",
+      models_refreshed: "模型已刷新", hint_env_fallback: "未填写时回退到",
       tab_mcp: "MCP 服务器", btn_add_mcp: "+ 添加服务器",
       lbl_mcp_id: "ID", lbl_mcp_name: "名称", lbl_mcp_type: "传输方式", lbl_mcp_command: "命令", lbl_mcp_args: "参数", lbl_mcp_url: "URL",
       no_mcp: "暂无 MCP 服务器配置。", confirm_delete_mcp: "确定删除此服务器？",
@@ -1012,14 +1015,15 @@ tr.clickable:hover { background: var(--card-bg); }
   var PROVIDER_PRESETS = {};
   var providersLoaded = false;
 
-  function loadProviders() {
-    if (providersLoaded) return Promise.resolve();
-    return api("providers", "GET").then(function(d) {
+  function loadProviders(refresh) {
+    if (providersLoaded && !refresh) return Promise.resolve();
+    var qs = refresh ? "providers?refresh=1" : "providers";
+    return api(qs, "GET").then(function(d) {
       var providers = d.providers || [];
       PROVIDER_PRESETS = {};
       mfProvider.innerHTML = "";
       providers.forEach(function(p) {
-        PROVIDER_PRESETS[p.id] = { baseUrl: p.defaultBaseUrl, models: p.models };
+        PROVIDER_PRESETS[p.id] = { baseUrl: p.defaultBaseUrl, models: p.models, auth: p.auth };
         var o = document.createElement("option");
         o.value = p.id; o.textContent = p.label;
         mfProvider.appendChild(o);
@@ -1033,6 +1037,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var modelsEmpty = document.getElementById("models-empty");
   var modelForm = document.getElementById("model-form");
   var modelAddBtn = document.getElementById("model-add-btn");
+  var modelRefreshBtn = document.getElementById("model-refresh-btn");
   var mfName = document.getElementById("mf-name");
   var mfProvider = document.getElementById("mf-provider");
   var mfModelSelect = document.getElementById("mf-model-select");
@@ -1046,6 +1051,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var mfCostOutput = document.getElementById("mf-cost-output");
   var mfCostCacheRead = document.getElementById("mf-cost-cache-read");
   var mfCostCacheWrite = document.getElementById("mf-cost-cache-write");
+  var mfApikeyHint = document.getElementById("mf-apikey-hint");
   var mfSave = document.getElementById("mf-save");
   var mfCancel = document.getElementById("mf-cancel");
   var editingModelId = null;
@@ -1059,6 +1065,13 @@ tr.clickable:hover { background: var(--card-bg); }
 
   function syncProviderUI(provider, currentModel) {
     var preset = PROVIDER_PRESETS[provider];
+    // Show/hide env var hint
+    if (preset && preset.auth && preset.auth.envVar) {
+      mfApikeyHint.textContent = tt("hint_env_fallback") + " $" + preset.auth.envVar;
+      mfApikeyHint.style.display = "";
+    } else {
+      mfApikeyHint.style.display = "none";
+    }
     if (preset) {
       // Preset provider: show select, hide input
       mfModelSelect.style.display = "";
@@ -1137,6 +1150,14 @@ tr.clickable:hover { background: var(--card-bg); }
       modelsWrap.innerHTML = h;
     });
   }
+
+  modelRefreshBtn.onclick = function() {
+    modelRefreshBtn.disabled = true;
+    loadProviders(true).then(function() {
+      showToast(tt("models_refreshed"));
+      if (mfProvider.value) syncProviderUI(mfProvider.value, "");
+    }).finally(function() { modelRefreshBtn.disabled = false; });
+  };
 
   modelAddBtn.onclick = function() {
     editingModelId = null;

@@ -18,6 +18,7 @@ import {
 import { generateLocalToken } from "./local-token.js";
 import { AgentSessionManager } from "./agent-manager.js";
 import { SettingsStore } from "./settings-store.js";
+import { loadExternalProviders, registerAllFactories } from "./providers/registry.js";
 import { sendWsEvent } from "./channels/web.js";
 import type { AgentEvent } from "klaus-agent";
 
@@ -37,6 +38,10 @@ async function start(): Promise<void> {
 
   // Initialize settings store (SQLite)
   const settingsStore = new SettingsStore();
+
+  // Load external providers and register all factories
+  await loadExternalProviders();
+  registerAllFactories();
 
   // Initialize agent session manager
   const agentManager = new AgentSessionManager(settingsStore);

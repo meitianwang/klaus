@@ -5,6 +5,7 @@ export const anthropicProvider: ProviderDefinition = {
   label: "Anthropic",
   protocol: "anthropic",
   defaultBaseUrl: "",
+  auth: { envVar: "ANTHROPIC_API_KEY", label: "API Key" },
   models: [
     { id: "claude-opus-4-20250514", label: "Claude Opus 4", tokens: 200000 },
     { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", tokens: 200000 },

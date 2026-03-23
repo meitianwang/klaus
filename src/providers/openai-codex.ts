@@ -5,6 +5,7 @@ export const openaiCodexProvider: ProviderDefinition = {
   label: "OpenAI Codex",
   protocol: "openai-codex",
   defaultBaseUrl: "",
+  auth: { envVar: "OPENAI_CODEX_TOKEN", label: "JWT Token" },
   models: [
     { id: "codex-mini-latest", label: "Codex Mini (latest)", tokens: 192000 },
     { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", tokens: 192000 },
