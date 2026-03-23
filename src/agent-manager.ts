@@ -9,28 +9,25 @@ import {
   type Agent,
   type AgentEvent,
   type AgentMessage,
+  type AgentTool,
   type AssistantMessage,
   type ModelConfig,
   type ThinkingLevel,
   type MCPServerConfig,
   type MCPClient,
 } from "klaus-agent";
-import { MoonshotProvider } from "./providers/moonshot.js";
-import { createKimiWebSearchTool } from "./tools/kimi-web-search.js";
-import { createMoonshotVideoTool } from "./tools/moonshot-video.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { SettingsStore } from "./settings-store.js";
+import { getAllProviders, getProvider } from "./providers/registry.js";
 
-const MOONSHOT_PROVIDERS = ["moonshot", "moonshot-cn"] as const;
-const MOONSHOT_DEFAULT_BASE_URL = "https://api.moonshot.ai/v1";
-
-// Moonshot: OpenAI-compatible with native thinking payload normalization
-for (const name of MOONSHOT_PROVIDERS) {
-  registerProvider(name, (c) => new MoonshotProvider(c.apiKey, c.baseUrl));
+for (const def of getAllProviders()) {
+  if (def.factory) {
+    registerProvider(def.id, def.factory);
+  }
 }
 
 type AgentEventCallback = (event: AgentEvent) => void;
@@ -175,13 +172,12 @@ export class AgentSessionManager {
       transport: s.transport as MCPServerConfig["transport"],
     }));
 
-    // Build tools for moonshot providers (web search + video description)
-    const tools: import("klaus-agent").AgentTool[] = [];
-    const isMoonshot = (MOONSHOT_PROVIDERS as readonly string[]).includes(modelRecord.provider);
-    if (isMoonshot && modelRecord.apiKey) {
-      const baseUrl = modelRecord.baseUrl || MOONSHOT_DEFAULT_BASE_URL;
-      tools.push(createKimiWebSearchTool(modelRecord.apiKey, baseUrl, modelRecord.model));
-      tools.push(createMoonshotVideoTool(modelRecord.apiKey, baseUrl, modelRecord.model));
+    // Build provider-specific tools from registry
+    const tools: AgentTool[] = [];
+    const providerDef = getProvider(modelRecord.provider);
+    if (providerDef?.tools && modelRecord.apiKey) {
+      const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
+      tools.push(...providerDef.tools(modelRecord.apiKey, baseUrl, modelRecord.model));
     }
 
     const agent = createAgent({

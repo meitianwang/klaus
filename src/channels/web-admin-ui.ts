@@ -370,15 +370,7 @@ tr.clickable:hover { background: var(--card-bg); }
         <div class="task-form-grid">
           <div><label data-i18n="lbl_model_name">Name</label><input id="mf-name" class="f-input" placeholder="e.g. My Claude Sonnet"></div>
           <div><label data-i18n="lbl_model_provider">Provider</label>
-            <select id="mf-provider" class="f-select">
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-              <option value="openai-responses">OpenAI Responses</option>
-              <option value="openai-codex">OpenAI Codex</option>
-              <option value="google">Google (Gemini)</option>
-              <option value="moonshot">Moonshot (.ai)</option>
-              <option value="moonshot-cn">Moonshot (.cn)</option>
-            </select>
+            <select id="mf-provider" class="f-select"></select>
           </div>
           <div><label data-i18n="lbl_model_model">Model ID</label>
             <select id="mf-model-select" class="f-select"></select>
@@ -710,7 +702,7 @@ tr.clickable:hover { background: var(--card-bg); }
     tabPanels.forEach(function(p) { p.classList.toggle("active", p.id === "tab-" + id); });
     if (id === "users") showSubView("users-list");
     if (id === "cron") loadCronTasks();
-    if (id === "models") loadModels();
+    if (id === "models") loadProviders().then(loadModels);
     if (id === "prompts") loadPrompts();
     if (id === "rules") loadRules();
     if (id === "mcp") loadMcpServers();
@@ -1017,68 +1009,25 @@ tr.clickable:hover { background: var(--card-bg); }
   // =====================================================
   // MODELS TAB
   // =====================================================
-  var MOONSHOT_MODELS = [
-    { id: "kimi-k2.5", label: "Kimi K2.5", tokens: 262144 },
-    { id: "kimi-k2-thinking", label: "Kimi K2 Thinking", tokens: 262144 },
-    { id: "kimi-k2-thinking-turbo", label: "Kimi K2 Thinking Turbo", tokens: 262144 },
-    { id: "kimi-k2-turbo", label: "Kimi K2 Turbo", tokens: 256000 }
-  ];
-  var PROVIDER_PRESETS = {
-    anthropic: {
-      baseUrl: "",
-      models: [
-        { id: "claude-opus-4-20250514", label: "Claude Opus 4", tokens: 200000 },
-        { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", tokens: 200000 },
-        { id: "claude-haiku-4-20250514", label: "Claude Haiku 4", tokens: 200000 }
-      ]
-    },
-    openai: {
-      baseUrl: "",
-      models: [
-        { id: "gpt-4.1", label: "GPT-4.1", tokens: 1047576 },
-        { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", tokens: 1047576 },
-        { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", tokens: 1047576 },
-        { id: "o3", label: "o3", tokens: 200000 },
-        { id: "o4-mini", label: "o4-mini", tokens: 200000 }
-      ]
-    },
-    "openai-responses": {
-      baseUrl: "",
-      models: [
-        { id: "gpt-4.1", label: "GPT-4.1", tokens: 1047576 },
-        { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", tokens: 1047576 },
-        { id: "o3", label: "o3", tokens: 200000 },
-        { id: "o4-mini", label: "o4-mini", tokens: 200000 }
-      ]
-    },
-    google: {
-      baseUrl: "",
-      models: [
-        { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tokens: 1048576 },
-        { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", tokens: 1048576 },
-        { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", tokens: 1048576 }
-      ]
-    },
-    moonshot: {
-      baseUrl: "https://api.moonshot.ai/v1",
-      models: MOONSHOT_MODELS
-    },
-    "moonshot-cn": {
-      baseUrl: "https://api.moonshot.cn/v1",
-      models: MOONSHOT_MODELS
-    },
-    "openai-codex": {
-      baseUrl: "",
-      models: [
-        { id: "codex-mini-latest", label: "Codex Mini (latest)", tokens: 192000 },
-        { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", tokens: 192000 },
-        { id: "gpt-5.1", label: "GPT-5.1", tokens: 192000 },
-        { id: "gpt-5.2", label: "GPT-5.2", tokens: 192000 },
-        { id: "gpt-5.3", label: "GPT-5.3", tokens: 192000 },
-        { id: "gpt-5.4", label: "GPT-5.4", tokens: 192000 }
-      ]
-    }
-  };
+  var PROVIDER_PRESETS = {};
+  var providersLoaded = false;
+
+  function loadProviders() {
+    if (providersLoaded) return Promise.resolve();
+    return api("providers", "GET").then(function(d) {
+      var providers = d.providers || [];
+      PROVIDER_PRESETS = {};
+      mfProvider.innerHTML = "";
+      providers.forEach(function(p) {
+        PROVIDER_PRESETS[p.id] = { baseUrl: p.defaultBaseUrl, models: p.models };
+        var o = document.createElement("option");
+        o.value = p.id; o.textContent = p.label;
+        mfProvider.appendChild(o);
+      });
+      providersLoaded = true;
+    });
+  }
+  loadProviders();
 
   var modelsWrap = document.getElementById("models-wrap");
   var modelsEmpty = document.getElementById("models-empty");
@@ -1191,10 +1140,12 @@ tr.clickable:hover { background: var(--card-bg); }
 
   modelAddBtn.onclick = function() {
     editingModelId = null;
-    mfName.value = ""; mfProvider.value = "anthropic"; mfModel.value = "";
+    mfName.value = ""; mfModel.value = "";
     mfApikey.value = ""; mfBaseurl.value = ""; mfTokens.value = "200000"; mfThinking.value = "off"; mfDefault.checked = false;
     mfCostInput.value = ""; mfCostOutput.value = ""; mfCostCacheRead.value = ""; mfCostCacheWrite.value = "";
-    syncProviderUI("anthropic", "");
+    var firstProvider = mfProvider.options.length ? mfProvider.options[0].value : "";
+    mfProvider.value = firstProvider;
+    syncProviderUI(firstProvider, "");
     modelForm.style.display = "block";
     mfName.focus();
   };

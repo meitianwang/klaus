@@ -57,6 +57,7 @@ import { getChatHtml } from "./web-ui.js";
 import { getAdminHtml } from "./web-admin-ui.js";
 import { getLoginHtml } from "./web-login-ui.js";
 import { startTunnel } from "./web-tunnel.js";
+import { getAllProviders } from "../providers/registry.js";
 import type { MessageStore } from "../message-store.js";
 import type { InviteStore } from "../invite-store.js";
 import type { UserStore, User } from "../user-store.js";
@@ -1432,6 +1433,28 @@ async function handleAdminCronTasks(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: providers (read-only, from registry)
+// ---------------------------------------------------------------------------
+
+async function handleAdminProviders(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (req.method !== "GET") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+  const providers = getAllProviders().map((p) => ({
+    id: p.id,
+    label: p.label,
+    defaultBaseUrl: p.defaultBaseUrl,
+    models: p.models,
+  }));
+  jsonResponse(res, 200, { providers });
+}
+
+// ---------------------------------------------------------------------------
 // Admin: models CRUD
 // ---------------------------------------------------------------------------
 
@@ -2020,6 +2043,8 @@ async function handleRequest(
       return handleAdminCronTasks(req, res);
     case "/api/admin/models":
       return handleAdminModels(req, res);
+    case "/api/admin/providers":
+      return handleAdminProviders(req, res);
     case "/api/admin/prompts":
       return handleAdminPrompts(req, res);
     case "/api/admin/rules":
