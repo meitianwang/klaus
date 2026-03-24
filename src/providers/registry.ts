@@ -57,15 +57,6 @@ export function getProvider(id: string): ProviderDefinition | undefined {
   return byId.get(id);
 }
 
-export function unregisterProvider(id: string): boolean {
-  if (BUILTIN_IDS.has(id) || !byId.has(id)) return false;
-  byId.delete(id);
-  const idx = providers.findIndex((p) => p.id === id);
-  if (idx !== -1) providers.splice(idx, 1);
-  capabilities.removeProvider(id);
-  return true;
-}
-
 function isValidDefinition(obj: unknown): obj is ProviderDefinition {
   if (!obj || typeof obj !== "object") return false;
   const d = obj as Record<string, unknown>;

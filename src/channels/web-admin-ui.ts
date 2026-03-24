@@ -368,6 +368,7 @@ tr.clickable:hover { background: var(--card-bg); }
         <button class="btn btn-ghost btn-sm" id="model-refresh-btn" style="margin-left:6px" data-i18n="btn_refresh_models">Refresh Models</button>
       </div>
       <div id="model-form" class="task-form" style="display:none">
+        <h3 id="mf-title" style="margin:0 0 12px 0"></h3>
         <div class="task-form-grid">
           <div><label data-i18n="lbl_model_name">Name</label><input id="mf-name" class="f-input" placeholder="e.g. My Claude Sonnet"></div>
           <div><label data-i18n="lbl_model_provider">Provider</label>
@@ -379,7 +380,7 @@ tr.clickable:hover { background: var(--card-bg); }
           </div>
           <div id="mf-auth-apikey"><label data-i18n="lbl_model_apikey">API Key</label><input id="mf-apikey" class="f-input" type="password" placeholder="sk-..."></div>
           <div id="mf-auth-oauth" style="display:none"><label data-i18n="lbl_model_oauth">Authorization</label><div style="display:flex;align-items:center;gap:10px;padding-top:4px"><button class="btn btn-primary btn-sm" id="mf-oauth-btn" type="button" data-i18n="btn_authorize">Authorize</button><span id="mf-oauth-status" class="badge badge-gray" data-i18n="auth_not_authorized">Not authorized</span></div></div>
-          <div><label data-i18n="lbl_model_baseurl">Base URL</label><input id="mf-baseurl" class="f-input" placeholder="Optional"></div>
+          <div id="mf-baseurl-wrap"><label data-i18n="lbl_model_baseurl">Base URL</label><input id="mf-baseurl" class="f-input" placeholder="Optional"></div>
           <div><label data-i18n="lbl_model_tokens">Max Context Tokens</label><input id="mf-tokens" class="f-input" type="number" value="200000"></div>
           <div><label data-i18n="lbl_model_thinking">Thinking</label>
             <select id="mf-thinking" class="f-select"><option value="off">off</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option></select>
@@ -607,7 +608,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "Name", lbl_rule_content: "Content", lbl_rule_order: "Sort Order", no_rules: "No rules configured.",
       default_badge: "Default", enabled_badge: "Enabled", disabled_badge: "Disabled",
       confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?", confirm_delete_rule: "Delete this rule?",
-      models_refreshed: "Models refreshed", btn_authorize: "Authorize", auth_authorized: "Authorized", auth_not_authorized: "Not authorized", auth_save_first: "Save model first", lbl_model_oauth: "Authorization",
+      models_refreshed: "Models refreshed", btn_authorize: "Authorize", auth_authorized: "Authorized", auth_not_authorized: "Not authorized", auth_save_first: "Save model first", lbl_model_oauth: "Authorization", lbl_add_model: "Add Model", lbl_edit_model: "Edit Model", lbl_custom_model: "Custom...",
       tab_mcp: "MCP Servers", btn_add_mcp: "+ Add Server",
       lbl_mcp_id: "ID", lbl_mcp_name: "Name", lbl_mcp_type: "Transport", lbl_mcp_command: "Command", lbl_mcp_args: "Args", lbl_mcp_url: "URL",
       no_mcp: "No MCP servers configured.", confirm_delete_mcp: "Delete this server?",
@@ -652,7 +653,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "名称", lbl_rule_content: "内容", lbl_rule_order: "排序", no_rules: "暂无规则配置。",
       default_badge: "默认", enabled_badge: "启用", disabled_badge: "禁用",
       confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？", confirm_delete_rule: "确定删除此规则？",
-      models_refreshed: "模型已刷新", btn_authorize: "授权", auth_authorized: "已授权", auth_not_authorized: "未授权", auth_save_first: "请先保存模型", lbl_model_oauth: "授权",
+      models_refreshed: "模型已刷新", btn_authorize: "授权", auth_authorized: "已授权", auth_not_authorized: "未授权", auth_save_first: "请先保存模型", lbl_model_oauth: "授权", lbl_add_model: "添加模型", lbl_edit_model: "编辑模型", lbl_custom_model: "自定义...",
       tab_mcp: "MCP 服务器", btn_add_mcp: "+ 添加服务器",
       lbl_mcp_id: "ID", lbl_mcp_name: "名称", lbl_mcp_type: "传输方式", lbl_mcp_command: "命令", lbl_mcp_args: "参数", lbl_mcp_url: "URL",
       no_mcp: "暂无 MCP 服务器配置。", confirm_delete_mcp: "确定删除此服务器？",
@@ -1044,6 +1045,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var mfModelSelect = document.getElementById("mf-model-select");
   var mfModel = document.getElementById("mf-model");
   var mfApikey = document.getElementById("mf-apikey");
+  var mfBaseurlWrap = document.getElementById("mf-baseurl-wrap");
   var mfBaseurl = document.getElementById("mf-baseurl");
   var mfTokens = document.getElementById("mf-tokens");
   var mfThinking = document.getElementById("mf-thinking");
@@ -1058,13 +1060,17 @@ tr.clickable:hover { background: var(--card-bg); }
   var mfOauthStatus = document.getElementById("mf-oauth-status");
   var mfSave = document.getElementById("mf-save");
   var mfCancel = document.getElementById("mf-cancel");
+  var mfTitle = document.getElementById("mf-title");
   var editingModelId = null;
 
   function isPresetProvider(pv) { return PROVIDER_PRESETS.hasOwnProperty(pv); }
 
   function getSelectedModel() {
     var pv = mfProvider.value;
-    return isPresetProvider(pv) ? mfModelSelect.value : mfModel.value.trim();
+    if (isPresetProvider(pv)) {
+      return mfModelSelect.value === "__custom__" ? mfModel.value.trim() : mfModelSelect.value;
+    }
+    return mfModel.value.trim();
   }
 
   function syncProviderUI(provider, currentModel) {
@@ -1074,11 +1080,11 @@ tr.clickable:hover { background: var(--card-bg); }
     mfAuthApikey.style.display = isOAuth ? "none" : "";
     mfAuthOauth.style.display = isOAuth ? "" : "none";
     if (isOAuth) {
-      mfOauthBtn.disabled = !editingModelId;
-      mfOauthBtn.title = editingModelId ? "" : tt("auth_save_first");
+      mfOauthBtn.disabled = false;
+      mfOauthBtn.title = "";
     }
     if (preset) {
-      // Preset provider: show select, hide input
+      // Preset provider: show select + optional custom input
       mfModelSelect.style.display = "";
       mfModel.style.display = "none";
       mfModelSelect.innerHTML = "";
@@ -1087,26 +1093,25 @@ tr.clickable:hover { background: var(--card-bg); }
         o.value = m.id; o.textContent = m.label;
         mfModelSelect.appendChild(o);
       });
+      // Add "Custom..." option for dynamic model IDs
+      var customOpt = document.createElement("option");
+      customOpt.value = "__custom__"; customOpt.textContent = tt("lbl_custom_model") || "Custom...";
+      mfModelSelect.appendChild(customOpt);
       if (currentModel) {
-        // If current model exists in list, select it; otherwise append custom option
         var found = preset.models.some(function(m) { return m.id === currentModel; });
         if (found) {
           mfModelSelect.value = currentModel;
         } else {
-          var co = document.createElement("option");
-          co.value = currentModel; co.textContent = currentModel;
-          mfModelSelect.appendChild(co);
-          mfModelSelect.value = currentModel;
+          // Unknown model ID — show custom input
+          mfModelSelect.value = "__custom__";
+          mfModel.style.display = "";
+          mfModel.value = currentModel;
         }
       }
-      // Auto-fill baseUrl for providers that have one
-      if (preset.baseUrl) {
-        mfBaseurl.value = preset.baseUrl;
-        mfBaseurl.readOnly = true;
-      } else {
-        if (!editingModelId) mfBaseurl.value = "";
-        mfBaseurl.readOnly = false;
-      }
+      // Show baseUrl as read-only for preset providers
+      mfBaseurlWrap.style.display = "";
+      mfBaseurl.value = preset.baseUrl || "";
+      mfBaseurl.readOnly = true;
       // Auto-fill tokens from selected model
       syncModelTokens();
     } else {
@@ -1114,6 +1119,7 @@ tr.clickable:hover { background: var(--card-bg); }
       mfModelSelect.style.display = "none";
       mfModel.style.display = "";
       if (currentModel) mfModel.value = currentModel;
+      mfBaseurlWrap.style.display = "";
       mfBaseurl.readOnly = false;
     }
   }
@@ -1128,7 +1134,16 @@ tr.clickable:hover { background: var(--card-bg); }
   }
 
   mfProvider.addEventListener("change", function() { syncProviderUI(mfProvider.value, ""); });
-  mfModelSelect.addEventListener("change", syncModelTokens);
+  mfModelSelect.addEventListener("change", function() {
+    if (mfModelSelect.value === "__custom__") {
+      mfModel.style.display = "";
+      mfModel.value = "";
+      mfModel.focus();
+    } else {
+      mfModel.style.display = "none";
+      syncModelTokens();
+    }
+  });
 
   function loadModels() {
     api("models", "GET").then(function(d) {
@@ -1156,11 +1171,43 @@ tr.clickable:hover { background: var(--card-bg); }
     });
   }
 
+  function openOAuthPopup(provider, modelId) {
+    window.open("/auth/provider/start?provider=" + encodeURIComponent(provider) + "&modelId=" + encodeURIComponent(modelId), "_blank", "width=600,height=700");
+  }
+
   mfOauthBtn.onclick = function() {
     var model = getSelectedModel();
-    var provider = mfProvider.value;
+    var provider = mfProvider.value.trim();
+    if (!model || !provider) return;
     var id = editingModelId || (provider + "-" + model).replace(/[^a-zA-Z0-9._-]/g, "-");
-    window.open("/auth/provider/start?provider=" + encodeURIComponent(provider) + "&modelId=" + encodeURIComponent(id), "_blank", "width=600,height=700");
+
+    if (editingModelId) {
+      // Already saved — just open OAuth popup
+      openOAuthPopup(provider, id);
+    } else {
+      // Auto-save model first, then open OAuth popup
+      var payload = {
+        id: id, name: mfName.value.trim() || model, provider: provider,
+        model: model, max_context_tokens: parseInt(mfTokens.value, 10) || 200000,
+        thinking: mfThinking.value, is_default: mfDefault.checked
+      };
+      if (mfBaseurl.value.trim()) payload.base_url = mfBaseurl.value.trim();
+      mfOauthBtn.disabled = true;
+      // Use PATCH if model already exists, POST otherwise
+      api("models", "GET").then(function(d) {
+        var exists = (d.models || []).some(function(x) { return x.id === id; });
+        var method = exists ? "PATCH" : "POST";
+        var path = exists ? "models?id=" + encodeURIComponent(id) : "models";
+        return api(path, method, payload);
+      })
+        .then(function() {
+          editingModelId = id;
+          loadModels();
+          openOAuthPopup(provider, id);
+        })
+        .catch(function() { showToast(tt("failed")); })
+        .finally(function() { mfOauthBtn.disabled = false; });
+    }
   };
 
   // Listen for OAuth completion from popup
@@ -1183,16 +1230,18 @@ tr.clickable:hover { background: var(--card-bg); }
 
   modelAddBtn.onclick = function() {
     editingModelId = null;
+    mfTitle.textContent = tt("lbl_add_model");
     mfName.value = ""; mfModel.value = "";
     mfApikey.value = ""; mfBaseurl.value = ""; mfTokens.value = "200000"; mfThinking.value = "off"; mfDefault.checked = false;
     mfCostInput.value = ""; mfCostOutput.value = ""; mfCostCacheRead.value = ""; mfCostCacheWrite.value = "";
     var firstProvider = mfProvider.options.length ? mfProvider.options[0].value : "";
     mfProvider.value = firstProvider;
     syncProviderUI(firstProvider, "");
+    modelsWrap.style.display = "none";
     modelForm.style.display = "block";
     mfName.focus();
   };
-  mfCancel.onclick = function() { modelForm.style.display = "none"; };
+  mfCancel.onclick = function() { modelForm.style.display = "none"; modelsWrap.style.display = ""; };
 
   mfSave.onclick = function() {
     var model = getSelectedModel();
@@ -1219,7 +1268,7 @@ tr.clickable:hover { background: var(--card-bg); }
     var method = editingModelId ? "PATCH" : "POST";
     var path = editingModelId ? "models?id=" + encodeURIComponent(editingModelId) : "models";
     api(path, method, payload)
-      .then(function() { modelForm.style.display = "none"; showToast(tt("saved")); loadModels(); })
+      .then(function() { modelForm.style.display = "none"; modelsWrap.style.display = ""; showToast(tt("saved")); loadModels(); })
       .catch(function() { showToast(tt("failed")); })
       .finally(function() { mfSave.disabled = false; });
   };
@@ -1239,6 +1288,7 @@ tr.clickable:hover { background: var(--card-bg); }
         var m = (d.models || []).find(function(x) { return x.id === mid; });
         if (!m) return;
         editingModelId = mid;
+        mfTitle.textContent = tt("lbl_edit_model");
         mfName.value = m.name || "";
         var pv = m.provider || "anthropic";
         if (!mfProvider.querySelector('option[value="' + pv + '"]')) {
@@ -1249,10 +1299,11 @@ tr.clickable:hover { background: var(--card-bg); }
         mfProvider.value = pv;
         syncProviderUI(pv, m.model || "");
         mfApikey.value = ""; mfBaseurl.value = m.baseUrl || "";
-        if (isPresetProvider(pv) && PROVIDER_PRESETS[pv].baseUrl) {
-          mfBaseurl.value = PROVIDER_PRESETS[pv].baseUrl;
+        if (isPresetProvider(pv)) {
+          mfBaseurlWrap.style.display = "";
           mfBaseurl.readOnly = true;
         } else {
+          mfBaseurlWrap.style.display = "";
           mfBaseurl.readOnly = false;
         }
         mfTokens.value = m.maxContextTokens || 200000; mfThinking.value = m.thinking || "off";
@@ -1268,6 +1319,7 @@ tr.clickable:hover { background: var(--card-bg); }
           mfOauthStatus.textContent = tt("auth_not_authorized");
           mfOauthStatus.className = "badge badge-gray";
         }
+        modelsWrap.style.display = "none";
         modelForm.style.display = "block";
       });
     }

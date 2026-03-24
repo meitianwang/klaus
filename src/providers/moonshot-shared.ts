@@ -3,6 +3,7 @@ import type { LLMProviderFactory, AgentTool } from "klaus-agent";
 import { MoonshotProvider } from "./moonshot.js";
 import { createKimiWebSearchTool } from "../tools/kimi-web-search.js";
 import { createMoonshotVideoTool } from "../tools/moonshot-video.js";
+import { fetchOpenAICompatibleModels } from "./catalog-utils.js";
 
 export const MOONSHOT_MODELS: readonly ModelPreset[] = [
   { id: "kimi-k2.5", label: "Kimi K2.5", tokens: 262144 },
@@ -21,4 +22,12 @@ export function moonshotTools(apiKey: string, baseUrl: string, model: string): A
     createKimiWebSearchTool(apiKey, baseUrl, model),
     createMoonshotVideoTool(apiKey, baseUrl, model),
   ];
+}
+
+export function moonshotCatalog(defaultBaseUrl: string) {
+  return (apiKey?: string, baseUrl?: string) =>
+    fetchOpenAICompatibleModels(apiKey!, baseUrl || defaultBaseUrl, {
+      includePrefix: ["kimi-", "moonshot-", "k2"],
+      defaultTokens: 262144,
+    });
 }

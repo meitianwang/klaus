@@ -169,10 +169,14 @@ export class AgentSessionManager {
     }
 
     const model: ModelConfig = {
-      provider: modelRecord.provider,
+      provider: providerDef?.protocol ?? modelRecord.provider,
       model: modelRecord.model,
       ...(apiKey ? { apiKey } : {}),
-      ...(modelRecord.baseUrl ? { baseUrl: modelRecord.baseUrl } : {}),
+      ...(modelRecord.baseUrl
+        ? { baseUrl: modelRecord.baseUrl }
+        : providerDef?.defaultBaseUrl
+          ? { baseUrl: providerDef.defaultBaseUrl }
+          : {}),
       maxContextTokens: modelRecord.maxContextTokens,
       ...(modelRecord.cost ? { cost: modelRecord.cost } : {}),
     };
@@ -254,6 +258,19 @@ export class AgentSessionManager {
   }
 }
 
+/** Strip XML-style tool call tags (e.g. <bash>pwd</bash>) from agent text output. */
+const TOOL_TAG_NAMES = [
+  "bash", "shell", "execute", "read_file", "write_file", "edit_file",
+  "search", "grep", "glob", "find", "file",
+  "tool_call", "function_call", "tool", "command",
+].join("|");
+const TOOL_BLOCK_RE = new RegExp(`<(${TOOL_TAG_NAMES})(\\s[^>]*)?>[\\s\\S]*?<\\/\\1>`, "gi");
+const TOOL_OPEN_RE = new RegExp(`<\\/?(${TOOL_TAG_NAMES})(\\s[^>]*)?>`, "gi");
+
+function stripToolTags(text: string): string {
+  return text.replace(TOOL_BLOCK_RE, "").replace(TOOL_OPEN_RE, "").trim();
+}
+
 function extractFinalText(messages: AgentMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -261,7 +278,11 @@ function extractFinalText(messages: AgentMessage[]): string | null {
       const texts = msg.content
         .filter((b): b is { type: "text"; text: string } => b.type === "text")
         .map((b) => b.text);
-      if (texts.length > 0) return texts.join("\n");
+      if (texts.length > 0) {
+        const raw = texts.join("\n");
+        const cleaned = stripToolTags(raw);
+        return cleaned || raw;
+      }
     }
   }
   return null;

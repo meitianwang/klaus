@@ -22,6 +22,36 @@ import { loadExternalProviders, registerAllFactories, registerAllCapabilities, c
 import { sendWsEvent } from "./channels/web.js";
 import type { AgentEvent } from "klaus-agent";
 
+function toolDisplay(toolName: string, args: unknown): Record<string, string> {
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  const cmd = typeof a.command === "string" ? a.command : "";
+  const path = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : "";
+  const query = typeof a.query === "string" ? a.query : typeof a.pattern === "string" ? a.pattern : "";
+  const name = toolName.toLowerCase();
+  if (name === "bash" || name === "shell" || name === "execute" || name === "run_command") {
+    return { style: "terminal", icon: "terminal", label: toolName, value: cmd || path };
+  }
+  if (name === "read" || name === "read_file" || name === "readfile") {
+    return { style: "file", icon: "file", label: toolName, value: path };
+  }
+  if (name === "write" || name === "write_file" || name === "writefile" || name === "create") {
+    return { style: "file", icon: "file-plus", label: toolName, value: path };
+  }
+  if (name === "edit" || name === "patch" || name === "replace") {
+    return { style: "file", icon: "edit", label: toolName, value: path };
+  }
+  if (name === "search" || name === "grep" || name === "glob" || name === "find") {
+    return { style: "search", icon: "search", label: toolName, value: query || path };
+  }
+  if (name === "web_search" || name === "fetch" || name === "http") {
+    return { style: "default", icon: "globe", label: toolName, value: query };
+  }
+  if (name === "agent") {
+    return { style: "default", icon: "agent", label: toolName, value: "" };
+  }
+  return { style: "default", icon: "tool", label: toolName, value: "" };
+}
+
 // ---------------------------------------------------------------------------
 // Channel registration
 // ---------------------------------------------------------------------------
@@ -204,6 +234,40 @@ async function start(): Promise<void> {
         sendWsEvent(userId, {
           type: "stream",
           chunk: event.event.text,
+          sessionId,
+        });
+      }
+      if (
+        event.type === "message_update" &&
+        event.event.type === "thinking"
+      ) {
+        sendWsEvent(userId, {
+          type: "thinking",
+          chunk: event.event.thinking,
+          sessionId,
+        });
+      }
+      if (event.type === "tool_execution_start") {
+        const display = toolDisplay(event.toolName, event.args);
+        sendWsEvent(userId, {
+          type: "tool",
+          data: {
+            type: "tool_start",
+            toolUseId: event.toolCallId,
+            toolName: event.toolName,
+            display,
+          },
+          sessionId,
+        });
+      }
+      if (event.type === "tool_execution_end") {
+        sendWsEvent(userId, {
+          type: "tool",
+          data: {
+            type: "tool_result",
+            toolUseId: event.toolCallId,
+            isError: event.isError,
+          },
           sessionId,
         });
       }

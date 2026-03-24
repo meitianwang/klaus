@@ -267,8 +267,18 @@ export type WsEvent =
       readonly message: string;
       readonly sessionId?: string;
     }
+  | {
+      readonly type: "thinking";
+      readonly chunk: string;
+      readonly sessionId?: string;
+    }
   | { readonly type: "ping" }
   | { readonly type: "config_updated" }
+  | {
+      readonly type: "tool";
+      readonly data: Record<string, unknown>;
+      readonly sessionId?: string;
+    }
   | {
       readonly type: "file";
       readonly url: string;
@@ -339,6 +349,14 @@ function userLabel(user: User): string {
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_REQUESTS = 60;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+// Cleanup expired rate limit buckets every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of rateBuckets) {
+    if (now >= bucket.resetAt) rateBuckets.delete(ip);
+  }
+}, 2 * 60_000);
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
@@ -1455,10 +1473,19 @@ async function handleAdminProviders(
     let models = p.models as readonly { id: string; label: string; tokens: number }[];
     if (refresh && p.catalog) {
       try {
-        models = await Promise.race([
-          p.catalog(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
-        ]);
+        // Find a stored model for this provider to get the API key
+        const stored = settingsStoreRef?.listModels().find((m) => m.provider === p.id);
+        const apiKey = stored?.apiKey;
+        const baseUrl = stored?.baseUrl || p.defaultBaseUrl;
+        if (apiKey) {
+          const catalogModels = await Promise.race([
+            p.catalog(apiKey, baseUrl),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+          ]);
+          if (catalogModels.length > 0) {
+            models = catalogModels;
+          }
+        }
       } catch { /* fall back to static models */ }
     }
     return {

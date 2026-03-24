@@ -1419,6 +1419,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }
       if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
+      if (data.type === "thinking") { showThinking(); return; }
       if (!isStreaming) { removeThinking(); clearToolContainer(); }
       if (data.type === "message") {
         if (isStreaming) { finalizeStreamingMessage(data.text); }
@@ -1948,9 +1949,33 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   function escHtml(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
   function escAttr(s) { return s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
+  var KNOWN_HTML_RE = /^\\/?(p|br|strong|em|b|i|u|s|code|pre|ol|ul|li|blockquote|h[1-6]|a|table|thead|tbody|tfoot|tr|th|td|del|hr|div|span|img|sup|sub|dl|dt|dd|details|summary)(\\s|>|\\/|\$)/i;
+  var TOOL_TAGS = "bash|shell|execute|run_command|read_file|write_file|edit_file|search|grep|glob|find|file|tool_call|function_call|tool|command";
+  var TOOL_BLOCK_RE = new RegExp("<(" + TOOL_TAGS + ")(\\\\s[^>]*)?>[\\\\s\\\\S]*?</\\\\1>", "gi");
+  var TOOL_OPEN_RE = new RegExp("<\\/?("+TOOL_TAGS+")(\\\\s[^>]*)?>", "gi");
+  function stripToolXml(s) {
+    // Split on code fences and inline code to preserve code blocks
+    var parts = s.split(/(\\\`\\\`\\\`[\\s\\S]*?\\\`\\\`\\\`|\\\`[^\\\`]+\\\`)/g);
+    for (var k = 0; k < parts.length; k += 2) {
+      parts[k] = parts[k].replace(TOOL_BLOCK_RE, "").replace(TOOL_OPEN_RE, "");
+    }
+    return parts.join("");
+  }
+  function escNonHtmlTags(s) {
+    var parts = s.split(/(\\\`\\\`\\\`[\\s\\S]*?\\\`\\\`\\\`|\\\`[^\\\`]+\\\`)/g);
+    for (var k = 0; k < parts.length; k += 2) {
+      parts[k] = parts[k].replace(/<(\\/?)([a-zA-Z][\\w-]*)([\\s\\S]*?)>/g, function(m, slash, tag, rest) {
+        if (KNOWN_HTML_RE.test((slash || "") + tag + rest.charAt(0))) return m;
+        return "&lt;" + slash + tag + rest + "&gt;";
+      });
+    }
+    return parts.join("");
+  }
+
   function renderMd(text) {
+    text = stripToolXml(text);
     if (typeof marked !== "undefined") {
-      var html = marked.parse(text);
+      var html = marked.parse(escNonHtmlTags(text));
       var tmp = document.createElement("div");
       tmp.innerHTML = html;
       var SAFE = {P:1,BR:1,STRONG:1,EM:1,CODE:1,PRE:1,OL:1,UL:1,LI:1,BLOCKQUOTE:1,H1:1,H2:1,H3:1,H4:1,A:1,TABLE:1,THEAD:1,TBODY:1,TR:1,TH:1,TD:1,DEL:1,HR:1};
@@ -1968,6 +1993,12 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
                 var name = attrs[j].name;
                 if (node.tagName === "A" && (name === "href" || name === "target" || name === "rel")) continue;
                 node.removeAttribute(name);
+              }
+              if (node.tagName === "A") {
+                var href = (node.getAttribute("href") || "").trim().toLowerCase();
+                if (href && !/^(https?:|mailto:|\/|#)/.test(href)) {
+                  node.removeAttribute("href");
+                }
               }
               sanitize(node);
             }
