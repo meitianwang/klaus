@@ -53,7 +53,6 @@ export async function handleGatewayCoreRpcMethod(
     method: string;
     params: Record<string, unknown>;
     userId: string;
-    isAdmin: boolean;
     handler: Handler;
   },
 ): Promise<GatewayRpcCoreDispatchResult> {
@@ -91,7 +90,7 @@ export async function handleGatewayCoreRpcMethod(
       if (!key) {
         return { handled: true, error: "missing key parameter" };
       }
-      if (!params.isAdmin && !key.startsWith(`web:${params.userId}:`)) {
+      if (!key.startsWith(`web:${params.userId}:`) && !key.startsWith(`feishu:${params.userId}:`)) {
         return { handled: true, error: "cannot delete another user's session" };
       }
       try {
@@ -184,10 +183,7 @@ export async function handleGatewayCoreRpcMethod(
         return { handled: true, error: String(err) };
       }
     case "session.runtime.get": {
-      const requestedUserId =
-        params.isAdmin && typeof params.params.userId === "string"
-          ? params.params.userId
-          : params.userId;
+      const requestedUserId = params.userId;
       const sessionId = (params.params.sessionId as string) ?? "default";
       return {
         handled: true,
@@ -195,20 +191,14 @@ export async function handleGatewayCoreRpcMethod(
       };
     }
     case "session.runtime.list": {
-      const requestedUserId =
-        params.isAdmin && typeof params.params.userId === "string"
-          ? params.params.userId
-          : params.userId;
+      const requestedUserId = params.userId;
       return {
         handled: true,
         result: { sessions: ctx.listSessionRuntimes({ userId: requestedUserId }) },
       };
     }
     case "session.attempts.get": {
-      const requestedUserId =
-        params.isAdmin && typeof params.params.userId === "string"
-          ? params.params.userId
-          : params.userId;
+      const requestedUserId = params.userId;
       const sessionId = (params.params.sessionId as string) ?? "default";
       return {
         handled: true,
@@ -219,10 +209,7 @@ export async function handleGatewayCoreRpcMethod(
       };
     }
     case "session.attempts.list": {
-      const requestedUserId =
-        params.isAdmin && typeof params.params.userId === "string"
-          ? params.params.userId
-          : params.userId;
+      const requestedUserId = params.userId;
       return {
         handled: true,
         result: {

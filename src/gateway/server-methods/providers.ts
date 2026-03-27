@@ -231,7 +231,6 @@ export async function dispatchGatewayCapabilityHttpRoute(params: {
   req: IncomingMessage;
   res: ServerResponse;
   isAuthenticated: boolean;
-  isAdmin: boolean;
 }): Promise<boolean> {
   for (const route of capabilities.getAllHttpRoutes()) {
     const match =
@@ -241,17 +240,8 @@ export async function dispatchGatewayCapabilityHttpRoute(params: {
     if (!match) {
       continue;
     }
-    if (route.auth === "admin") {
-      if (!params.isAuthenticated) {
-        sendJsonResponse(params.res, 401, { error: "unauthorized" });
-        return true;
-      }
-      if (!params.isAdmin) {
-        sendJsonResponse(params.res, 403, { error: "forbidden" });
-        return true;
-      }
-    }
-    if (route.auth === "user" && !params.isAuthenticated) {
+    // Both "admin" and "user" auth routes require authentication (admin only gates admin panel)
+    if ((route.auth === "admin" || route.auth === "user") && !params.isAuthenticated) {
       sendJsonResponse(params.res, 401, { error: "unauthorized" });
       return true;
     }

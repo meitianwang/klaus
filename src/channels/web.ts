@@ -618,15 +618,11 @@ async function handleRpcRequest(
   params: Record<string, unknown>,
   handler: Handler,
 ): Promise<void> {
-  const isLocal = ws.klausUserId === "__local__";
-  const isAdmin =
-    isLocal || userStoreRef?.getUserById(ws.klausUserId)?.role === "admin";
   const response: GatewayRpcResponseEnvelope = await gateway.handleRpcRequest({
     id,
     method,
     params,
     userId: ws.klausUserId,
-    isAdmin,
     handler,
   });
   ws.send(JSON.stringify(response));
@@ -1904,7 +1900,6 @@ async function handleRequest(
         try {
           const result = await gateway.listSessions({
             userId: sessAuth.user.id,
-            includeAdminFlag: sessAuth.kind === "admin",
           });
           jsonResponse(res, 200, result);
         } catch (err) {
@@ -1964,7 +1959,6 @@ async function handleRequest(
           req,
           res,
           isAuthenticated: auth.kind !== "invalid",
-          isAdmin: auth.kind === "admin",
         });
         if (handled) {
           return;

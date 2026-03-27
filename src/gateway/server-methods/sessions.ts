@@ -19,9 +19,7 @@ export async function readGatewayHistory(params: {
 export async function listGatewaySessions(params: {
   messageStore: MessageStore;
   userId: string;
-  includeAdminFlag?: boolean;
-}): Promise<{ sessions: readonly unknown[]; isAdmin: boolean }> {
-  const isAdmin = Boolean(params.includeAdminFlag);
+}): Promise<{ sessions: readonly unknown[] }> {
   const webPrefix = buildWebSessionKey(params.userId, "");
   const webSessions = await params.messageStore.listSessions(webPrefix);
 
@@ -33,8 +31,7 @@ export async function listGatewaySessions(params: {
     sessionId: `feishu:${params.userId}:${(s as { sessionId: string }).sessionId}`,
   }));
 
-  const sessions = [...webSessions, ...feishuSessions];
-  return { sessions, isAdmin };
+  return { sessions: [...webSessions, ...feishuSessions] };
 }
 
 export function deleteGatewaySession(params: {

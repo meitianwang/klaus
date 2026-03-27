@@ -96,7 +96,6 @@ type RpcRequestContext = {
   method: string;
   params: Record<string, unknown>;
   userId: string;
-  isAdmin: boolean;
   handler: Handler;
 };
 
@@ -423,8 +422,7 @@ class GatewayService {
 
   async listSessions(params: {
     userId: string;
-    includeAdminFlag?: boolean;
-  }): Promise<{ sessions: readonly unknown[]; isAdmin: boolean }> {
+  }): Promise<{ sessions: readonly unknown[] }> {
     return listGatewaySessions({
       messageStore: this.requireMessageStore(),
       ...params,
@@ -631,7 +629,6 @@ class GatewayService {
     req: IncomingMessage;
     res: ServerResponse;
     isAuthenticated: boolean;
-    isAdmin: boolean;
   }): Promise<boolean> {
     return dispatchGatewayCapabilityHttpRoute(params);
   }

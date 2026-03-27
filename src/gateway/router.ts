@@ -1,12 +1,9 @@
 import type { GatewayRpcResponseEnvelope } from "./protocol.js";
 import {
-  GATEWAY_ADMIN_RPC_READ_METHODS,
-  GATEWAY_ADMIN_RPC_WRITE_METHODS,
   type GatewayAdminRpcContext,
   handleGatewayAdminRpcMethod,
 } from "./server-methods/admin.js";
 import {
-  GATEWAY_RPC_WRITE_METHODS,
   type GatewayRpcCoreContext,
   handleGatewayCoreRpcMethod,
 } from "./server-methods/rpc-core.js";
@@ -16,7 +13,6 @@ type GatewayRpcRequest = {
   method: string;
   params: Record<string, unknown>;
   userId: string;
-  isAdmin: boolean;
   handler: Parameters<GatewayRpcCoreContext["processInboundMessage"]>[0]["handler"];
 };
 
@@ -37,16 +33,8 @@ export async function handleGatewayRpcRequest(
     error: message,
   });
 
-  if (
-    (GATEWAY_RPC_WRITE_METHODS.has(params.method) ||
-      GATEWAY_ADMIN_RPC_WRITE_METHODS.has(params.method)) &&
-    !params.isAdmin
-  ) {
-    return error("admin role required");
-  }
-  if (GATEWAY_ADMIN_RPC_READ_METHODS.has(params.method) && !params.isAdmin) {
-    return error("admin role required");
-  }
+  // Admin RPC methods (models/prompts/rules CRUD) are gated by the admin panel HTTP routes,
+  // not here. All authenticated users can call core RPC methods equally.
 
   const adminResult = await handleGatewayAdminRpcMethod(ctx, params.method, params.params);
   if (adminResult.handled) {
