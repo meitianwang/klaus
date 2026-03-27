@@ -25,15 +25,13 @@ export async function listGatewaySessions(params: {
   const webPrefix = buildWebSessionKey(params.userId, "");
   const webSessions = await params.messageStore.listSessions(webPrefix);
 
-  // Feishu sessions are shared across the instance — only visible to admins
-  let feishuSessions: unknown[] = [];
-  if (isAdmin) {
-    const rawFeishuSessions = await params.messageStore.listSessions("feishu:");
-    feishuSessions = rawFeishuSessions.map((s) => ({
-      ...s,
-      sessionId: `feishu:${(s as { sessionId: string }).sessionId}`,
-    }));
-  }
+  // Feishu sessions are scoped to the user who configured the channel
+  const feishuPrefix = `feishu:${params.userId}:`;
+  const rawFeishuSessions = await params.messageStore.listSessions(feishuPrefix);
+  const feishuSessions = rawFeishuSessions.map((s) => ({
+    ...s,
+    sessionId: `feishu:${params.userId}:${(s as { sessionId: string }).sessionId}`,
+  }));
 
   const sessions = [...webSessions, ...feishuSessions];
   return { sessions, isAdmin };

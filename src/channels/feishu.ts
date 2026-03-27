@@ -338,12 +338,13 @@ async function toInboundMessage(event: FeishuMessageEvent): Promise<InboundMessa
   const senderOpenId = sender.sender_id.open_id || sender.sender_id.user_id || "unknown";
   const isDirectMessage = message.chat_type === "p2p";
 
-  // Session key: use group session routing for groups
+  // Session key: includes ownerUserId for user-level isolation
+  const ownerPrefix = config.ownerUserId ? `feishu:${config.ownerUserId}:` : "feishu:";
   let sessionKey: string;
   let replyInThread = false;
 
   if (isDirectMessage) {
-    sessionKey = `feishu:${senderOpenId}`;
+    sessionKey = `${ownerPrefix}${senderOpenId}`;
   } else {
     // Resolve per-group config
     const groupConfig = resolveGroupConfig({ config, groupId: message.chat_id });
@@ -360,7 +361,7 @@ async function toInboundMessage(event: FeishuMessageEvent): Promise<InboundMessa
       topicSessionMode:
         groupConfig?.topicSessionMode ?? config.topicSessionMode,
     });
-    sessionKey = `feishu:${session.peerId}`;
+    sessionKey = `${ownerPrefix}${session.peerId}`;
     replyInThread = session.replyInThread;
   }
 

@@ -1405,7 +1405,8 @@ async function handleAdminChannelFeishu(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  const authUser = adminAuth(req, res);
+  if (!authUser) return;
 
   if (!settingsStoreRef) {
     jsonResponse(res, 503, { error: "settings store unavailable" });
@@ -1434,17 +1435,18 @@ async function handleAdminChannelFeishu(
         return;
       }
 
-      // Save to SettingsStore
+      // Save to SettingsStore (including owner for user-level isolation)
       settingsStoreRef.set("channel.feishu.app_id", appId);
       settingsStoreRef.set("channel.feishu.app_secret", appSecret);
       settingsStoreRef.set("channel.feishu.enabled", "true");
       settingsStoreRef.set("channel.feishu.bot_name", identity.botName ?? "");
       settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId);
+      settingsStoreRef.set("channel.feishu.owner_id", authUser.id);
 
       // Start feishu channel immediately (non-blocking)
       if (handlerRef) {
         const { setFeishuConfig, setFeishuTranscript, setFeishuNotify, feishuPlugin } = await import("./feishu.js");
-        setFeishuConfig({ appId, appSecret });
+        setFeishuConfig({ appId, appSecret, ownerUserId: authUser.id });
         if (messageStoreRef) {
           setFeishuTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
         }
@@ -1742,9 +1744,9 @@ async function handleRequest(
         jsonResponse(res, 400, { error: "invalid sessionId" });
         return;
       }
-      // Feishu sessions are only accessible to admins
-      if (histSessionId.startsWith("feishu:") && histAuth.kind !== "admin") {
-        jsonResponse(res, 403, { error: "admin access required for channel sessions" });
+      // Feishu sessions are user-scoped: feishu:{ownerUserId}:{...}
+      if (histSessionId.startsWith("feishu:") && !histSessionId.startsWith(`feishu:${histAuth.user.id}:`)) {
+        jsonResponse(res, 403, { error: "access denied" });
         return;
       }
       const limitStr = url.searchParams.get("limit") ?? "200";

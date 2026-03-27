@@ -17,6 +17,8 @@ export type FeishuConnectionMode = "websocket" | "webhook";
 export interface FeishuConfig {
   readonly appId: string;
   readonly appSecret: string;
+  /** The Klaus userId who configured this channel (for session isolation). */
+  readonly ownerUserId?: string;
   readonly domain?: FeishuDomain;
   readonly connectionMode?: FeishuConnectionMode;
   /** Webhook-only: encrypt key for signature verification */

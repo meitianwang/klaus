@@ -48,8 +48,35 @@ async function start(): Promise<void> {
   registerAllCapabilities();
   await capabilities.startServices();
 
+  // Initialize memory system if enabled
+  let memoryManager: import("./memory/manager.js").MemoryManager | null = null;
+  const memoryConfig = settingsStore.getMemoryConfig();
+  if (memoryConfig.enabled && memoryConfig.openaiApiKey) {
+    const { MemoryManager } = await import("./memory/manager.js");
+    const { join } = await import("node:path");
+    const { CONFIG_DIR } = await import("./config.js");
+    const memoryDir = join(CONFIG_DIR, "memory");
+    const transcriptsDir = settingsStore.get("transcripts.dir") ?? join(CONFIG_DIR, "transcripts");
+    memoryManager = new MemoryManager({
+      dbPath: join(CONFIG_DIR, "memory.db"),
+      config: memoryConfig,
+      memoryDir,
+      transcriptsDir: memoryConfig.sources.includes("sessions") ? transcriptsDir : undefined,
+    });
+    await memoryManager.sync().catch((err: unknown) => {
+      console.warn(`[Memory] Initial sync failed: ${String(err)}`);
+    });
+    memoryManager.startPeriodicSync();
+    console.log(
+      `[Memory] Initialized (model=${memoryConfig.model}, sources=${memoryConfig.sources.join(",")}, dir=${memoryDir})`,
+    );
+  }
+
   // Initialize agent session manager
   const agentManager = new AgentSessionManager(settingsStore);
+  if (memoryManager) {
+    agentManager.setMemoryManager(memoryManager);
+  }
   const defaultModel = settingsStore.getDefaultModel();
   console.log(
     `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
@@ -126,7 +153,8 @@ async function start(): Promise<void> {
     const dbEnabled = settingsStore.getBool("channel.feishu.enabled", false);
 
     if (dbEnabled && dbAppId && dbSecret) {
-      setFeishuConfig({ appId: dbAppId, appSecret: dbSecret });
+      const dbOwnerId = settingsStore.get("channel.feishu.owner_id");
+      setFeishuConfig({ appId: dbAppId, appSecret: dbSecret, ownerUserId: dbOwnerId });
       setFeishuTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
       setFeishuNotify((sessionKey, role, text) =>
         gateway.broadcastEvent({ type: "channel_message", sessionKey, role, text }),
