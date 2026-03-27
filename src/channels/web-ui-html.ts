@@ -266,7 +266,7 @@ export function getChatBodyHtml(): string {
               <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-wechat-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/wechat.png" alt="WeChat" width="36" height="36" style="border-radius:8px">
+                    <img src="/wechat-icon.png" alt="WeChat" width="36" height="36" style="border-radius:8px">
                     <div>
                       <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_wechat">WeChat</div>
                       <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_wechat_desc">Scan QR code to connect WeChat bot</div>

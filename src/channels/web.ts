@@ -2024,8 +2024,8 @@ async function handleRequest(
       return servePublicFile(res, "feishu.png", "image/jpeg");
     case "/dingtalk.png":
       return servePublicFile(res, "dingtalk.png", "image/jpeg");
-    case "/wechat.png":
-      return servePublicFile(res, "wechat.png", "image/jpeg");
+    case "/wechat-icon.png":
+      return servePublicFile(res, "wechat-icon.png", "image/jpeg");
 
     // Auth routes
     case "/api/auth/register":
