@@ -10,11 +10,14 @@ import {
   type AgentEvent,
   type AgentMessage,
   type AgentTool,
+  type AgentToolResult,
+  type Approval,
   type AssistantMessage,
   type ModelConfig,
   type ThinkingLevel,
   type MCPServerConfig,
   type MCPClient,
+  type ToolExecutionContext,
 } from "klaus-agent";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -29,10 +32,22 @@ import type { MemoryManager } from "./memory/manager.js";
 import { createMemorySearchTool, createMemoryGetTool, buildMemoryPromptSection } from "./memory/tools.js";
 import { createMemorySaveTool, MEMORY_FLUSH_USER_PROMPT } from "./memory/memory-write.js";
 import { ToolLoopDetector } from "./tool-loop-detector.js";
+import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
 
 type AgentEventCallback = (event: AgentEvent) => void;
 
 const SESSIONS_DIR = join(CONFIG_DIR, "agent-sessions");
+
+/** Auto-approve all tool calls (for direct invocation, not LLM). */
+const autoApproval: Approval = {
+  async request() { return true; },
+  async fetchRequest() { return { id: "", toolCallId: "", sender: "", action: "", description: "" }; },
+  resolve() {},
+  setYolo() {},
+  isYolo() { return true; },
+  autoApproveActions: new Set<string>(),
+  share() { return autoApproval; },
+};
 const refreshLocks = new Map<string, Promise<string | undefined>>();
 
 /** Sanitize session key for use as filename (replace colons with underscores). */
@@ -155,6 +170,85 @@ export class AgentSessionManager {
     }
   }
 
+  /** Build the current tool list. Used by both getOrCreate() and invokeTool(). */
+  buildTools(apiKeyOverride?: string): AgentTool[] {
+    const modelRecord = this.store.getDefaultModel();
+    const providerDef = modelRecord?.provider ? getProvider(modelRecord.provider) : undefined;
+    const apiKey = apiKeyOverride ?? modelRecord?.apiKey;
+
+    const tools: AgentTool[] = [];
+    if (providerDef?.tools && apiKey && modelRecord) {
+      const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
+      tools.push(...providerDef.tools(apiKey, baseUrl, modelRecord.model));
+    }
+    tools.push(...capabilities.buildTools());
+    if (this.memoryManager) {
+      tools.push(createMemorySearchTool(this.memoryManager));
+      tools.push(createMemoryGetTool(this.memoryManager));
+      tools.push(createMemorySaveTool(this.memoryManager.memoryDir));
+    }
+    return tools;
+  }
+
+  /** Invoke a registered tool directly by name (bypassing LLM). */
+  async invokeTool(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<{ ok: true; result: AgentToolResult } | { ok: false; error: string }> {
+    // "sandbox_exec" is a virtual tool — not in the registry, handled separately
+    if (toolName === "sandbox_exec") {
+      return this.runSandboxExec(args);
+    }
+
+    const tools = this.buildTools();
+    const tool = tools.find((t) => t.name === toolName);
+    if (!tool) {
+      return { ok: false, error: `Tool "${toolName}" not found. Available: ${tools.map((t) => t.name).join(", ")}` };
+    }
+
+    const ac = new AbortController();
+    const timeout = setTimeout(() => ac.abort(), 60_000);
+    try {
+      const ctx: ToolExecutionContext = {
+        signal: ac.signal,
+        onUpdate: () => {},
+        approval: autoApproval,
+        agentName: "klaus-direct",
+      };
+      const result = await tool.execute(`direct-${Date.now()}`, args, ctx);
+      return { ok: true, result };
+    } catch (err) {
+      if (ac.signal.aborted) {
+        return { ok: false, error: `Tool "${toolName}" timed out after 60s.` };
+      }
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Execute a command in Docker sandbox (virtual tool, not in registry). */
+  private async runSandboxExec(
+    args: Record<string, unknown>,
+  ): Promise<{ ok: true; result: AgentToolResult } | { ok: false; error: string }> {
+    const config = loadSandboxConfig(this.store);
+    if (!config.enabled) {
+      return { ok: false, error: "Sandbox is not enabled. Set sandbox.enabled=true in settings." };
+    }
+    const command = typeof args.command === "string" ? args.command : "";
+    if (!command) {
+      return { ok: false, error: "Missing 'command' argument." };
+    }
+    try {
+      const execResult = await sandboxExec(config, command, {
+        stdin: typeof args.stdin === "string" ? args.stdin : undefined,
+      });
+      return { ok: true, result: { content: [{ type: "text", text: JSON.stringify(execResult) }] } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async reset(sessionKey: string): Promise<void> {
     const entry = this.sessions.get(sessionKey);
     if (entry) {
@@ -252,20 +346,7 @@ export class AgentSessionManager {
       transport: s.transport as MCPServerConfig["transport"],
     }));
 
-    // Build provider-specific tools from registry
-    const tools: AgentTool[] = [];
-    if (providerDef?.tools && apiKey) {
-      const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
-      tools.push(...providerDef.tools(apiKey, baseUrl, modelRecord.model));
-    }
-    // Add capability-based tools (web search, etc.)
-    tools.push(...capabilities.buildTools());
-    // Add memory tools if memory is enabled (search + get + save)
-    if (this.memoryManager) {
-      tools.push(createMemorySearchTool(this.memoryManager));
-      tools.push(createMemoryGetTool(this.memoryManager));
-      tools.push(createMemorySaveTool(this.memoryManager.memoryDir));
-    }
+    const tools = this.buildTools(apiKey);
 
     const loopDetector = new ToolLoopDetector();
     const providerHooks = providerDef?.hooks;

@@ -304,10 +304,11 @@ async function start(): Promise<void> {
     return await agentManager.chat(msg.sessionKey, msg.text, onEvent);
   };
 
-  // Expose handler to web channel so it can hot-start feishu channel on connect
+  // Expose handler + agent manager to web channel
   if (channelNames.includes("web")) {
-    const { setHandler } = await import("./channels/web.js");
+    const { setHandler, setAgentManager } = await import("./channels/web.js");
     setHandler(handler);
+    setAgentManager(agentManager);
   }
 
   try {
