@@ -302,6 +302,7 @@ export function getChatMainJs(): string {
       }
       if (data.type === "ping") return;
       if (data.type === "config_updated") { showConfigNotification(); return; }
+      if (data.type === "feishu_activity") { loadSessionList(); return; }
       if (data.sessionId && data.sessionId !== currentSessionId) return;
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }

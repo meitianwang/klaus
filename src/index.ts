@@ -1,5 +1,5 @@
 import { webPlugin } from "./channels/web.js";
-import { feishuPlugin, setFeishuConfig, setFeishuTranscript } from "./channels/feishu.js";
+import { feishuPlugin, setFeishuConfig, setFeishuTranscript, setFeishuNotify } from "./channels/feishu.js";
 import {
   registerChannel,
   getChannel,
@@ -128,6 +128,7 @@ async function start(): Promise<void> {
     if (dbEnabled && dbAppId && dbSecret) {
       setFeishuConfig({ appId: dbAppId, appSecret: dbSecret });
       setFeishuTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
+      setFeishuNotify((sessionKey) => gateway.broadcastEvent({ type: "feishu_activity", sessionKey }));
       if (!channelNames.includes("feishu")) {
         channelNames.push("feishu");
         const feishu = getChannel("feishu");

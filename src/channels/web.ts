@@ -1443,11 +1443,12 @@ async function handleAdminChannelFeishu(
 
       // Start feishu channel immediately (non-blocking)
       if (handlerRef) {
-        const { setFeishuConfig, setFeishuTranscript, feishuPlugin } = await import("./feishu.js");
+        const { setFeishuConfig, setFeishuTranscript, setFeishuNotify, feishuPlugin } = await import("./feishu.js");
         setFeishuConfig({ appId, appSecret });
         if (messageStoreRef) {
           setFeishuTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
         }
+        setFeishuNotify((sk) => gateway.broadcastEvent({ type: "feishu_activity", sessionKey: sk }));
         feishuPlugin.start(handlerRef).catch((err) => {
           console.error("[Feishu] Channel start failed:", err);
         });

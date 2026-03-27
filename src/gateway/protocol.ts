@@ -54,7 +54,8 @@ export type WsEvent =
       readonly url: string;
       readonly name: string;
       readonly sessionId?: string;
-    };
+    }
+  | { readonly type: "feishu_activity"; readonly sessionKey: string };
 
 export type GatewayRpcResponseEnvelope = {
   readonly type: "rpc-response";
