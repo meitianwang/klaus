@@ -562,7 +562,7 @@ export function getSettingsJs(): string {
     btn.disabled = true;
     adminApi("channels/wechat/qr-start", "POST").then(function(d) {
       if (d.qrcodeUrl) {
-        document.getElementById("s-ch-wechat-qr-img").src = d.qrcodeUrl;
+        document.getElementById("s-ch-wechat-qr-frame").src = d.qrcodeUrl;
         showWechatState("qr", null);
         startWxQrPoll();
       } else {

@@ -285,7 +285,7 @@ export function getChatBodyHtml(): string {
                 </div>
                 <div id="s-ch-wechat-qr" style="display:none;margin-top:16px;text-align:center">
                   <div style="font-size:13px;color:var(--fg-tertiary);margin-bottom:12px" data-i18n="settings_ch_wechat_scan_hint">Open WeChat and scan the QR code below</div>
-                  <img id="s-ch-wechat-qr-img" style="max-width:240px;border-radius:8px;border:1px solid var(--border)" alt="QR Code">
+                  <iframe id="s-ch-wechat-qr-frame" style="width:280px;height:360px;border:1px solid var(--border);border-radius:8px;background:#fff" sandbox="allow-same-origin"></iframe>
                   <div style="margin-top:8px;font-size:12px;color:var(--fg-tertiary)" id="s-ch-wechat-qr-status" data-i18n="settings_ch_wechat_waiting">Waiting for scan...</div>
                 </div>
                 <div id="s-ch-wechat-setup" style="margin-top:16px">

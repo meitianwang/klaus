@@ -263,6 +263,13 @@ export function setMemoryManager(manager: import("../memory/manager.js").MemoryM
   memoryManagerRef = manager;
 }
 
+// Agent manager reference (for direct tool invocation API)
+let agentManagerRef: import("../agent-manager.js").AgentSessionManager | null = null;
+
+export function setAgentManager(manager: import("../agent-manager.js").AgentSessionManager): void {
+  agentManagerRef = manager;
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket client management (keyed by userId instead of token)
 // ---------------------------------------------------------------------------
@@ -390,7 +397,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' fonts.googleapis.com cdn.jsdelivr.net 'unsafe-inline'; font-src fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self';",
+    "default-src 'self'; script-src 'self' cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' fonts.googleapis.com cdn.jsdelivr.net 'unsafe-inline'; font-src fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src 'self' https://*.weixin.qq.com;",
 };
 
 function serveHtmlPage(res: ServerResponse, html: string): void {
@@ -1624,6 +1631,61 @@ async function handleAdminMemorySearch(
 }
 
 // ---------------------------------------------------------------------------
+// Tool invocation API (admin only)
+// ---------------------------------------------------------------------------
+
+async function handleToolsList(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (req.method !== "GET") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+  if (!agentManagerRef) {
+    jsonResponse(res, 503, { error: "agent manager unavailable" });
+    return;
+  }
+  const tools = agentManagerRef.buildTools();
+  jsonResponse(res, 200, {
+    tools: tools.map((t) => ({ name: t.name, label: t.label, description: t.description })),
+  });
+}
+
+async function handleToolsInvoke(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+  if (req.method !== "POST") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+  if (!agentManagerRef) {
+    jsonResponse(res, 503, { error: "agent manager unavailable" });
+    return;
+  }
+  try {
+    const body = await readJsonBody(req, 65536);
+    const toolName = typeof body.tool === "string" ? body.tool : "";
+    if (!toolName) {
+      jsonResponse(res, 400, { error: "missing 'tool' field" });
+      return;
+    }
+    const args = (body.args && typeof body.args === "object" ? body.args : {}) as Record<string, unknown>;
+    const result = await agentManagerRef.invokeTool(toolName, args);
+    if (result.ok) {
+      jsonResponse(res, 200, { ok: true, result: result.result });
+    } else {
+      jsonResponse(res, 404, { ok: false, error: result.error });
+    }
+  } catch (err) {
+    gatewayErrorResponse(res, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Admin: WeChat channel (QR code login flow)
 // ---------------------------------------------------------------------------
 
@@ -2065,6 +2127,12 @@ async function handleRequest(
       return handleAdminMemorySync(req, res);
     case "/api/admin/memory/search":
       return handleAdminMemorySearch(req, res);
+
+    // Tool invocation API
+    case "/api/tools":
+      return handleToolsList(req, res);
+    case "/api/tools/invoke":
+      return handleToolsInvoke(req, res);
     // Upload
     case "/api/upload":
       if (req.method !== "POST") {
