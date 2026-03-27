@@ -20,3 +20,4 @@ ios/*.log
 # macOS app (Swift)
 apps/macos/.build/
 apps/macos/.swiftpm/
+openclaw-china/

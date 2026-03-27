@@ -254,9 +254,6 @@ tr.clickable:hover { background: var(--card-bg); }
       <button class="nav-item" data-tab="users">
         <span data-i18n="tab_users">Users</span>
       </button>
-      <button class="nav-item" data-tab="channels">
-        <span data-i18n="tab_channels">Channels</span>
-      </button>
       <button class="nav-item" data-tab="invites">
         <span data-i18n="tab_invites">Invites</span>
       </button>
@@ -468,69 +465,6 @@ tr.clickable:hover { background: var(--card-bg); }
       </div>
     </div>
 
-    <!-- ============ Channels Tab ============ -->
-    <div id="tab-channels" class="tab-panel">
-      <h1 class="page-title" data-i18n="tab_channels">Channels</h1>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:24px" data-i18n="channels_desc">Connect messaging platforms so users can chat with Klaus directly from their IM apps.</p>
-
-      <!-- Feishu Channel Card -->
-      <div class="card" id="ch-feishu-card" style="padding:20px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="display:flex;align-items:center;gap:12px">
-            <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="8" fill="#2E73F8"/><path d="M10 22.5c0-2.5 1.5-5 4.5-7l5-3.5c1-.7 1.5-.3 1 .5l-2.5 4c-.3.5 0 .8.5.5l4-2c.8-.4 1.2 0 .7.7l-5 8c-.5.8-1.2 1-1.8.5L10 22.5z" fill="white"/></svg>
-            <div>
-              <div style="font-weight:600;font-size:15px" data-i18n="ch_feishu">Feishu / Lark</div>
-              <div style="font-size:12px;color:var(--muted)" data-i18n="ch_feishu_desc">Connect to Feishu bot for team messaging</div>
-            </div>
-          </div>
-          <span class="badge" id="ch-feishu-status"></span>
-        </div>
-
-        <!-- Connected state -->
-        <div id="ch-feishu-connected" style="display:none;margin-top:16px">
-          <div class="card" style="background:var(--bg);padding:12px 16px">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <div>
-                <div style="font-size:13px;color:var(--muted)">App ID</div>
-                <div class="code-text" id="ch-feishu-appid-display" style="font-size:14px"></div>
-              </div>
-              <div>
-                <div style="font-size:13px;color:var(--muted)" data-i18n="ch_feishu_bot_name">Bot</div>
-                <div id="ch-feishu-bot-display" style="font-size:14px;font-weight:500">-</div>
-              </div>
-              <button class="btn btn-danger btn-sm" id="ch-feishu-disconnect-btn" data-i18n="ch_disconnect">Disconnect</button>
-            </div>
-          </div>
-          <div style="margin-top:12px;font-size:12px;color:var(--muted)" data-i18n="ch_feishu_restart_hint">Changes take effect after restart.</div>
-        </div>
-
-        <!-- Config form -->
-        <div id="ch-feishu-form" style="display:none;margin-top:16px">
-          <div style="margin-bottom:16px;font-size:13px;color:var(--muted)" data-i18n="ch_feishu_guide">Create a Feishu app at open.feishu.cn, add Bot capability, enable im.message.receive_v1 event with WebSocket mode, then paste App ID and App Secret below.</div>
-          <div style="display:flex;flex-direction:column;gap:12px">
-            <div>
-              <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">App ID <span style="color:var(--danger)">*</span></label>
-              <input class="f-input" id="ch-feishu-appid" placeholder="cli_xxxxxxxxxxxxxxxx">
-            </div>
-            <div>
-              <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">App Secret <span style="color:var(--danger)">*</span></label>
-              <input class="f-input" id="ch-feishu-secret" type="password" placeholder="Enter App Secret">
-            </div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-            <button class="btn btn-ghost" id="ch-feishu-cancel-btn" data-i18n="btn_cancel">Cancel</button>
-            <button class="btn btn-primary" id="ch-feishu-connect-btn" data-i18n="ch_connect">Connect</button>
-          </div>
-        </div>
-
-        <!-- Setup button (when not connected and form not shown) -->
-        <div id="ch-feishu-setup" style="margin-top:16px">
-          <button class="btn btn-primary" id="ch-feishu-setup-btn" data-i18n="ch_setup">Configure</button>
-          <a href="https://qclaw.qq.com/docs/205616560371372032.html" target="_blank" rel="noopener" style="margin-left:12px;font-size:13px;color:var(--muted);text-decoration:underline" data-i18n="ch_feishu_guide_link">Setup Guide</a>
-        </div>
-      </div>
-    </div>
-
     <!-- ============ Invites Tab ============ -->
     <div id="tab-invites" class="tab-panel">
       <h1 class="page-title" data-i18n="tab_invites">Invite Codes</h1>
@@ -580,7 +514,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var I18N = {
     en: {
       admin_title: "Admin",
-      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_channels: "Channels", tab_invites: "Invites",
+      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_invites: "Invites",
       back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_agent: "Agent", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts", sec_cron: "Cron",
       lbl_persona: "System Prompt",
@@ -609,12 +543,6 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "Name", lbl_rule_content: "Content", lbl_rule_order: "Sort Order", no_rules: "No rules configured.",
       default_badge: "Default", enabled_badge: "Enabled", disabled_badge: "Disabled",
       confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?", confirm_delete_rule: "Delete this rule?",
-      channels_desc: "Connect messaging platforms so users can chat with Klaus directly from their IM apps.",
-      ch_feishu: "Feishu / Lark", ch_feishu_desc: "Connect to Feishu bot for team messaging",
-      ch_feishu_guide: "Create a Feishu app at open.feishu.cn, add Bot capability, enable im.message.receive_v1 event with WebSocket mode, then paste App ID and App Secret below.",
-      ch_feishu_guide_link: "Setup Guide", ch_feishu_bot_name: "Bot", ch_feishu_restart_hint: "Changes take effect after restart.",
-      ch_setup: "Configure", ch_connect: "Connect", ch_disconnect: "Disconnect", ch_connecting: "Connecting...",
-      ch_connected: "Connected", ch_not_connected: "Not connected", ch_connect_ok: "Connected successfully!", ch_connect_fail: "Connection failed. Check App ID and App Secret.", ch_disconnected: "Disconnected",
       models_refreshed: "Models refreshed", btn_authorize: "Authorize", auth_authorized: "Authorized", auth_not_authorized: "Not authorized", auth_save_first: "Save model first", lbl_model_oauth: "Authorization", lbl_add_model: "Add Model", lbl_edit_model: "Edit Model", lbl_custom_model: "Custom...",
       sec_auth: "Authentication", sec_mode: "Mode", sec_thirdparty: "Third-party API", sec_model_map: "Model Mapping",
       lbl_auth_status: "Status", lbl_mode: "Mode", lbl_default_model: "Default Model",
@@ -624,7 +552,7 @@ tr.clickable:hover { background: var(--card-bg); }
     },
     zh: {
       admin_title: "管理面板",
-      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_channels: "通道", tab_invites: "邀请码",
+      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_invites: "邀请码",
       back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_agent: "Agent", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录", sec_cron: "定时任务",
       lbl_persona: "系统提示词",
@@ -653,12 +581,6 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_rule_id: "ID", lbl_rule_name: "名称", lbl_rule_content: "内容", lbl_rule_order: "排序", no_rules: "暂无规则配置。",
       default_badge: "默认", enabled_badge: "启用", disabled_badge: "禁用",
       confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？", confirm_delete_rule: "确定删除此规则？",
-      channels_desc: "接入远控通道，用户可以直接在聊天工具中与 Klaus 对话交互。",
-      ch_feishu: "飞书", ch_feishu_desc: "接入飞书机器人，在飞书群聊或私聊中与 Klaus 对话",
-      ch_feishu_guide: "在飞书开放平台创建企业自建应用，添加「机器人」能力，在事件订阅中选择「长连接」并添加「接收消息」事件，然后将 App ID 和 App Secret 填入下方。",
-      ch_feishu_guide_link: "查看配置指南", ch_feishu_bot_name: "机器人", ch_feishu_restart_hint: "配置变更将在重启后生效。",
-      ch_setup: "配置", ch_connect: "连接", ch_disconnect: "断开", ch_connecting: "连接中...",
-      ch_connected: "已连接", ch_not_connected: "未连接", ch_connect_ok: "连接成功!", ch_connect_fail: "连接失败，请检查 App ID 和 App Secret。", ch_disconnected: "已断开",
       models_refreshed: "模型已刷新", btn_authorize: "授权", auth_authorized: "已授权", auth_not_authorized: "未授权", auth_save_first: "请先保存模型", lbl_model_oauth: "授权", lbl_add_model: "添加模型", lbl_edit_model: "编辑模型", lbl_custom_model: "自定义...",
       sec_auth: "认证", sec_mode: "模式", sec_thirdparty: "第三方 API", sec_model_map: "模型映射",
       lbl_auth_status: "状态", lbl_mode: "模式", lbl_default_model: "默认模型",
@@ -712,7 +634,6 @@ tr.clickable:hover { background: var(--card-bg); }
     if (id === "models") loadProviders().then(loadModels);
     if (id === "prompts") loadPrompts();
     if (id === "rules") loadRules();
-    if (id === "channels") loadChannels();
   }
   navItems.forEach(function(b) { b.addEventListener("click", function() { switchTab(b.dataset.tab); }); });
 
@@ -1404,90 +1325,6 @@ tr.clickable:hover { background: var(--card-bg); }
       });
     }
   });
-
-  // =====================================================
-  // CHANNELS TAB
-  // =====================================================
-  var chFeishuStatus = document.getElementById("ch-feishu-status");
-  var chFeishuConnected = document.getElementById("ch-feishu-connected");
-  var chFeishuForm = document.getElementById("ch-feishu-form");
-  var chFeishuSetup = document.getElementById("ch-feishu-setup");
-  var chFeishuAppId = document.getElementById("ch-feishu-appid");
-  var chFeishuSecret = document.getElementById("ch-feishu-secret");
-  var chFeishuAppIdDisplay = document.getElementById("ch-feishu-appid-display");
-  var chFeishuBotDisplay = document.getElementById("ch-feishu-bot-display");
-
-  function showFeishuState(state, data) {
-    chFeishuConnected.style.display = state === "connected" ? "block" : "none";
-    chFeishuForm.style.display = state === "form" ? "block" : "none";
-    chFeishuSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      chFeishuStatus.textContent = tt("ch_connected");
-      chFeishuStatus.className = "badge badge-green";
-      chFeishuAppIdDisplay.textContent = data && data.app_id || "";
-      chFeishuBotDisplay.textContent = data && data.bot_name || "-";
-    } else {
-      chFeishuStatus.textContent = tt("ch_not_connected");
-      chFeishuStatus.className = "badge badge-gray";
-    }
-  }
-
-  function loadChannels() {
-    api("channels", "GET").then(function(d) {
-      var feishu = d && d.feishu;
-      if (feishu && feishu.enabled) {
-        showFeishuState("connected", feishu);
-      } else {
-        showFeishuState("setup", null);
-      }
-    }).catch(function() {
-      showFeishuState("setup", null);
-    });
-  }
-
-  document.getElementById("ch-feishu-setup-btn").onclick = function() {
-    chFeishuAppId.value = "";
-    chFeishuSecret.value = "";
-    showFeishuState("form", null);
-  };
-
-  document.getElementById("ch-feishu-cancel-btn").onclick = function() {
-    api("channels", "GET").then(function(d) {
-      var feishu = d && d.feishu;
-      showFeishuState(feishu && feishu.enabled ? "connected" : "setup", feishu);
-    });
-  };
-
-  document.getElementById("ch-feishu-connect-btn").onclick = function() {
-    var appId = chFeishuAppId.value.trim();
-    var secret = chFeishuSecret.value.trim();
-    if (!appId || !secret) return;
-    var btn = document.getElementById("ch-feishu-connect-btn");
-    btn.disabled = true;
-    btn.textContent = tt("ch_connecting");
-    api("channels/feishu", "POST", { app_id: appId, app_secret: secret })
-      .then(function(d) {
-        if (d && d.ok) {
-          showToast(tt("ch_connect_ok"));
-          showFeishuState("connected", d);
-        } else {
-          showToast(d && d.error ? d.error : tt("ch_connect_fail"));
-          showFeishuState("form", null);
-        }
-      })
-      .catch(function() { showToast(tt("ch_connect_fail")); })
-      .finally(function() { btn.disabled = false; btn.textContent = tt("ch_connect"); });
-  };
-
-  document.getElementById("ch-feishu-disconnect-btn").onclick = function() {
-    if (!confirm(tt("confirm_delete"))) return;
-    api("channels/feishu", "DELETE")
-      .then(function() {
-        showToast(tt("ch_disconnected"));
-        showFeishuState("setup", null);
-      })
-      .catch(function() { showToast(tt("failed")); });
-  };
 
   } // end initAdmin
 })();
