@@ -316,55 +316,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .thinking-dots span:nth-child(3){animation-delay:0.32s}
 @keyframes thinking-bounce{0%,80%,100%{opacity:0.3;transform:scale(0.8)}40%{opacity:1;transform:scale(1)}}
 
-/* ─── Session activity ─── */
-.session-activity{
-  max-width:720px;width:100%;margin:0 auto 10px;padding:12px 14px;
-  border:1px solid var(--border);border-radius:var(--radius-md);
-  background:var(--bg-surface);display:flex;flex-direction:column;gap:10px;
-  animation:fade-in .2s ease-out;
-}
-.session-activity.hidden{display:none}
-.session-activity-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.session-activity-title{font-size:13px;font-weight:600;color:var(--fg-secondary);letter-spacing:-0.01em}
-.session-activity-status{
-  display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
-  padding:4px 10px;border-radius:999px;background:var(--bg-elevated);border:1px solid var(--border);
-  color:var(--fg-secondary);
-}
-.session-activity-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--fg-quaternary)}
-.session-activity-status.running::before,.session-activity-status.streaming::before,.session-activity-status.tool_running::before{background:#2563eb}
-.session-activity-status.completed::before{background:#16a34a}
-.session-activity-status.error::before{background:#dc2626}
-.session-activity-meta{display:flex;flex-wrap:wrap;gap:8px}
-.session-activity-pill{
-  display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;
-  background:var(--bg-elevated);border:1px solid var(--border);font-size:12px;color:var(--fg-tertiary)
-}
-.session-activity-pill strong{color:var(--fg-secondary);font-weight:600}
-.session-activity-note{font-size:12px;color:var(--fg-tertiary);line-height:1.5}
-.session-activity-error{color:#dc2626}
-.session-activity-history{display:flex;flex-direction:column;gap:6px}
-.session-activity-history:empty{display:none}
-.session-activity-events{display:flex;flex-direction:column;gap:6px}
-.session-activity-events:empty{display:none}
-.session-attempt-row{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:8px 10px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border)
-}
-.session-attempt-main{display:flex;align-items:center;gap:8px;min-width:0}
-.session-attempt-seq{font-size:12px;font-weight:700;color:var(--fg-secondary)}
-.session-attempt-text{font-size:12px;color:var(--fg-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.session-attempt-side{font-size:12px;color:var(--fg-quaternary);white-space:nowrap}
-.session-event-row{
-  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
-  padding:8px 10px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border)
-}
-.session-event-main{display:flex;flex-direction:column;gap:2px;min-width:0}
-.session-event-title{font-size:12px;font-weight:600;color:var(--fg-secondary)}
-.session-event-detail{font-size:12px;color:var(--fg-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
-.session-event-side{font-size:12px;color:var(--fg-quaternary);white-space:nowrap}
-.session-event-row.success .session-event-title{color:#15803d}
-.session-event-row.error .session-event-title{color:#dc2626}
 
 /* ─── Streaming cursor ─── */
 .msg.streaming .cursor{
@@ -828,21 +779,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       settings_theme_dark: "Dark",
       settings_theme_auto: "System",
       settings_language: "Language",
-      activity_title: "Session activity",
-      activity_idle: "Idle",
-      activity_running: "Running",
-      activity_streaming: "Streaming",
-      activity_tool_running: "Running tool",
-      activity_completed: "Completed",
-      activity_error: "Failed",
-      activity_attempt: "Attempt",
-      activity_text: "Text",
-      activity_thinking: "Thinking",
-      activity_tools: "Tools",
-      activity_last_tool: "Last tool",
-      activity_recent: "Recent attempts",
-      activity_updated: "Updated",
-      activity_events: "Recent events",
     },
     zh: {
       chats: "对话",
@@ -900,21 +836,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       settings_theme_dark: "深色",
       settings_theme_auto: "跟随系统",
       settings_language: "语言",
-      activity_title: "会话活动",
-      activity_idle: "空闲",
-      activity_running: "运行中",
-      activity_streaming: "输出中",
-      activity_tool_running: "工具执行中",
-      activity_completed: "已完成",
-      activity_error: "失败",
-      activity_attempt: "尝试",
-      activity_text: "文本",
-      activity_thinking: "思考",
-      activity_tools: "工具",
-      activity_last_tool: "最近工具",
-      activity_recent: "最近尝试",
-      activity_updated: "更新时间",
-      activity_events: "最近事件",
     }
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
@@ -1339,8 +1260,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     busy = false; isStreaming = false; streamBuffer = ""; streamFullText = "";
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     activeTools.clear(); agentContainers.clear(); toolContainer = null;
-    liveEventsBySession.delete(currentSessionId);
-    renderSessionActivityFor(currentSessionId);
     updateBtn(); renderSessionList(); closeSidebar();
     showWelcome();
   }
@@ -1362,9 +1281,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     busy = false; isStreaming = false; streamBuffer = ""; streamFullText = "";
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     activeTools.clear(); agentContainers.clear(); toolContainer = null;
-    renderSessionActivityFor(currentSessionId);
     updateBtn(); saveSessionMeta(); renderSessionList(); closeSidebar(); scrollBottom();
-    refreshSessionActivity(currentSessionId);
   }
 
   function deleteSession(id, evt) {
@@ -1372,9 +1289,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     sessionsMeta = sessionsMeta.filter(function(s){ return s.id !== id; });
     sessionDom.delete(id);
     historyLoaded.delete(id);
-    runtimeBySession.delete(id);
-    attemptHistoryBySession.delete(id);
-    liveEventsBySession.delete(id);
     if (id === currentSessionId) {
       while (msgs.firstChild) msgs.removeChild(msgs.firstChild);
       activeTools.clear(); agentContainers.clear(); toolContainer = null;
@@ -1440,9 +1354,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   var historyLoaded = new Set();
   var pendingRpc = new Map();
   var rpcSeq = 0;
-  var runtimeBySession = new Map();
-  var attemptHistoryBySession = new Map();
-  var liveEventsBySession = new Map();
 
   var RPC_LONG_METHODS = { "chat.send": 1, "voice.send": 1, "cron.run": 1 };
   function rpc(method, params) {
@@ -1460,193 +1371,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       pendingRpc.set(id, { resolve: resolve, reject: reject, timer: timer });
       ws.send(JSON.stringify({ type: "rpc", id: id, method: method, params: params || {} }));
     });
-  }
-
-  function sessionActivityStatusLabel(status) {
-    if (status === "running") return tt("activity_running");
-    if (status === "streaming") return tt("activity_streaming");
-    if (status === "tool_running") return tt("activity_tool_running");
-    if (status === "completed") return tt("activity_completed");
-    if (status === "error") return tt("activity_error");
-    return tt("activity_idle");
-  }
-
-  function formatRelativeTime(ts) {
-    if (!ts) return "";
-    var date = new Date(ts);
-    var now = new Date();
-    var sameDay = date.getFullYear() === now.getFullYear()
-      && date.getMonth() === now.getMonth()
-      && date.getDate() === now.getDate();
-    return sameDay
-      ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      : date.toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  }
-
-  function ensureSessionActivityCard() {
-    var existing = document.getElementById("session-activity");
-    if (existing) return existing;
-    var card = document.createElement("div");
-    card.id = "session-activity";
-    card.className = "session-activity hidden";
-    card.innerHTML = '<div class="session-activity-header">'
-      + '<div class="session-activity-title">' + escHtml(tt("activity_title")) + '</div>'
-      + '<div id="session-activity-status" class="session-activity-status idle">' + escHtml(tt("activity_idle")) + '</div>'
-      + '</div>'
-      + '<div id="session-activity-meta" class="session-activity-meta"></div>'
-      + '<div id="session-activity-note" class="session-activity-note"></div>'
-      + '<div id="session-activity-history" class="session-activity-history"></div>'
-      + '<div id="session-activity-events" class="session-activity-events"></div>';
-    if (msgs.firstChild) msgs.insertBefore(card, msgs.firstChild);
-    else msgs.appendChild(card);
-    return card;
-  }
-
-  function setSessionActivityVisible(visible) {
-    var card = document.getElementById("session-activity");
-    if (!card && !visible) return;
-    card = card || ensureSessionActivityCard();
-    if (visible) card.classList.remove("hidden");
-    else card.classList.add("hidden");
-  }
-
-  function renderSessionActivityFor(sessionId) {
-    var runtime = runtimeBySession.get(sessionId);
-    var attempts = attemptHistoryBySession.get(sessionId) || (runtime && runtime.recentAttempts) || [];
-    var events = liveEventsBySession.get(sessionId) || [];
-    var activeAttempt = runtime && (runtime.activeAttempt || runtime.lastAttempt);
-    if (!runtime && (!attempts || !attempts.length) && (!events || !events.length)) {
-      setSessionActivityVisible(false);
-      return;
-    }
-    var card = ensureSessionActivityCard();
-    card.classList.remove("hidden");
-
-    var statusEl = document.getElementById("session-activity-status");
-    if (statusEl) {
-      var currentStatus = (runtime && runtime.status) || "idle";
-      statusEl.className = "session-activity-status " + currentStatus;
-      statusEl.textContent = sessionActivityStatusLabel(currentStatus);
-    }
-
-    var meta = document.getElementById("session-activity-meta");
-    if (meta) {
-      var pills = [];
-      if (activeAttempt) {
-        pills.push('<span class="session-activity-pill"><strong>' + escHtml(tt("activity_attempt")) + '</strong> #' + escHtml(String(activeAttempt.sequence)) + '</span>');
-        pills.push('<span class="session-activity-pill"><strong>' + escHtml(tt("activity_text")) + '</strong> ' + escHtml(String(activeAttempt.textChunks || 0)) + '</span>');
-        pills.push('<span class="session-activity-pill"><strong>' + escHtml(tt("activity_thinking")) + '</strong> ' + escHtml(String(activeAttempt.thinkingChunks || 0)) + '</span>');
-        pills.push('<span class="session-activity-pill"><strong>' + escHtml(tt("activity_tools")) + '</strong> ' + escHtml(String(activeAttempt.toolCalls || 0)) + '</span>');
-        if (activeAttempt.lastToolName) {
-          pills.push('<span class="session-activity-pill"><strong>' + escHtml(tt("activity_last_tool")) + '</strong> ' + escHtml(activeAttempt.lastToolName) + '</span>');
-        }
-      }
-      meta.innerHTML = pills.join("");
-    }
-
-    var note = document.getElementById("session-activity-note");
-    if (note) {
-      var parts = [];
-      if (runtime && runtime.updatedAt) {
-        parts.push(escHtml(tt("activity_updated")) + ": " + escHtml(formatRelativeTime(runtime.updatedAt)));
-      }
-      if (activeAttempt && activeAttempt.error) {
-        parts.push('<span class="session-activity-error">' + escHtml(activeAttempt.error) + '</span>');
-      }
-      note.innerHTML = parts.join(" · ");
-    }
-
-    var history = document.getElementById("session-activity-history");
-    if (history) {
-      history.innerHTML = "";
-      if (attempts.length) {
-        var title = document.createElement("div");
-        title.className = "session-activity-note";
-        title.textContent = tt("activity_recent");
-        history.appendChild(title);
-      }
-      attempts.slice(-4).reverse().forEach(function(attempt) {
-        var row = document.createElement("div");
-        row.className = "session-attempt-row";
-        row.innerHTML = '<div class="session-attempt-main">'
-          + '<span class="session-attempt-seq">#' + escHtml(String(attempt.sequence)) + '</span>'
-          + '<span class="session-attempt-text">' + escHtml(sessionActivityStatusLabel(attempt.status)) + '</span>'
-          + '</div>'
-          + '<div class="session-attempt-side">' + escHtml(String(attempt.toolCalls || 0)) + ' ' + escHtml(tt("activity_tools")) + ' · ' + escHtml(formatRelativeTime(attempt.finishedAt || attempt.updatedAt || attempt.startedAt)) + '</div>';
-        history.appendChild(row);
-      });
-    }
-
-    var eventsEl = document.getElementById("session-activity-events");
-    if (eventsEl) {
-      eventsEl.innerHTML = "";
-      if (events.length) {
-        var eventsTitle = document.createElement("div");
-        eventsTitle.className = "session-activity-note";
-        eventsTitle.textContent = tt("activity_events");
-        eventsEl.appendChild(eventsTitle);
-      }
-      events.slice(-6).reverse().forEach(function(evt) {
-        var row = document.createElement("div");
-        row.className = "session-event-row " + (evt.status || "info");
-        row.innerHTML = '<div class="session-event-main">'
-          + '<div class="session-event-title">' + escHtml(evt.title || evt.kind) + '</div>'
-          + (evt.detail ? '<div class="session-event-detail">' + escHtml(evt.detail) + '</div>' : '')
-          + '</div>'
-          + '<div class="session-event-side">' + escHtml(formatRelativeTime(evt.at)) + '</div>';
-        eventsEl.appendChild(row);
-      });
-    }
-  }
-
-  function storeSessionRuntime(runtime) {
-    if (!runtime || !runtime.sessionId) return;
-    runtimeBySession.set(runtime.sessionId, runtime);
-    if (runtime.recentAttempts) {
-      attemptHistoryBySession.set(runtime.sessionId, runtime.recentAttempts.slice());
-    }
-    if (runtime.sessionId === currentSessionId) renderSessionActivityFor(currentSessionId);
-  }
-
-  function storeLifecycleEvent(evt) {
-    if (!evt || !evt.sessionId || !evt.attempt) return;
-    var attempts = (attemptHistoryBySession.get(evt.sessionId) || []).slice();
-    var found = false;
-    for (var i = 0; i < attempts.length; i++) {
-      if (attempts[i].attemptId === evt.attempt.attemptId) {
-        attempts[i] = evt.attempt;
-        found = true;
-        break;
-      }
-    }
-    if (!found && (evt.type === "attempt_completed" || evt.type === "attempt_failed")) {
-      attempts.push(evt.attempt);
-    }
-    attemptHistoryBySession.set(evt.sessionId, attempts.slice(-20));
-    if (evt.sessionId === currentSessionId) renderSessionActivityFor(currentSessionId);
-  }
-
-  function storeSessionEvent(evt) {
-    if (!evt || !evt.sessionId) return;
-    var events = (liveEventsBySession.get(evt.sessionId) || []).slice();
-    events.push(evt);
-    liveEventsBySession.set(evt.sessionId, events.slice(-50));
-    if (evt.sessionId === currentSessionId) renderSessionActivityFor(currentSessionId);
-  }
-
-  async function refreshSessionActivity(sessionId) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    try {
-      var runtimeRes = await rpc("session.runtime.get", { sessionId: sessionId });
-      if (runtimeRes) storeSessionRuntime(runtimeRes);
-    } catch(_) {}
-    try {
-      var attemptsRes = await rpc("session.attempts.get", { sessionId: sessionId });
-      if (attemptsRes && Array.isArray(attemptsRes.attempts)) {
-        attemptHistoryBySession.set(sessionId, attemptsRes.attempts.slice(-20));
-        if (sessionId === currentSessionId) renderSessionActivityFor(sessionId);
-      }
-    } catch(_) {}
   }
 
   async function loadHistory(sessionId) {
@@ -1726,9 +1450,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       if (data.type === "ping") return;
       if (data.type === "config_updated") { showConfigNotification(); return; }
       if (data.sessionId && data.sessionId !== currentSessionId) return;
-      if (data.type === "session_runtime") { storeSessionRuntime(data.runtime); return; }
-      if (data.type === "session_lifecycle") { storeLifecycleEvent(data.event); return; }
-      if (data.type === "session_event") { storeSessionEvent(data.event); return; }
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }
       if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
