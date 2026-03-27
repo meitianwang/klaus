@@ -1,5 +1,5 @@
 import { webPlugin } from "./channels/web.js";
-import { feishuPlugin, setFeishuConfig } from "./channels/feishu.js";
+import { feishuPlugin, setFeishuConfig, setFeishuTranscript } from "./channels/feishu.js";
 import {
   registerChannel,
   getChannel,
@@ -127,6 +127,7 @@ async function start(): Promise<void> {
 
     if (dbEnabled && dbAppId && dbSecret) {
       setFeishuConfig({ appId: dbAppId, appSecret: dbSecret });
+      setFeishuTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
       if (!channelNames.includes("feishu")) {
         channelNames.push("feishu");
         const feishu = getChannel("feishu");
@@ -209,6 +210,12 @@ async function start(): Promise<void> {
 
     return await agentManager.chat(msg.sessionKey, msg.text, onEvent);
   };
+
+  // Expose handler to web channel so it can hot-start feishu channel on connect
+  if (channelNames.includes("web")) {
+    const { setHandler } = await import("./channels/web.js");
+    setHandler(handler);
+  }
 
   try {
     await Promise.all(plugins.map((p) => p.start(handler)));

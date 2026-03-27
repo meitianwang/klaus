@@ -244,6 +244,12 @@ let cronSchedulerRef: {
   runTask(id: string): Promise<unknown>;
 } | null = null;
 
+let handlerRef: import("../types.js").Handler | null = null;
+
+export function setHandler(handler: import("../types.js").Handler): void {
+  handlerRef = handler;
+}
+
 export function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
   cronSchedulerRef = scheduler;
   gateway.setCronScheduler(scheduler);
@@ -1434,6 +1440,18 @@ async function handleAdminChannelFeishu(
       settingsStoreRef.set("channel.feishu.enabled", "true");
       settingsStoreRef.set("channel.feishu.bot_name", identity.botName ?? "");
       settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId);
+
+      // Start feishu channel immediately (non-blocking)
+      if (handlerRef) {
+        const { setFeishuConfig, setFeishuTranscript, feishuPlugin } = await import("./feishu.js");
+        setFeishuConfig({ appId, appSecret });
+        if (messageStoreRef) {
+          setFeishuTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
+        }
+        feishuPlugin.start(handlerRef).catch((err) => {
+          console.error("[Feishu] Channel start failed:", err);
+        });
+      }
 
       jsonResponse(res, 200, {
         ok: true,

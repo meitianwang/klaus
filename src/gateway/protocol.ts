@@ -66,7 +66,7 @@ export type GatewayRpcResponseEnvelope = {
 export type GatewayPushClient = Pick<WebSocket, "send" | "readyState">;
 
 const USER_ID_RE = /^[0-9a-f]{32}$/;
-const SESSION_ID_RE = /^[\w\-]{1,64}$/;
+const SESSION_ID_RE = /^[\w:\-]{1,128}$/;
 
 export function isValidGatewayUserId(userId: string): boolean {
   return USER_ID_RE.test(userId);

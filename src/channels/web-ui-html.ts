@@ -166,7 +166,6 @@ export function getChatBodyHtml(): string {
                     </div>
                     <button class="s-btn s-btn-danger" id="s-ch-feishu-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
                   </div>
-                  <div style="margin-top:10px;font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_restart_hint">Changes take effect after restart.</div>
                   <div style="margin-top:12px;padding:12px 16px;background:var(--bg-surface);border-radius:8px;font-size:13px;color:var(--fg-tertiary)">
                     <div style="font-weight:500;color:var(--fg);margin-bottom:6px" data-i18n="settings_ch_feishu_after_connect">After connecting:</div>
                     <div data-i18n="settings_ch_feishu_step_event">5. Configure event subscription: Events &amp; Callbacks &rarr; Long Connection &rarr; Add &quot;Receive Message&quot;</div>

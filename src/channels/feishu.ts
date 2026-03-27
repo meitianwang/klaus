@@ -80,9 +80,16 @@ export type { FeishuConfig } from "./feishu-types.js";
 let feishuConfig: FeishuConfig | undefined;
 let botOpenId: string | undefined;
 let botName: string | undefined;
+let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
 
 export function setFeishuConfig(config: FeishuConfig): void {
   feishuConfig = config;
+}
+
+export function setFeishuTranscript(
+  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
+): void {
+  transcriptAppend = append;
 }
 
 function getConfig(): FeishuConfig {
@@ -733,8 +740,17 @@ export const feishuPlugin: ChannelPlugin = {
         const msg = await toInboundMessage(effectiveEvent);
         if (!msg.text.trim() && !msg.media?.length) return;
 
+        // Write user message to transcript (visible in web UI history)
+        if (transcriptAppend && msg.text.trim()) {
+          await transcriptAppend(msg.sessionKey, "user", msg.text.trim());
+        }
+
         const reply = await handler(msg);
         if (reply) {
+          // Write assistant reply to transcript
+          if (transcriptAppend) {
+            await transcriptAppend(msg.sessionKey, "assistant", reply);
+          }
           // Determine reply mode
           const groupConfig = resolveGroupConfig({ config, groupId: effectiveEvent.message.chat_id });
           const replyInThread =
