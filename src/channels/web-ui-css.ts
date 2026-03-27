@@ -133,6 +133,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .session-item:hover{background:var(--bg-hover);color:var(--fg)}
 .session-item.active{background:var(--bg-hover);color:var(--fg);font-weight:500}
 .session-item .s-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-item .s-channel-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--border);color:var(--fg-tertiary);flex-shrink:0;letter-spacing:.3px}
 .session-item .s-del{
   opacity:0;background:none;border:none;color:var(--fg-tertiary);cursor:pointer;
   padding:2px;font-size:12px;line-height:1;border-radius:4px;transition:opacity var(--transition);

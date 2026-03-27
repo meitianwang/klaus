@@ -172,6 +172,14 @@ export function getChatMainJs(): string {
       var icon = document.createElement("span");
       icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       icon.style.cssText = "flex-shrink:0;color:var(--fg-quaternary);display:flex";
+      // Channel badge for non-web sessions
+      var channelPrefix = s.id.startsWith("feishu:") ? "feishu" : s.id.startsWith("dingtalk:") ? "dingtalk" : null;
+      if (channelPrefix) {
+        var badge = document.createElement("span");
+        badge.className = "s-channel-badge";
+        badge.textContent = channelPrefix === "feishu" ? tt("settings_ch_feishu") : tt("settings_ch_dingtalk");
+        el.appendChild(badge);
+      }
       var title = document.createElement("span");
       title.className = "s-title";
       title.textContent = (!s.title || s.title === "New Chat") ? tt("new_chat_title") : s.title;
