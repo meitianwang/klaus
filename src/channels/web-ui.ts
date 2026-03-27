@@ -579,6 +579,49 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .settings-lang-option:hover{border-color:var(--fg-tertiary)}
 .settings-lang-option.active{border-color:var(--accent);background:var(--accent);color:var(--bg)}
 
+/* ─── Settings: MCP & Cron ─── */
+.settings-section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.settings-section-header-title{font-size:18px;font-weight:600}
+.s-btn{padding:6px 12px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font);transition:all .15s}
+.s-btn-primary{background:var(--accent);color:var(--bg)}
+.s-btn-primary:hover{opacity:0.85}
+.s-btn-ghost{background:transparent;color:var(--fg-tertiary);border:1px solid var(--border)}
+.s-btn-ghost:hover{color:var(--fg);background:var(--bg-hover)}
+.s-btn-danger{background:transparent;color:#dc2626;border:1px solid #dc2626}
+.s-btn-danger:hover{background:#dc2626;color:#fff}
+.s-actions{display:flex;gap:6px;flex-wrap:wrap}
+.s-form{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+.s-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.s-form-full{grid-column:1/-1}
+.s-form label{display:block;font-size:13px;font-weight:500;margin-bottom:4px;color:var(--fg-secondary)}
+.s-form-input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--font);background:var(--bg);color:var(--fg);outline:none}
+.s-form-input:focus{border-color:var(--accent)}
+.s-form-select{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--font);background:var(--bg);color:var(--fg);outline:none}
+.s-form-textarea{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--font);background:var(--bg);color:var(--fg);outline:none;resize:vertical}
+.s-table{width:100%;border-collapse:collapse}
+.s-table th{text-align:left;padding:10px 12px;font-size:12px;font-weight:500;color:var(--fg-tertiary);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.s-table td{padding:12px;border-bottom:1px solid var(--border);font-size:14px;vertical-align:middle}
+.s-code{font-family:var(--font-mono);font-size:13px;background:var(--bg-surface);padding:3px 8px;border-radius:4px}
+.s-muted{color:var(--fg-tertiary);font-size:13px}
+.s-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}
+.s-badge-green{background:#dcfce7;color:#166534}
+.s-badge-gray{background:var(--bg-surface);color:var(--fg-tertiary);border:1px solid var(--border)}
+.s-badge-red{background:#fee2e2;color:#991b1b}
+.s-empty{text-align:center;padding:32px 24px;color:var(--fg-tertiary);font-size:14px}
+.s-scheduler-bar{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;font-size:13px;color:var(--fg-tertiary);flex-wrap:wrap}
+.s-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.s-dot-green{background:#16a34a}
+.s-dot-red{background:#dc2626}
+.s-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 20px;border-radius:8px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:200}
+.s-toast.show{opacity:1}
+[data-theme="dark"] .s-badge-green{background:#14532d;color:#86efac}
+[data-theme="dark"] .s-badge-red{background:#450a0a;color:#fca5a5}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .s-badge-green{background:#14532d;color:#86efac}
+  :root:not([data-theme="light"]) .s-badge-red{background:#450a0a;color:#fca5a5}
+}
+@media(max-width:640px){.s-form-grid{grid-template-columns:1fr}}
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -707,8 +750,60 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
           </div>
         </div>
 
+        <div class="settings-section" id="settings-mcp-section">
+          <div class="settings-section-header">
+            <div class="settings-section-header-title" data-i18n="settings_mcp">MCP Servers</div>
+            <button class="s-btn s-btn-primary" id="s-mcp-add-btn" data-i18n="settings_mcp_add">+ Add Server</button>
+          </div>
+          <div id="s-mcp-form" class="s-form" style="display:none">
+            <div class="s-form-grid">
+              <div><label data-i18n="settings_mcp_id">ID</label><input id="s-mcpf-id" class="s-form-input" placeholder="e.g. filesystem"></div>
+              <div><label data-i18n="settings_mcp_name">Name</label><input id="s-mcpf-name" class="s-form-input" placeholder="Display name"></div>
+              <div><label data-i18n="settings_mcp_type">Transport</label>
+                <select id="s-mcpf-type" class="s-form-select"><option value="stdio">stdio</option><option value="sse">sse</option></select>
+              </div>
+              <div id="s-mcpf-stdio-fields">
+                <label data-i18n="settings_mcp_command">Command</label><input id="s-mcpf-command" class="s-form-input" placeholder="e.g. npx -y @modelcontextprotocol/server-filesystem">
+                <label data-i18n="settings_mcp_args" style="margin-top:8px">Args (comma-separated)</label><input id="s-mcpf-args" class="s-form-input" placeholder="e.g. /tmp,/home">
+              </div>
+              <div id="s-mcpf-sse-fields" style="display:none">
+                <label data-i18n="settings_mcp_url">URL</label><input id="s-mcpf-url" class="s-form-input" placeholder="http://localhost:3001/sse">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button class="s-btn s-btn-ghost" id="s-mcpf-cancel" data-i18n="settings_cancel">Cancel</button>
+              <button class="s-btn s-btn-primary" id="s-mcpf-save" data-i18n="settings_save">Save</button>
+            </div>
+          </div>
+          <div id="s-mcp-wrap"></div>
+          <div id="s-mcp-empty" class="s-empty" style="display:none" data-i18n="settings_mcp_empty">No MCP servers configured.</div>
+        </div>
+
+        <div class="settings-section" id="settings-cron-section">
+          <div class="settings-section-header">
+            <div class="settings-section-header-title" data-i18n="settings_cron">Scheduled Tasks</div>
+            <button class="s-btn s-btn-primary" id="s-cron-add-btn" data-i18n="settings_cron_add">+ Add Task</button>
+          </div>
+          <div id="s-cron-scheduler-bar" class="s-scheduler-bar"></div>
+          <div id="s-cron-form" class="s-form" style="display:none">
+            <div class="s-form-grid">
+              <div><label data-i18n="settings_cron_task_id">Task ID</label><input id="s-cf-id" class="s-form-input" placeholder="e.g. daily-summary"></div>
+              <div><label data-i18n="settings_cron_task_name">Name</label><input id="s-cf-name" class="s-form-input" placeholder="Optional display name"></div>
+              <div><label data-i18n="settings_cron_schedule">Schedule</label><input id="s-cf-schedule" class="s-form-input" placeholder="e.g. 0 9 * * *"></div>
+              <div class="s-form-full"><label data-i18n="settings_cron_prompt">Prompt</label><textarea id="s-cf-prompt" class="s-form-textarea" rows="3" placeholder="Prompt text"></textarea></div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button class="s-btn s-btn-ghost" id="s-cf-cancel" data-i18n="settings_cancel">Cancel</button>
+              <button class="s-btn s-btn-primary" id="s-cf-save" data-i18n="settings_save">Save</button>
+            </div>
+          </div>
+          <div id="s-cron-wrap"></div>
+          <div id="s-cron-empty" class="s-empty" style="display:none" data-i18n="settings_cron_empty">No scheduled tasks.</div>
+        </div>
+
       </div>
     </div>
+    <div class="s-toast" id="s-toast"></div>
   </div>
 </div>
 <script>
@@ -779,6 +874,36 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       settings_theme_dark: "Dark",
       settings_theme_auto: "System",
       settings_language: "Language",
+      settings_mcp: "MCP Servers",
+      settings_mcp_add: "+ Add Server",
+      settings_mcp_id: "ID",
+      settings_mcp_name: "Name",
+      settings_mcp_type: "Transport",
+      settings_mcp_command: "Command",
+      settings_mcp_args: "Args (comma-separated)",
+      settings_mcp_url: "URL",
+      settings_mcp_empty: "No MCP servers configured.",
+      settings_mcp_delete_confirm: "Delete this server?",
+      settings_cron: "Scheduled Tasks",
+      settings_cron_add: "+ Add Task",
+      settings_cron_task_id: "Task ID",
+      settings_cron_task_name: "Name",
+      settings_cron_schedule: "Schedule",
+      settings_cron_prompt: "Prompt",
+      settings_cron_empty: "No scheduled tasks.",
+      settings_cron_delete_confirm: "Delete this task?",
+      settings_cron_running: "Running",
+      settings_cron_stopped: "Stopped",
+      settings_cron_tasks_label: "tasks",
+      settings_cron_active_label: "active",
+      settings_cron_next: "Next",
+      settings_cancel: "Cancel",
+      settings_enabled: "Enabled",
+      settings_disabled: "Disabled",
+      settings_on: "On",
+      settings_off: "Off",
+      settings_deleted: "Deleted",
+      settings_failed: "Failed",
     },
     zh: {
       chats: "对话",
@@ -836,6 +961,36 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       settings_theme_dark: "深色",
       settings_theme_auto: "跟随系统",
       settings_language: "语言",
+      settings_mcp: "MCP 服务器",
+      settings_mcp_add: "+ 添加服务器",
+      settings_mcp_id: "ID",
+      settings_mcp_name: "名称",
+      settings_mcp_type: "传输方式",
+      settings_mcp_command: "命令",
+      settings_mcp_args: "参数（逗号分隔）",
+      settings_mcp_url: "URL",
+      settings_mcp_empty: "暂无 MCP 服务器配置。",
+      settings_mcp_delete_confirm: "确定删除此服务器？",
+      settings_cron: "定时任务",
+      settings_cron_add: "+ 添加任务",
+      settings_cron_task_id: "任务 ID",
+      settings_cron_task_name: "名称",
+      settings_cron_schedule: "调度表达式",
+      settings_cron_prompt: "提示词",
+      settings_cron_empty: "没有定时任务。",
+      settings_cron_delete_confirm: "确定删除此任务？",
+      settings_cron_running: "运行中",
+      settings_cron_stopped: "已停止",
+      settings_cron_tasks_label: "个任务",
+      settings_cron_active_label: "活跃",
+      settings_cron_next: "下次",
+      settings_cancel: "取消",
+      settings_enabled: "启用",
+      settings_disabled: "禁用",
+      settings_on: "开启",
+      settings_off: "关闭",
+      settings_deleted: "已删除",
+      settings_failed: "失败",
     }
   };
   var currentLang = localStorage.getItem("klaus_lang") || "en";
@@ -1074,6 +1229,16 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     document.querySelectorAll(".settings-theme-card").forEach(function(c) {
       c.classList.toggle("active", c.getAttribute("data-theme") === curTheme);
     });
+    // Load MCP and Cron data
+    if (isAdmin) {
+      document.getElementById("settings-mcp-section").style.display = "";
+      document.getElementById("settings-cron-section").style.display = "";
+      loadMcpServers();
+      loadCronTasks();
+    } else {
+      document.getElementById("settings-mcp-section").style.display = "none";
+      document.getElementById("settings-cron-section").style.display = "none";
+    }
   }
   function hideSettings() {
     settingsView.style.display = "none";
@@ -1147,6 +1312,235 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     });
     applyTheme(theme);
     notifyIframes({ type: "klaus-settings", theme: theme });
+  });
+
+  // --- Toast ---
+  var sToastEl = document.getElementById("s-toast"), sToastTimer;
+  function showSettingsToast(msg) { sToastEl.textContent = msg; sToastEl.classList.add("show"); clearTimeout(sToastTimer); sToastTimer = setTimeout(function() { sToastEl.classList.remove("show"); }, 2000); }
+  function escS(s) { if (s == null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  function adminApi(path, method, params) {
+    var qs = "";
+    var opts = { method: method || "GET", credentials: "same-origin" };
+    if (method === "POST" || method === "PATCH") {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(params || {});
+    } else if (params) {
+      var pairs = [];
+      Object.keys(params).forEach(function(k) { pairs.push(k + "=" + encodeURIComponent(params[k])); });
+      qs = pairs.join("&");
+    }
+    var url = "/api/admin/" + path + (qs ? "?" + qs : "");
+    return fetch(url, opts).then(function(r) { if (!r.ok) throw new Error(r.status + " " + r.statusText); return r.json(); });
+  }
+
+  // =====================================================
+  // MCP SERVERS (in settings)
+  // =====================================================
+  var sMcpWrap = document.getElementById("s-mcp-wrap");
+  var sMcpEmpty = document.getElementById("s-mcp-empty");
+  var sMcpForm = document.getElementById("s-mcp-form");
+  var sMcpAddBtn = document.getElementById("s-mcp-add-btn");
+  var sMcpfId = document.getElementById("s-mcpf-id");
+  var sMcpfName = document.getElementById("s-mcpf-name");
+  var sMcpfType = document.getElementById("s-mcpf-type");
+  var sMcpfCommand = document.getElementById("s-mcpf-command");
+  var sMcpfArgs = document.getElementById("s-mcpf-args");
+  var sMcpfUrl = document.getElementById("s-mcpf-url");
+  var sMcpfStdio = document.getElementById("s-mcpf-stdio-fields");
+  var sMcpfSse = document.getElementById("s-mcpf-sse-fields");
+  var sMcpfSave = document.getElementById("s-mcpf-save");
+  var sMcpfCancel = document.getElementById("s-mcpf-cancel");
+  var editingMcpId = null;
+
+  sMcpfType.addEventListener("change", function() {
+    sMcpfStdio.style.display = sMcpfType.value === "stdio" ? "" : "none";
+    sMcpfSse.style.display = sMcpfType.value === "sse" ? "" : "none";
+  });
+
+  function loadMcpServers() {
+    adminApi("mcp", "GET").then(function(d) {
+      var servers = d.servers || [];
+      if (!servers.length) { sMcpWrap.innerHTML = ""; sMcpEmpty.style.display = "block"; return; }
+      sMcpEmpty.style.display = "none";
+      var h = "<table class='s-table'><thead><tr><th>ID</th><th>" + tt("settings_mcp_name") + "</th><th>" + tt("settings_mcp_type") + "</th><th>Detail</th><th>Status</th><th></th></tr></thead><tbody>";
+      servers.forEach(function(s) {
+        var badge = s.enabled
+          ? "<span class='s-badge s-badge-green'>" + tt("settings_enabled") + "</span>"
+          : "<span class='s-badge s-badge-gray'>" + tt("settings_disabled") + "</span>";
+        var detail = s.transport.type === "stdio" ? escS(s.transport.command || "") : escS(s.transport.url || "");
+        h += "<tr>"
+          + "<td><span class='s-code'>" + escS(s.id) + "</span></td>"
+          + "<td>" + escS(s.name) + "</td>"
+          + "<td>" + escS(s.transport.type) + "</td>"
+          + "<td class='s-muted'>" + detail + "</td>"
+          + "<td>" + badge + "</td>"
+          + "<td><div class='s-actions'>"
+          + "<button class='s-btn s-btn-ghost' data-togglemcp='" + escS(s.id) + "' data-enabled='" + (s.enabled ? "1" : "0") + "'>" + (s.enabled ? "Disable" : "Enable") + "</button>"
+          + "<button class='s-btn s-btn-ghost' data-editmcp='" + escS(s.id) + "'>Edit</button>"
+          + "<button class='s-btn s-btn-danger' data-delmcp='" + escS(s.id) + "'>" + tt("delete_title") + "</button>"
+          + "</div></td></tr>";
+      });
+      h += "</tbody></table>";
+      sMcpWrap.innerHTML = h;
+    });
+  }
+
+  sMcpAddBtn.onclick = function() {
+    editingMcpId = null;
+    sMcpfId.value = ""; sMcpfName.value = ""; sMcpfType.value = "stdio";
+    sMcpfCommand.value = ""; sMcpfArgs.value = ""; sMcpfUrl.value = "";
+    sMcpfId.disabled = false;
+    sMcpfStdio.style.display = ""; sMcpfSse.style.display = "none";
+    sMcpForm.style.display = "block";
+    sMcpfId.focus();
+  };
+  sMcpfCancel.onclick = function() { sMcpForm.style.display = "none"; };
+
+  sMcpfSave.onclick = function() {
+    var id = sMcpfId.value.trim();
+    if (!id) return;
+    sMcpfSave.disabled = true;
+    var transport;
+    if (sMcpfType.value === "stdio") {
+      var cmd = sMcpfCommand.value.trim();
+      if (!cmd) { sMcpfSave.disabled = false; return; }
+      var parts = cmd.split(/\s+/);
+      var argsStr = sMcpfArgs.value.trim();
+      var args = parts.slice(1);
+      if (argsStr) args = args.concat(argsStr.split(",").map(function(a) { return a.trim(); }).filter(Boolean));
+      transport = { type: "stdio", command: parts[0], args: args.length ? args : undefined };
+    } else {
+      var url = sMcpfUrl.value.trim();
+      if (!url) { sMcpfSave.disabled = false; return; }
+      transport = { type: "sse", url: url };
+    }
+    var payload = { id: id, name: sMcpfName.value.trim() || id, transport: transport, enabled: true };
+    var method = editingMcpId ? "PATCH" : "POST";
+    var path = editingMcpId ? "mcp?id=" + encodeURIComponent(editingMcpId) : "mcp";
+    adminApi(path, method, payload)
+      .then(function() { sMcpForm.style.display = "none"; showSettingsToast(tt("settings_saved")); loadMcpServers(); })
+      .catch(function() { showSettingsToast(tt("settings_failed")); })
+      .finally(function() { sMcpfSave.disabled = false; });
+  };
+
+  sMcpWrap.addEventListener("click", function(e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.dataset.delmcp) {
+      if (!confirm(tt("settings_mcp_delete_confirm"))) return;
+      adminApi("mcp?id=" + encodeURIComponent(btn.dataset.delmcp), "DELETE").then(function() { loadMcpServers(); showSettingsToast(tt("settings_deleted")); });
+    } else if (btn.dataset.togglemcp) {
+      var enabled = btn.dataset.enabled === "1";
+      adminApi("mcp?id=" + encodeURIComponent(btn.dataset.togglemcp), "PATCH", { enabled: !enabled }).then(function() { loadMcpServers(); });
+    } else if (btn.dataset.editmcp) {
+      var sid = btn.dataset.editmcp;
+      adminApi("mcp", "GET").then(function(d) {
+        var s = (d.servers || []).find(function(x) { return x.id === sid; });
+        if (!s) return;
+        editingMcpId = sid;
+        sMcpfId.value = s.id; sMcpfId.disabled = true;
+        sMcpfName.value = s.name || "";
+        sMcpfType.value = s.transport.type || "stdio";
+        if (s.transport.type === "stdio") {
+          var fullCmd = s.transport.command || "";
+          if (s.transport.args && s.transport.args.length) fullCmd += " " + s.transport.args.join(" ");
+          sMcpfCommand.value = fullCmd;
+          sMcpfArgs.value = "";
+          sMcpfStdio.style.display = ""; sMcpfSse.style.display = "none";
+        } else {
+          sMcpfUrl.value = s.transport.url || "";
+          sMcpfStdio.style.display = "none"; sMcpfSse.style.display = "";
+        }
+        sMcpForm.style.display = "block";
+      });
+    }
+  });
+
+  // =====================================================
+  // CRON TASKS (in settings)
+  // =====================================================
+  var sCronBar = document.getElementById("s-cron-scheduler-bar");
+  var sCronWrap = document.getElementById("s-cron-wrap");
+  var sCronEmpty = document.getElementById("s-cron-empty");
+  var sCronForm = document.getElementById("s-cron-form");
+  var sCronAddBtn = document.getElementById("s-cron-add-btn");
+  var sCfId = document.getElementById("s-cf-id");
+  var sCfName = document.getElementById("s-cf-name");
+  var sCfSchedule = document.getElementById("s-cf-schedule");
+  var sCfPrompt = document.getElementById("s-cf-prompt");
+  var sCfSave = document.getElementById("s-cf-save");
+  var sCfCancel = document.getElementById("s-cf-cancel");
+
+  function loadCronTasks() {
+    adminApi("cron/tasks", "GET").then(function(d) {
+      var tasks = d.tasks || [];
+      var sched = d.scheduler || {};
+      var running = sched.running;
+      sCronBar.innerHTML = "<span class='s-dot " + (running ? "s-dot-green" : "s-dot-red") + "'></span> "
+        + "<strong>" + (running ? tt("settings_cron_running") : tt("settings_cron_stopped")) + "</strong>"
+        + "<span>" + sched.taskCount + " " + tt("settings_cron_tasks_label") + "</span>"
+        + "<span>" + sched.activeJobs + " " + tt("settings_cron_active_label") + "</span>"
+        + (sched.nextWakeAt ? "<span>" + tt("settings_cron_next") + ": " + new Date(sched.nextWakeAt).toLocaleString() + "</span>" : "");
+      if (!tasks.length) { sCronWrap.innerHTML = ""; sCronEmpty.style.display = "block"; return; }
+      sCronEmpty.style.display = "none";
+      var h = "<table class='s-table'><thead><tr><th>ID</th><th>" + tt("settings_cron_task_name") + "</th><th>" + tt("settings_cron_schedule") + "</th><th>Status</th><th>" + tt("settings_cron_next") + "</th><th></th></tr></thead><tbody>";
+      tasks.forEach(function(t) {
+        var badge = t.enabled
+          ? "<span class='s-badge s-badge-green'>" + tt("settings_on") + "</span>"
+          : "<span class='s-badge s-badge-gray'>" + tt("settings_off") + "</span>";
+        if (t.lastRun && t.lastRun.error) badge = "<span class='s-badge s-badge-red'>Error</span>";
+        h += "<tr>"
+          + "<td><span class='s-code'>" + escS(t.id) + "</span></td>"
+          + "<td>" + escS(t.name || "-") + "</td>"
+          + "<td class='s-muted'>" + escS(t.schedule) + "</td>"
+          + "<td>" + badge + "</td>"
+          + "<td class='s-muted'>" + (t.nextRun ? new Date(t.nextRun).toLocaleString() : "-") + "</td>"
+          + "<td><div class='s-actions'>"
+          + "<button class='s-btn s-btn-ghost' data-togglecron='" + escS(t.id) + "' data-enabled='" + (t.enabled ? "1" : "0") + "'>" + (t.enabled ? "Disable" : "Enable") + "</button>"
+          + "<button class='s-btn s-btn-danger' data-delcron='" + escS(t.id) + "'>" + tt("delete_title") + "</button>"
+          + "</div></td></tr>";
+      });
+      h += "</tbody></table>";
+      sCronWrap.innerHTML = h;
+    });
+  }
+
+  sCronAddBtn.onclick = function() {
+    sCfId.value = ""; sCfName.value = ""; sCfSchedule.value = ""; sCfPrompt.value = "";
+    sCfId.disabled = false;
+    sCronForm.style.display = "block";
+    sCfId.focus();
+  };
+  sCfCancel.onclick = function() { sCronForm.style.display = "none"; };
+
+  sCfSave.onclick = function() {
+    var id = sCfId.value.trim();
+    var schedule = sCfSchedule.value.trim();
+    var prompt = sCfPrompt.value.trim();
+    if (!id || !schedule || !prompt) return;
+    sCfSave.disabled = true;
+    var payload = { id: id, schedule: schedule, prompt: prompt, name: sCfName.value.trim() || undefined, enabled: true };
+    adminApi("cron/tasks", "POST", payload)
+      .then(function() { sCronForm.style.display = "none"; showSettingsToast(tt("settings_saved")); loadCronTasks(); })
+      .catch(function() { showSettingsToast(tt("settings_failed")); })
+      .finally(function() { sCfSave.disabled = false; });
+  };
+
+  sCronWrap.addEventListener("click", function(e) {
+    var btn = e.target.closest("button");
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.dataset.togglecron) {
+      var enabled = btn.dataset.enabled === "1";
+      adminApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.togglecron), "PATCH", { enabled: !enabled })
+        .then(function() { loadCronTasks(); });
+    } else if (btn.dataset.delcron) {
+      if (!confirm(tt("settings_cron_delete_confirm"))) return;
+      adminApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.delcron), "DELETE")
+        .then(function() { loadCronTasks(); showSettingsToast(tt("settings_deleted")); });
+    }
   });
 
   // --- Welcome state ---
