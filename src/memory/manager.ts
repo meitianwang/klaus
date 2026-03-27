@@ -115,7 +115,7 @@ type IndexMeta = {
 export class MemoryManager {
   private readonly db: DatabaseType;
   private readonly config: MemoryConfig;
-  private readonly memoryDir: string;
+  readonly memoryDir: string;
   private readonly transcriptsDir: string | undefined;
   private provider: EmbeddingProvider | null = null;
   private providerInitialized = false;

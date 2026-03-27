@@ -164,6 +164,18 @@ export function buildMemoryPromptSection(citationsMode: MemoryCitationsMode): st
       "Citations: include Source: <path#line> when it helps the user verify memory snippets.",
     );
   }
-  lines.push("");
+  lines.push(
+    "",
+    "## Memory Save",
+    "Proactively use memory_save to persist durable information across sessions:",
+    "- Decisions made and their rationale",
+    "- User preferences and workflow patterns",
+    "- Key facts, names, dates, project context",
+    "- Bug causes and fixes worth remembering",
+    "- Architecture decisions and trade-offs",
+    "Do NOT save: routine greetings, trivial exchanges, information already in memory files.",
+    "Memory is automatically flushed before context compaction, but save important facts early rather than waiting.",
+    "",
+  );
   return lines.join("\n");
 }

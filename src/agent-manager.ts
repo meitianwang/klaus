@@ -112,6 +112,12 @@ export class AgentSessionManager {
   ): Promise<string | null> {
     const { agent } = await this.getOrCreate(sessionKey);
 
+    // Track compaction events for memory flush
+    let compacted = false;
+    const memoryUnsub = this.memoryManager
+      ? agent.subscribe((event) => { if (event.type === "compaction_end") compacted = true; })
+      : undefined;
+
     let unsubscribe: (() => void) | undefined;
     if (onEvent) {
       unsubscribe = agent.subscribe(onEvent);
@@ -119,15 +125,44 @@ export class AgentSessionManager {
 
     try {
       const messages = await agent.prompt(text);
-      return extractFinalText(messages);
+      const result = extractFinalText(messages);
+
+      // Memory flush: after compaction, run a hidden prompt to save durable memories
+      if (compacted && this.memoryManager) {
+        this.runMemoryFlush(agent, sessionKey).catch((err) => {
+          console.warn(`[Memory] Flush failed for ${sessionKey}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
+
+      return result;
     } finally {
       unsubscribe?.();
+      memoryUnsub?.();
+    }
+  }
+
+  /**
+   * Run a hidden memory flush turn — aligned with OpenClaw's pre-compaction memory flush.
+   * Prompts the agent to save durable memories using memory_save tool.
+   */
+  private async runMemoryFlush(agent: Agent, sessionKey: string): Promise<void> {
+    try {
+      await agent.prompt(MEMORY_FLUSH_USER_PROMPT);
+      console.log(`[Memory] Flush completed for ${sessionKey}`);
+      // Trigger sync so new memory files are indexed
+      await this.memoryManager?.sync().catch(() => {});
+    } catch (err) {
+      console.warn(`[Memory] Flush prompt failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   async reset(sessionKey: string): Promise<void> {
     const entry = this.sessions.get(sessionKey);
     if (entry) {
+      // Flush memories before disposing (like OpenClaw's session reset hook)
+      if (this.memoryManager) {
+        await this.runMemoryFlush(entry.agent, sessionKey);
+      }
       this.sessions.delete(sessionKey);
       await entry.agent.dispose();
     }
@@ -226,10 +261,11 @@ export class AgentSessionManager {
     }
     // Add capability-based tools (web search, etc.)
     tools.push(...capabilities.buildTools());
-    // Add memory tools if memory is enabled
+    // Add memory tools if memory is enabled (search + get + save)
     if (this.memoryManager) {
       tools.push(createMemorySearchTool(this.memoryManager));
       tools.push(createMemoryGetTool(this.memoryManager));
+      tools.push(createMemorySaveTool(this.memoryManager.memoryDir));
     }
 
     const loopDetector = new ToolLoopDetector();
