@@ -1,4 +1,5 @@
 import { webPlugin } from "./channels/web.js";
+import { feishuPlugin, setFeishuConfig } from "./channels/feishu.js";
 import {
   registerChannel,
   getChannel,
@@ -27,6 +28,7 @@ import { parseWebSessionKey } from "./gateway/protocol.js";
 // ---------------------------------------------------------------------------
 
 registerChannel(webPlugin);
+registerChannel(feishuPlugin);
 
 // ---------------------------------------------------------------------------
 // Main
@@ -114,6 +116,23 @@ async function start(): Promise<void> {
     if (channelNames.includes("web")) {
       const { setCronScheduler } = await import("./channels/web.js");
       setCronScheduler(cronScheduler);
+    }
+  }
+
+  // Initialize Feishu channel from SettingsStore (configured via admin panel).
+  {
+    const dbAppId = settingsStore.get("channel.feishu.app_id");
+    const dbSecret = settingsStore.get("channel.feishu.app_secret");
+    const dbEnabled = settingsStore.getBool("channel.feishu.enabled", false);
+
+    if (dbEnabled && dbAppId && dbSecret) {
+      setFeishuConfig({ appId: dbAppId, appSecret: dbSecret });
+      if (!channelNames.includes("feishu")) {
+        channelNames.push("feishu");
+        const feishu = getChannel("feishu");
+        if (feishu) plugins.push(feishu);
+      }
+      console.log("[Feishu] Enabled (configured via admin panel)");
     }
   }
 
@@ -206,21 +225,7 @@ async function start(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const cmd = process.argv[2] ?? "start";
-
-  switch (cmd) {
-    case "start":
-      await start();
-      break;
-    default:
-      console.log(
-        "Klaus\n\n" +
-          "Usage: klaus [command]\n\n" +
-          "Commands:\n" +
-          "  start    Start the server (default)\n",
-      );
-      process.exit(1);
-  }
+  await start();
 }
 
 main().catch((err) => {

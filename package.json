@@ -10,6 +10,7 @@
   },
   "private": true,
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "better-sqlite3": "^12.6.2",
     "croner": "^10.0.1",

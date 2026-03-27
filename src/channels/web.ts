@@ -450,6 +450,14 @@ function serveAdmin(req: IncomingMessage, res: ServerResponse): void {
     res.end();
     return;
   }
+  // Admin panel is only served as an iframe inside the chat UI.
+  // Direct access to /admin redirects to chat page (which opens admin view).
+  const url = new URL(req.url ?? "", "http://localhost");
+  if (url.searchParams.get("embed") !== "1") {
+    res.writeHead(302, { Location: "/#admin" });
+    res.end();
+    return;
+  }
   serveHtmlPage(res, getAdminHtml());
 }
 
@@ -1356,6 +1364,105 @@ async function handleAdminMcp(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: channel configuration (Feishu etc.)
+// ---------------------------------------------------------------------------
+
+async function handleAdminChannels(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  // GET /api/admin/channels — list all channel configs
+  if (req.method === "GET") {
+    if (!settingsStoreRef) {
+      jsonResponse(res, 503, { error: "settings store unavailable" });
+      return;
+    }
+    const feishuAppId = settingsStoreRef.get("channel.feishu.app_id") ?? "";
+    const feishuEnabled = settingsStoreRef.getBool("channel.feishu.enabled", false);
+    const feishuBotName = settingsStoreRef.get("channel.feishu.bot_name") ?? "";
+    jsonResponse(res, 200, {
+      feishu: {
+        enabled: feishuEnabled && !!feishuAppId,
+        app_id: feishuAppId,
+        bot_name: feishuBotName,
+      },
+    });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+async function handleAdminChannelFeishu(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  // POST /api/admin/channels/feishu — validate credentials and connect
+  if (req.method === "POST") {
+    try {
+      const parsed = await readJsonBody(req, 4096);
+      const appId = String(parsed.app_id ?? "").trim();
+      const appSecret = String(parsed.app_secret ?? "").trim();
+      if (!appId || !appSecret) {
+        jsonResponse(res, 400, { error: "app_id and app_secret are required" });
+        return;
+      }
+
+      // Validate credentials by probing bot identity
+      const { probeBotIdentity } = await import("./feishu-client.js");
+      const identity = await probeBotIdentity({ appId, appSecret }, 10_000);
+      if (!identity.botOpenId) {
+        jsonResponse(res, 400, {
+          ok: false,
+          error: "Failed to connect. Check App ID, App Secret, and that the app has Bot capability enabled.",
+        });
+        return;
+      }
+
+      // Save to SettingsStore
+      settingsStoreRef.set("channel.feishu.app_id", appId);
+      settingsStoreRef.set("channel.feishu.app_secret", appSecret);
+      settingsStoreRef.set("channel.feishu.enabled", "true");
+      settingsStoreRef.set("channel.feishu.bot_name", identity.botName ?? "");
+      settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId);
+
+      jsonResponse(res, 200, {
+        ok: true,
+        app_id: appId,
+        bot_name: identity.botName ?? "",
+        bot_open_id: identity.botOpenId,
+        enabled: true,
+      });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  // DELETE /api/admin/channels/feishu — disconnect
+  if (req.method === "DELETE") {
+    settingsStoreRef.set("channel.feishu.enabled", "false");
+    settingsStoreRef.set("channel.feishu.app_id", "");
+    settingsStoreRef.set("channel.feishu.app_secret", "");
+    settingsStoreRef.set("channel.feishu.bot_name", "");
+    settingsStoreRef.set("channel.feishu.bot_open_id", "");
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
 // File download handler
 // ---------------------------------------------------------------------------
 
@@ -1581,6 +1688,10 @@ async function handleRequest(
       return handleAdminRules(req, res);
     case "/api/admin/mcp":
       return handleAdminMcp(req, res);
+    case "/api/admin/channels":
+      return handleAdminChannels(req, res);
+    case "/api/admin/channels/feishu":
+      return handleAdminChannelFeishu(req, res);
     // Upload
     case "/api/upload":
       if (req.method !== "POST") {

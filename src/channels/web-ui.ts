@@ -1196,7 +1196,13 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     adminView.style.display = "none";
     chatElements.forEach(function(el) { if (el) el.style.display = ""; });
   }
-  document.getElementById("admin-back").addEventListener("click", hideAdmin);
+  document.getElementById("admin-back").addEventListener("click", function() {
+    hideAdmin();
+    if (location.hash === "#admin") history.replaceState(null, "", location.pathname);
+  });
+
+  // Auto-open admin view when navigated to /#admin
+  if (location.hash === "#admin") showAdmin();
 
   // --- Settings view ---
   var settingsView = document.getElementById("settings-view");
