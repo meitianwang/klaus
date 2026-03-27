@@ -144,7 +144,7 @@ export function getChatBodyHtml(): string {
               <div style="border:1px solid var(--border);border-radius:12px;padding:20px" id="s-ch-feishu-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <img src="https://sf3-scmcdn2-cn.feishucdn.com/ccm/pc/web/resource/bear/src/common/assets/favicon.ico" alt="Feishu" width="36" height="36" style="border-radius:8px">
+                    <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="48" height="48" rx="10" fill="#3370FF"/><path d="M14.5 31.5c4-4.5 9.5-8 13-9.5 1.5-.7 2.5-.2 2 1l-3 5.5c-.3.6 0 1 .7.6l5-3c1-.6 1.5 0 .8 1l-6.5 10c-.6.9-1.5 1.1-2.2.5l-9.8-6.1z" fill="#fff"/><path d="M33.5 16.5c-4 4.5-9.5 8-13 9.5-1.5.7-2.5.2-2-1l3-5.5c.3-.6 0-1-.7-.6l-5 3c-1 .6-1.5 0-.8-1l6.5-10c.6-.9 1.5-1.1 2.2-.5l9.8 6.1z" fill="#fff" opacity=".5"/></svg>
                     <div>
                       <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_feishu">Feishu / Lark</div>
                       <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_feishu_desc">Connect to Feishu bot for team messaging</div>
@@ -224,7 +224,7 @@ export function getChatBodyHtml(): string {
               <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-dingtalk-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <img src="https://img.alicdn.com/imgextra/i2/O1CN01FF1t1g1Q1VUMVs2dt_!!6000000001920-2-tps-400-400.png" alt="DingTalk" width="36" height="36" style="border-radius:8px">
+                    <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="48" height="48" rx="10" fill="#0089FF"/><path d="M34.2 20.8c-.2-.8-1.8-2.4-5-3.6-2-.8-4.2-.6-5.2-.2-1.2.4-2 1.4-2.4 2-.2.2-.2.4-.4.4-.4-.2-1-.4-1.6-.4-.8 0-1.6.2-2 .6-.6.4-.8.8-1 1.2l6 2-7.2 4.4 10.6-3-3.4 6.8 6.6-7.6c1-1.2 2-2.8 2-4 0-.6-.2-1.2-.6-1.6l-.4-.2c.2.2.2.2 0 .2z" fill="#fff"/></svg>
                     <div>
                       <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_dingtalk">DingTalk</div>
                       <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_dingtalk_desc">Connect to DingTalk bot for team messaging</div>
