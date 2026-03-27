@@ -56,7 +56,10 @@ export async function createAICard(params: {
         imRobotOpenSpaceModel: { supportForward: true },
       }),
     });
-    if (!createResp.ok) return null;
+    if (!createResp.ok) {
+      console.warn(`[DingTalk] AI Card create failed: HTTP ${createResp.status}`);
+      return null;
+    }
 
     // 2. Deliver card
     const isGroup = conversationType === "2";
@@ -79,7 +82,10 @@ export async function createAICard(params: {
       headers: { "Content-Type": "application/json", "x-acs-dingtalk-access-token": accessToken },
       body: JSON.stringify(deliverBody),
     });
-    if (!deliverResp.ok) return null;
+    if (!deliverResp.ok) {
+      console.warn(`[DingTalk] AI Card deliver failed: HTTP ${deliverResp.status}`);
+      return null;
+    }
 
     return { cardInstanceId, accessToken };
   } catch (err) {
