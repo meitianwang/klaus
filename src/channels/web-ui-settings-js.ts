@@ -379,6 +379,7 @@ export function getSettingsJs(): string {
   function closeChModal() {
     chModalOverlay.classList.remove("show");
     if (wxPollTimer) { clearInterval(wxPollTimer); wxPollTimer = null; }
+    if (typeof waPollTimer !== "undefined" && waPollTimer) { clearInterval(waPollTimer); waPollTimer = null; }
   }
 
   document.getElementById("ch-modal-close").addEventListener("click", closeChModal);
@@ -438,14 +439,18 @@ export function getSettingsJs(): string {
   function loadSettingsChannels() {
     adminApi("channels", "GET").then(function(d) {
       chConfigs.forEach(function(cfg) {
+        if (cfg.id === "whatsapp") return; // WhatsApp has custom state management
         var ch = d && d[cfg.id];
         showChannelState(cfg.id, ch && ch.enabled ? "connected" : "setup", ch);
       });
       var wx = d && d.wechat;
       showWechatState(wx && wx.enabled ? "connected" : "setup", wx);
+      var wa = d && d.whatsapp;
+      showWhatsAppState(wa && wa.enabled ? "connected" : "setup", wa);
     }).catch(function() {
       chConfigs.forEach(function(cfg) { showChannelState(cfg.id, "setup", null); });
       showWechatState("setup", null);
+      showWhatsAppState("setup", null);
     });
   }
 
@@ -461,6 +466,13 @@ export function getSettingsJs(): string {
         var connected = document.getElementById("s-ch-wechat-connected");
         if (connected && connected.style.display === "none") {
           document.getElementById("s-ch-wechat-login-btn").click();
+        }
+      }
+      // WhatsApp: auto-trigger QR flow when modal opens and not connected
+      if (cfg.id === "whatsapp") {
+        var waConn = document.getElementById("s-ch-whatsapp-connected");
+        if (waConn && waConn.style.display === "none") {
+          startWhatsAppQr();
         }
       }
     });
@@ -569,6 +581,63 @@ export function getSettingsJs(): string {
   });
 
   disconnectChannel("wechat", showWechatState);
+
+  // --- WhatsApp QR flow (similar to WeChat) ---
+  var waPollTimer = null;
+
+  function showWhatsAppState(state, data) {
+    document.getElementById("s-ch-whatsapp-connected").style.display = state === "connected" ? "block" : "none";
+    document.getElementById("s-ch-whatsapp-qr").style.display = state === "qr" ? "block" : "none";
+    document.getElementById("s-ch-whatsapp-setup").style.display = state === "setup" || state === "waiting" ? "block" : "none";
+    updateCardBtn("whatsapp", state === "connected");
+  }
+
+  function startWhatsAppQr() {
+    showWhatsAppState("waiting", null);
+    adminApi("channels/whatsapp", "POST").then(function(d) {
+      if (d.status === "connected") {
+        showWhatsAppState("connected", null);
+        showSettingsToast(tt("settings_ch_connect_ok"));
+      } else if (d.status === "qr" && d.qrcodeDataUrl) {
+        document.getElementById("s-ch-whatsapp-qr-img").src = d.qrcodeDataUrl;
+        showWhatsAppState("qr", null);
+        startWaPoll();
+      } else {
+        // Still starting, poll
+        startWaPoll();
+      }
+    }).catch(function() {
+      showSettingsToast(tt("settings_ch_connect_fail"));
+      showWhatsAppState("setup", null);
+    });
+  }
+
+  function startWaPoll() {
+    if (waPollTimer) clearInterval(waPollTimer);
+    waPollTimer = setInterval(function() {
+      adminApi("channels/whatsapp/qr-poll", "GET").then(function(d) {
+        if (d.status === "connected") {
+          showWhatsAppState("connected", null);
+          showSettingsToast(tt("settings_ch_connect_ok"));
+          clearInterval(waPollTimer);
+          waPollTimer = null;
+        } else if (d.status === "qr" && d.qrcodeDataUrl) {
+          document.getElementById("s-ch-whatsapp-qr-img").src = d.qrcodeDataUrl;
+          showWhatsAppState("qr", null);
+        }
+      }).catch(function() {});
+    }, 3000);
+  }
+
+  // Override WhatsApp disconnect to clean up poll timer
+  document.getElementById("s-ch-whatsapp-disconnect-btn").addEventListener("click", function() {
+    if (!confirm(tt("settings_confirm_delete"))) return;
+    if (waPollTimer) { clearInterval(waPollTimer); waPollTimer = null; }
+    adminApi("channels/whatsapp", "DELETE").then(function() {
+      showWhatsAppState("setup", null);
+      showSettingsToast(tt("settings_ch_disconnected"));
+    });
+  });
 
   // --- Skills tab ---
   var skGrid = document.getElementById("sk-grid");

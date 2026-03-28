@@ -463,17 +463,14 @@ export function getChatBodyHtml(): string {
                         <button class="s-btn s-btn-danger" id="s-ch-whatsapp-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
                       </div>
                     </div>
-                    <div id="s-ch-whatsapp-form">
-                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
-                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_whatsapp_guide_title">Setup Steps</div>
-                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_whatsapp_step1">Click Connect below to start the WhatsApp service</span></div>
-                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_whatsapp_step2">A QR code will appear in the server terminal (not in browser)</span></div>
-                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_whatsapp_step3">Open WhatsApp &rarr; Linked Devices &rarr; Link a Device &rarr; Scan QR</span></div>
-                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">4.</span> <span data-i18n="settings_ch_whatsapp_step4">After scanning, WhatsApp auto-connects (credentials saved for restarts)</span></div>
-                      </div>
-                      <div style="display:flex;gap:8px;justify-content:flex-end">
-                        <button class="s-btn s-btn-primary" id="s-ch-whatsapp-connect-btn" data-i18n="settings_ch_connect">Connect</button>
-                      </div>
+                    <div id="s-ch-whatsapp-qr" style="display:none;text-align:center">
+                      <div style="font-size:13px;color:var(--fg-tertiary);margin-bottom:12px" data-i18n="settings_ch_whatsapp_scan_hint">Open WhatsApp &rarr; Linked Devices &rarr; Link a Device &rarr; Scan</div>
+                      <img id="s-ch-whatsapp-qr-img" style="max-width:280px;border-radius:8px" alt="QR Code">
+                      <div style="margin-top:8px;font-size:12px;color:var(--fg-tertiary)" id="s-ch-whatsapp-qr-status" data-i18n="settings_ch_whatsapp_waiting">Waiting for scan...</div>
+                    </div>
+                    <div id="s-ch-whatsapp-setup" style="text-align:center;padding:20px 0">
+                      <div style="font-size:13px;color:var(--fg-tertiary);margin-bottom:12px" data-i18n="settings_ch_whatsapp_loading">Loading...</div>
+                      <button class="s-btn s-btn-primary" id="s-ch-whatsapp-connect-btn" style="display:none">Connect</button>
                     </div>
                   </div>
                 </div>

@@ -2190,47 +2190,48 @@ async function handleAdminChannelImessage(
 
   if (req.method === "POST") {
     try {
-      const { execFileSync, execSync } = await import("node:child_process");
+      const { execFile, exec } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+      const execAsync = promisify(exec);
 
       // Step 1: Check if imsg is already installed
-      let cliPath = "imsg";
+      const cliPath = "imsg";
       let installed = false;
       try {
-        execFileSync(cliPath, ["--version"], { timeout: 5000 });
+        await execFileAsync(cliPath, ["--version"], { timeout: 5000 });
         installed = true;
       } catch { /* not found */ }
 
       // Step 2: Auto-install via Homebrew if not found
       if (!installed) {
-        // Check Homebrew
         try {
-          execFileSync("brew", ["--version"], { timeout: 5000 });
+          await execFileAsync("brew", ["--version"], { timeout: 5000 });
         } catch {
           jsonResponse(res, 400, { ok: false, error: "Homebrew not installed. Install from https://brew.sh first." });
           return;
         }
 
         try {
-          execSync("brew install steipete/tap/imsg", { timeout: 300_000, stdio: "pipe" });
+          await execAsync("brew install steipete/tap/imsg", { timeout: 300_000 });
         } catch (err) {
-          jsonResponse(res, 400, { ok: false, error: `imsg installation failed: ${String(err)}` });
+          const msg = err instanceof Error ? err.message.slice(0, 200) : "unknown error";
+          jsonResponse(res, 400, { ok: false, error: `imsg installation failed: ${msg}` });
           return;
         }
 
-        // Verify installation
         try {
-          execFileSync(cliPath, ["--version"], { timeout: 5000 });
-          installed = true;
+          await execFileAsync(cliPath, ["--version"], { timeout: 5000 });
         } catch {
           jsonResponse(res, 400, { ok: false, error: "imsg installed but not found on PATH" });
           return;
         }
       }
 
-      // Step 3: Test Messages DB access (triggers Automation permission dialog)
+      // Step 3: Test Messages DB access
       let needsFullDiskAccess = false;
       try {
-        execFileSync(cliPath, ["chats", "--limit", "1"], { timeout: 10_000, stdio: "pipe" });
+        await execFileAsync(cliPath, ["chats", "--limit", "1"], { timeout: 10_000 });
       } catch {
         needsFullDiskAccess = true;
       }
@@ -2272,12 +2273,48 @@ async function handleAdminChannelWhatsapp(
   if (!authUser) return;
   if (!settingsStoreRef) { jsonResponse(res, 503, { error: "settings store unavailable" }); return; }
 
+  // POST /api/admin/channels/whatsapp — start WhatsApp and return QR code
   if (req.method === "POST") {
-    // WhatsApp uses QR login — POST just enables the channel and starts it
     settingsStoreRef.set("channel.whatsapp.enabled", "true");
     settingsStoreRef.set("channel.whatsapp.owner_id", authUser.id);
     hotStartChannel("whatsapp");
-    jsonResponse(res, 200, { ok: true, enabled: true, message: "WhatsApp started. Scan QR code in server terminal." });
+
+    // Wait up to 10s for QR to appear
+    const { getWhatsAppQrStatus } = await import("./whatsapp.js");
+    let waited = 0;
+    while (waited < 10_000) {
+      const status = getWhatsAppQrStatus();
+      if (status.connected) {
+        jsonResponse(res, 200, { ok: true, status: "connected" });
+        return;
+      }
+      if (status.qr) {
+        // Convert QR string to data URL
+        const QRCode = await import("qrcode");
+        const qrcodeDataUrl = await QRCode.toDataURL(status.qr, { width: 280 });
+        jsonResponse(res, 200, { ok: true, status: "qr", qrcodeDataUrl });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      waited += 500;
+    }
+    jsonResponse(res, 200, { ok: true, status: "waiting", message: "WhatsApp starting, please try again" });
+    return;
+  }
+
+  // GET /api/admin/channels/whatsapp/qr-poll — poll QR/connection status
+  if (req.method === "GET") {
+    const { getWhatsAppQrStatus } = await import("./whatsapp.js");
+    const status = getWhatsAppQrStatus();
+    if (status.connected) {
+      jsonResponse(res, 200, { ok: true, status: "connected" });
+    } else if (status.qr) {
+      const QRCode = await import("qrcode");
+      const qrcodeDataUrl = await QRCode.toDataURL(status.qr, { width: 280 });
+      jsonResponse(res, 200, { ok: true, status: "qr", qrcodeDataUrl });
+    } else {
+      jsonResponse(res, 200, { ok: true, status: "waiting" });
+    }
     return;
   }
 
@@ -2560,6 +2597,7 @@ async function handleRequest(
     case "/api/admin/channels/imessage":
       return handleAdminChannelImessage(req, res);
     case "/api/admin/channels/whatsapp":
+    case "/api/admin/channels/whatsapp/qr-poll":
       return handleAdminChannelWhatsapp(req, res);
     case "/api/admin/memory":
       return handleAdminMemory(req, res);

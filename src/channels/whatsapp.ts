@@ -24,6 +24,13 @@ const DEFAULT_AUTH_DIR = join(homedir(), ".klaus", "whatsapp");
 // ---------------------------------------------------------------------------
 
 let activeSock: ReturnType<typeof import("@whiskeysockets/baileys").default> | undefined;
+/** Pending QR string for admin UI polling. Null when connected or not started. */
+let pendingQr: string | null = null;
+let waConnected = false;
+
+export function getWhatsAppQrStatus(): { qr: string | null; connected: boolean } {
+  return { qr: pendingQr, connected: waConnected };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,7 +130,7 @@ export const whatsappPlugin: ChannelPlugin<WhatsAppConfig> = {
       const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: true,
+        printQRInTerminal: false,
         browser: ["Klaus", "Desktop", "1.0.0"],
         generateHighQualityLinkPreview: false,
       });
@@ -137,10 +144,13 @@ export const whatsappPlugin: ChannelPlugin<WhatsAppConfig> = {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-          console.log("[WhatsApp] Scan QR code in terminal to connect");
+          pendingQr = qr;
+          console.log("[WhatsApp] QR code ready for scanning");
         }
 
         if (connection === "open") {
+          pendingQr = null;
+          waConnected = true;
           ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), mode: "websocket", tokenStatus: "valid" });
           console.log("[WhatsApp] Connected");
         }
@@ -241,6 +251,8 @@ export const whatsappPlugin: ChannelPlugin<WhatsAppConfig> = {
         const shutdown = () => {
           console.log("[WhatsApp] Shutting down...");
           activeSock = undefined;
+          pendingQr = null;
+          waConnected = false;
           dedup.clear();
           sock.end(undefined);
           resolve();
