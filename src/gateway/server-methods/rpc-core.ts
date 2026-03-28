@@ -90,7 +90,7 @@ export async function handleGatewayCoreRpcMethod(
       if (!key) {
         return { handled: true, error: "missing key parameter" };
       }
-      if (!key.startsWith(`web:${params.userId}:`) && !key.startsWith("feishu:") && !key.startsWith("dingtalk:") && !key.startsWith("wechat:")) {
+      if (!key.startsWith(`web:${params.userId}:`) && !key.startsWith("feishu:") && !key.startsWith("dingtalk:") && !key.startsWith("wechat:") && !key.startsWith("qq:")) {
         return { handled: true, error: "cannot delete another user's session" };
       }
       try {

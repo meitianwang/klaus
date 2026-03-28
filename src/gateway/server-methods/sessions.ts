@@ -2,7 +2,7 @@ import type { MessageStore } from "../../message-store.js";
 import { buildWebSessionKey } from "../protocol.js";
 
 /** Channel prefixes that use their own session key format (not web:{userId}:{sessionId}). */
-const CHANNEL_PREFIXES = ["feishu:", "dingtalk:", "wechat:"] as const;
+const CHANNEL_PREFIXES = ["feishu:", "dingtalk:", "wechat:", "qq:"] as const;
 
 function isChannelSession(sessionId: string): boolean {
   return CHANNEL_PREFIXES.some((p) => sessionId.startsWith(p));

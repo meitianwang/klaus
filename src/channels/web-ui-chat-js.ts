@@ -173,11 +173,11 @@ export function getChatMainJs(): string {
       icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       icon.style.cssText = "flex-shrink:0;color:var(--fg-quaternary);display:flex";
       // Channel badge for non-web sessions
-      var channelPrefix = s.id.startsWith("feishu:") ? "feishu" : s.id.startsWith("dingtalk:") ? "dingtalk" : s.id.startsWith("wechat:") ? "wechat" : null;
+      var channelPrefix = s.id.startsWith("feishu:") ? "feishu" : s.id.startsWith("dingtalk:") ? "dingtalk" : s.id.startsWith("wechat:") ? "wechat" : s.id.startsWith("qq:") ? "qq" : null;
       if (channelPrefix) {
         var badge = document.createElement("span");
         badge.className = "s-channel-badge";
-        badge.textContent = channelPrefix === "feishu" ? tt("settings_ch_feishu") : channelPrefix === "dingtalk" ? tt("settings_ch_dingtalk") : tt("settings_ch_wechat");
+        badge.textContent = channelPrefix === "feishu" ? tt("settings_ch_feishu") : channelPrefix === "dingtalk" ? tt("settings_ch_dingtalk") : channelPrefix === "qq" ? tt("settings_ch_qq") : tt("settings_ch_wechat");
         el.appendChild(badge);
       }
       var title = document.createElement("span");

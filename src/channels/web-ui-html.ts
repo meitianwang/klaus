@@ -292,6 +292,48 @@ export function getChatBodyHtml(): string {
                   <button class="s-btn s-btn-primary" id="s-ch-wechat-login-btn" data-i18n="settings_ch_wechat_login">Login with QR Code</button>
                 </div>
               </div>
+
+              <!-- QQ Bot card -->
+              <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-qq-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <img src="/qq-icon.png" alt="QQ" width="36" height="36" style="border-radius:8px">
+                    <div>
+                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_qq">QQ</div>
+                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_qq_desc">Connect to QQ via official QQ Bot API</div>
+                    </div>
+                  </div>
+                  <span class="s-badge" id="s-ch-qq-status"></span>
+                </div>
+                <div id="s-ch-qq-connected" style="display:none;margin-top:16px">
+                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                      <div style="font-size:12px;color:var(--fg-tertiary)">App ID</div>
+                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-qq-appid-display"></div>
+                    </div>
+                    <button class="s-btn s-btn-danger" id="s-ch-qq-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                  </div>
+                </div>
+                <div id="s-ch-qq-form" style="display:none;margin-top:16px">
+                  <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                    <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_qq_guide_title">Setup Steps</div>
+                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_qq_step1">Create a bot on QQ Open Platform</span> <a href="https://q.qq.com/" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_qq_step1_link">Open Platform</a></div>
+                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_qq_step2">Find the bot's App ID and App Secret in the bot settings page</span></div>
+                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_qq_step3">Copy App ID and App Secret below</span></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div><label class="settings-field-label">App ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-appid" style="max-width:100%" placeholder="102xxxxxx"></div>
+                    <div><label class="settings-field-label">App Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-secret" type="password" style="max-width:100%" placeholder="Enter App Secret"></div>
+                  </div>
+                  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                    <button class="s-btn s-btn-ghost" id="s-ch-qq-cancel-btn" data-i18n="settings_cancel">Cancel</button>
+                    <button class="s-btn s-btn-primary" id="s-ch-qq-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                  </div>
+                </div>
+                <div id="s-ch-qq-setup" style="margin-top:16px">
+                  <button class="s-btn s-btn-primary" id="s-ch-qq-setup-btn" data-i18n="settings_ch_setup">Configure</button>
+                </div>
+              </div>
             </div>
           </div>
 

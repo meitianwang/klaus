@@ -122,6 +122,12 @@ export function getChatI18n(): string {
       settings_ch_wechat_waiting: "Waiting for scan...",
       settings_ch_wechat_scanned: "QR code scanned, confirming...",
       settings_ch_wechat_expired: "QR code expired, please try again",
+      settings_ch_qq: "QQ", settings_ch_qq_desc: "Connect to QQ via official QQ Bot API",
+      settings_ch_qq_guide_title: "Setup Steps",
+      settings_ch_qq_step1: "Create a bot on QQ Open Platform",
+      settings_ch_qq_step1_link: "Open Platform",
+      settings_ch_qq_step2: "Find the bot's App ID and App Secret in the bot settings page",
+      settings_ch_qq_step3: "Copy App ID and App Secret below",
       settings_confirm_delete: "Are you sure?",
     },
     zh: {
@@ -243,6 +249,12 @@ export function getChatI18n(): string {
       settings_ch_wechat_waiting: "\u7b49\u5f85\u626b\u7801...",
       settings_ch_wechat_scanned: "\u5df2\u626b\u7801\uff0c\u786e\u8ba4\u4e2d...",
       settings_ch_wechat_expired: "\u4e8c\u7ef4\u7801\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u8bd5",
+      settings_ch_qq: "QQ", settings_ch_qq_desc: "\u901a\u8fc7 QQ \u5f00\u653e\u5e73\u53f0\u5b98\u65b9 API \u63a5\u5165 QQ",
+      settings_ch_qq_guide_title: "\u914d\u7f6e\u6b65\u9aa4",
+      settings_ch_qq_step1: "\u5728 QQ \u5f00\u653e\u5e73\u53f0\u521b\u5efa\u673a\u5668\u4eba",
+      settings_ch_qq_step1_link: "\u524d\u5f80\u5f00\u653e\u5e73\u53f0",
+      settings_ch_qq_step2: "\u5728\u673a\u5668\u4eba\u8bbe\u7f6e\u9875\u627e\u5230 App ID \u548c App Secret",
+      settings_ch_qq_step3: "\u590d\u5236 App ID \u548c App Secret \u586b\u5165\u4e0b\u65b9",
       settings_confirm_delete: "\u786e\u5b9a\u64cd\u4f5c\uff1f",
     }
   };

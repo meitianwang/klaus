@@ -384,10 +384,13 @@ export function getSettingsJs(): string {
       showDingtalkState(dt && dt.enabled ? "connected" : "setup", dt);
       var wx = d && d.wechat;
       showWechatState(wx && wx.enabled ? "connected" : "setup", wx);
+      var qq = d && d.qq;
+      showQQState(qq && qq.enabled ? "connected" : "setup", qq);
     }).catch(function() {
       showFeishuState("setup", null);
       showDingtalkState("setup", null);
       showWechatState("setup", null);
+      showQQState("setup", null);
     });
   }
 
@@ -579,6 +582,74 @@ export function getSettingsJs(): string {
       .then(function() {
         showSettingsToast(tt("settings_ch_disconnected"));
         showWechatState("setup", null);
+      })
+      .catch(function() { showSettingsToast(tt("settings_failed")); });
+  });
+
+  // --- QQ Bot ---
+  var sQqStatus = document.getElementById("s-ch-qq-status");
+  var sQqConnected = document.getElementById("s-ch-qq-connected");
+  var sQqForm = document.getElementById("s-ch-qq-form");
+  var sQqSetup = document.getElementById("s-ch-qq-setup");
+
+  function showQQState(state, data) {
+    sQqConnected.style.display = state === "connected" ? "block" : "none";
+    sQqForm.style.display = state === "form" ? "block" : "none";
+    sQqSetup.style.display = state === "setup" ? "block" : "none";
+    if (state === "connected") {
+      sQqStatus.textContent = tt("settings_ch_connected");
+      sQqStatus.className = "s-badge s-badge-green";
+      document.getElementById("s-ch-qq-appid-display").textContent = data && data.app_id || "";
+    } else {
+      sQqStatus.textContent = tt("settings_ch_not_connected");
+      sQqStatus.className = "s-badge s-badge-gray";
+    }
+  }
+
+  function loadQQState() {
+    adminApi("channels", "GET").then(function(d) {
+      var qq = d && d.qq;
+      showQQState(qq && qq.enabled ? "connected" : "setup", qq);
+    }).catch(function() { showQQState("setup", null); });
+  }
+
+  document.getElementById("s-ch-qq-setup-btn").addEventListener("click", function() {
+    document.getElementById("s-ch-qq-appid").value = "";
+    document.getElementById("s-ch-qq-secret").value = "";
+    showQQState("form", null);
+  });
+
+  document.getElementById("s-ch-qq-cancel-btn").addEventListener("click", function() {
+    loadQQState();
+  });
+
+  document.getElementById("s-ch-qq-connect-btn").addEventListener("click", function() {
+    var appId = document.getElementById("s-ch-qq-appid").value.trim();
+    var secret = document.getElementById("s-ch-qq-secret").value.trim();
+    if (!appId || !secret) return;
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = tt("settings_ch_connecting");
+    adminApi("channels/qq", "POST", { app_id: appId, client_secret: secret })
+      .then(function(d) {
+        if (d && d.ok) {
+          showSettingsToast(tt("settings_ch_connect_ok"));
+          showQQState("connected", d);
+        } else {
+          showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
+          showQQState("form", null);
+        }
+      })
+      .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
+      .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
+  });
+
+  document.getElementById("s-ch-qq-disconnect-btn").addEventListener("click", function() {
+    if (!confirm(tt("settings_confirm_delete"))) return;
+    adminApi("channels/qq", "DELETE")
+      .then(function() {
+        showSettingsToast(tt("settings_ch_disconnected"));
+        showQQState("setup", null);
       })
       .catch(function() { showSettingsToast(tt("settings_failed")); });
   });
