@@ -55,22 +55,6 @@ export interface DingtalkMediaContent {
 }
 
 // ---------------------------------------------------------------------------
-// Parsed message context
-// ---------------------------------------------------------------------------
-
-export interface DingtalkMessageContext {
-  conversationId: string;
-  messageId: string;
-  senderId: string;
-  senderNick?: string;
-  chatType: "direct" | "group";
-  content: string;
-  contentType: string;
-  mentionedBot: boolean;
-  robotCode?: string;
-}
-
-// ---------------------------------------------------------------------------
 // Send result
 // ---------------------------------------------------------------------------
 

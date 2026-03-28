@@ -4,10 +4,6 @@ export type {
   GatewayRpcMethodDispatchResult,
   GatewaySettingsSnapshot,
 } from "./admin-types.js";
-export {
-  GATEWAY_ADMIN_RPC_READ_METHODS,
-  GATEWAY_ADMIN_RPC_WRITE_METHODS,
-} from "./admin-types.js";
 export { handleGatewayAdminRpcMethod } from "./admin-rpc.js";
 export {
   createGatewayAdminMcpServer,

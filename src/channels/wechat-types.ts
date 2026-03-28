@@ -20,10 +20,6 @@ export interface WechatConfig {
 // API types (aligned with openclaw-weixin/src/api/types.ts)
 // ---------------------------------------------------------------------------
 
-export const MessageType = { USER: 1, BOT: 2 } as const;
-export const MessageState = { FINISH: 2 } as const;
-export const MessageItemType = { TEXT: 1, IMAGE: 2, VOICE: 3, FILE: 4, VIDEO: 5 } as const;
-
 export interface TextItem { text?: string }
 
 export interface MessageItem {

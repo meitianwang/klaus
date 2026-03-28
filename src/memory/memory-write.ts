@@ -32,7 +32,7 @@ function todayFilename(): string {
  * Append content to a daily memory file. Creates the file and directory if needed.
  * This is the only write path for memory files — always append, never overwrite.
  */
-export async function appendToMemoryFile(memoryDir: string, content: string): Promise<string> {
+async function appendToMemoryFile(memoryDir: string, content: string): Promise<string> {
   const dir = join(memoryDir, "memory");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 

@@ -178,7 +178,7 @@ export function releaseProcessing(
  * Record a message as processed (memory + persistent).
  * Returns true if successfully recorded (not previously processed).
  */
-export async function recordProcessed(
+async function recordProcessed(
   messageId: string | undefined | null,
   namespace = "global",
 ): Promise<boolean> {
@@ -205,28 +205,6 @@ export async function recordProcessed(
   const pruned = prunePersistentData(data, now, FILE_MAX_ENTRIES);
   await writePersistentData(filePath, pruned);
   return true;
-}
-
-/**
- * Check if a message has been processed (memory + persistent).
- */
-export async function hasProcessed(
-  messageId: string | undefined | null,
-  namespace = "global",
-): Promise<boolean> {
-  const trimmed = messageId?.trim();
-  if (!trimmed) return false;
-
-  const memKey = resolveKey(namespace, messageId);
-  if (!memKey) return false;
-
-  if (memoryDedup.peek(memKey)) return true;
-
-  // Check persistent
-  const filePath = resolveFilePath(namespace);
-  const data = await readPersistentData(filePath);
-  const seenAt = data[trimmed];
-  return typeof seenAt === "number" && Date.now() - seenAt < DEDUP_TTL_MS;
 }
 
 /**

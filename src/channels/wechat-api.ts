@@ -174,30 +174,4 @@ export async function sendMessageWechat(params: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Typing indicator
-// ---------------------------------------------------------------------------
-
-export async function sendTyping(params: {
-  config: WechatConfig;
-  userId: string;
-  typingTicket: string;
-  cancel?: boolean;
-}): Promise<void> {
-  try {
-    await apiFetch({
-      baseUrl: params.config.baseUrl,
-      endpoint: "ilink/bot/sendtyping",
-      body: JSON.stringify({
-        ilink_user_id: params.userId,
-        typing_ticket: params.typingTicket,
-        status: params.cancel ? 2 : 1,
-        base_info: { channel_version: CHANNEL_VERSION },
-      }),
-      token: params.config.token,
-      timeoutMs: 10_000,
-    });
-  } catch { /* non-critical */ }
-}
-
 export { DEFAULT_BASE_URL };

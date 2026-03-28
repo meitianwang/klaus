@@ -124,33 +124,6 @@ export type FeishuMention = {
   tenant_key?: string;
 };
 
-export type FeishuBotAddedEvent = {
-  chat_id: string;
-  operator_id: {
-    open_id?: string;
-    user_id?: string;
-    union_id?: string;
-  };
-  external: boolean;
-  operator_tenant_key?: string;
-};
-
-export type FeishuMessageContext = {
-  chatId: string;
-  messageId: string;
-  senderId: string;
-  senderOpenId: string;
-  senderName?: string;
-  chatType: "p2p" | "group" | "private";
-  mentionedBot: boolean;
-  hasAnyMention?: boolean;
-  rootId?: string;
-  parentId?: string;
-  threadId?: string;
-  content: string;
-  contentType: string;
-};
-
 // ---------------------------------------------------------------------------
 // Send result
 // ---------------------------------------------------------------------------
@@ -160,30 +133,7 @@ export type FeishuSendResult = {
   chatId: string;
 };
 
-export type FeishuChatType = "p2p" | "group" | "private";
 
-export type FeishuMessageInfo = {
-  messageId: string;
-  chatId: string;
-  chatType?: FeishuChatType;
-  senderId?: string;
-  senderOpenId?: string;
-  senderType?: string;
-  content: string;
-  contentType: string;
-  createTime?: number;
-  threadId?: string;
-};
-
-// ---------------------------------------------------------------------------
-// Media
-// ---------------------------------------------------------------------------
-
-export type FeishuMediaInfo = {
-  path: string;
-  contentType?: string;
-  placeholder: string;
-};
 
 // ---------------------------------------------------------------------------
 // Permission error

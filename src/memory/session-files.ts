@@ -32,7 +32,7 @@ export async function listSessionFiles(dir: string): Promise<string[]> {
   }
 }
 
-export function sessionPathForFile(absPath: string): string {
+function sessionPathForFile(absPath: string): string {
   return path.join("sessions", path.basename(absPath)).replace(/\\/g, "/");
 }
 

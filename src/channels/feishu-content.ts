@@ -456,7 +456,7 @@ export function normalizeMentions(
 // Group session scope resolution
 // ---------------------------------------------------------------------------
 
-export type ResolvedFeishuGroupSession = {
+type ResolvedFeishuGroupSession = {
   peerId: string;
   replyInThread: boolean;
   threadReply: boolean;

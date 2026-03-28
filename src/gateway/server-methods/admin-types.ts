@@ -66,27 +66,3 @@ export type GatewayRpcMethodDispatchResult =
   | { handled: true; result: unknown }
   | { handled: true; error: string };
 
-export const GATEWAY_ADMIN_RPC_WRITE_METHODS = new Set([
-  "models.add",
-  "models.update",
-  "models.remove",
-  "prompts.add",
-  "prompts.update",
-  "prompts.remove",
-  "rules.add",
-  "rules.update",
-  "rules.remove",
-  "mcp.add",
-  "mcp.update",
-  "mcp.remove",
-  "providers.reload",
-]);
-
-export const GATEWAY_ADMIN_RPC_READ_METHODS = new Set([
-  "models.list",
-  "prompts.list",
-  "rules.list",
-  "mcp.list",
-  "providers.list",
-  "capabilities.get",
-]);

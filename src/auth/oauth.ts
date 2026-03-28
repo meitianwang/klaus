@@ -3,7 +3,7 @@ import type { OAuthAuthConfig } from "../providers/types.js";
 
 export type OAuthProviderAuth = OAuthAuthConfig;
 
-export interface OAuthTokenResult {
+interface OAuthTokenResult {
   readonly accessToken: string;
   readonly refreshToken?: string;
   readonly expiresIn: number;

@@ -46,7 +46,7 @@ function isWithdrawnReplyError(err: unknown): boolean {
 // Response validation
 // ---------------------------------------------------------------------------
 
-export function assertFeishuApiSuccess(
+function assertFeishuApiSuccess(
   response: { code?: number; msg?: string },
   errorPrefix: string,
 ): void {
@@ -246,25 +246,6 @@ export async function sendCardMessage(params: {
 }
 
 /**
- * Send a message to a specific user by open_id.
- */
-export async function sendDirectMessage(params: {
-  config: FeishuConfig;
-  openId: string;
-  text: string;
-}): Promise<FeishuSendResult> {
-  const client = getClient(params.config);
-  const content = JSON.stringify({ text: params.text });
-
-  return sendDirect(client, {
-    receiveId: params.openId,
-    receiveIdType: "open_id",
-    content,
-    msgType: "text",
-  }, "Feishu DM send failed");
-}
-
-/**
  * Send a proactive message to any target (open_id or chat_id).
  */
 export async function sendMessage(params: {
@@ -284,46 +265,3 @@ export async function sendMessage(params: {
   }, "Feishu send failed");
 }
 
-/**
- * Get a message by its ID.
- */
-export async function getMessage(params: {
-  config: FeishuConfig;
-  messageId: string;
-}): Promise<{ content: string; chatId: string; msgType: string } | null> {
-  const client = getClient(params.config);
-  try {
-    const response = await client.im.message.get({
-      path: { message_id: params.messageId },
-    }) as { code?: number; data?: { items?: Array<{ body?: { content?: string }; chat_id?: string; msg_type?: string }> } };
-
-    if (response.code !== 0) return null;
-    const item = response.data?.items?.[0];
-    if (!item) return null;
-
-    return {
-      content: item.body?.content ?? "",
-      chatId: item.chat_id ?? "",
-      msgType: item.msg_type ?? "text",
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Edit an existing message.
- */
-export async function editMessage(params: {
-  config: FeishuConfig;
-  messageId: string;
-  text: string;
-}): Promise<void> {
-  const client = getClient(params.config);
-  const content = JSON.stringify({ text: params.text });
-
-  await client.im.message.patch({
-    path: { message_id: params.messageId },
-    data: { content },
-  });
-}

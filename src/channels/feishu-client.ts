@@ -11,15 +11,15 @@ import type { FeishuConfig, FeishuDomain } from "./feishu-types.js";
 // ---------------------------------------------------------------------------
 
 /** Default HTTP timeout for Feishu API requests (30 seconds). */
-export const FEISHU_HTTP_TIMEOUT_MS = 30_000;
-export const FEISHU_HTTP_TIMEOUT_MAX_MS = 300_000;
+const FEISHU_HTTP_TIMEOUT_MS = 30_000;
+const FEISHU_HTTP_TIMEOUT_MAX_MS = 300_000;
 export const FEISHU_MEDIA_HTTP_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Domain resolution
 // ---------------------------------------------------------------------------
 
-export function resolveDomain(domain?: FeishuDomain): Lark.Domain | string {
+function resolveDomain(domain?: FeishuDomain): Lark.Domain | string {
   if (domain === "lark") return Lark.Domain.Lark;
   if (domain === "feishu" || !domain) return Lark.Domain.Feishu;
   return domain.replace(/\/+$/, ""); // Custom URL for private deployment
@@ -204,9 +204,3 @@ export async function probeBotIdentity(
   }
 }
 
-/**
- * Clear cached clients.
- */
-export function clearClientCache(): void {
-  clientCache.clear();
-}

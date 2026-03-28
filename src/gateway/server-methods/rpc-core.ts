@@ -34,18 +34,10 @@ export type GatewayRpcCoreContext = {
   listSessionAttemptHistories(params?: { userId?: string }): readonly unknown[];
 };
 
-export type GatewayRpcCoreDispatchResult =
+type GatewayRpcCoreDispatchResult =
   | { handled: false }
   | { handled: true; result: unknown }
   | { handled: true; error: string };
-
-export const GATEWAY_RPC_WRITE_METHODS = new Set([
-  "config.set",
-  "cron.add",
-  "cron.update",
-  "cron.remove",
-  "cron.run",
-]);
 
 export async function handleGatewayCoreRpcMethod(
   ctx: GatewayRpcCoreContext,

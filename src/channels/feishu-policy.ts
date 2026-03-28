@@ -11,7 +11,7 @@ import type { FeishuConfig, FeishuGroupConfig } from "./feishu-types.js";
 // Allowlist matching
 // ---------------------------------------------------------------------------
 
-export type AllowlistMatch = {
+type AllowlistMatch = {
   allowed: boolean;
   matchKey?: string;
   matchSource?: "wildcard" | "id";
@@ -30,7 +30,7 @@ function normalizeAllowEntry(raw: string): string {
  * Check if a sender ID matches the allowlist.
  * Feishu allowlists are ID-based — mutable display names must never grant access.
  */
-export function resolveAllowlistMatch(params: {
+function resolveAllowlistMatch(params: {
   allowFrom: readonly (string | number)[];
   senderId: string;
   senderIds?: readonly (string | null | undefined)[];

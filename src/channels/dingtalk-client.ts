@@ -35,11 +35,6 @@ export function createDingtalkClient(config: DingtalkConfig): DWClient {
   return client;
 }
 
-export function clearClientCache(): void {
-  cachedClient = null;
-  cachedCreds = null;
-}
-
 // ---------------------------------------------------------------------------
 // Access Token (OAuth2)
 // ---------------------------------------------------------------------------

@@ -113,7 +113,7 @@ export function createGatewayAgentEventForwarder(params: {
   };
 }
 
-export async function appendGatewayUserTranscript(params: {
+async function appendGatewayUserTranscript(params: {
   message: InboundMessage;
   append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>;
 }): Promise<void> {
@@ -124,7 +124,7 @@ export async function appendGatewayUserTranscript(params: {
   await params.append(params.message.sessionKey, "user", display);
 }
 
-export async function appendGatewayAssistantTranscript(params: {
+async function appendGatewayAssistantTranscript(params: {
   sessionKey: string;
   reply: string;
   append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>;

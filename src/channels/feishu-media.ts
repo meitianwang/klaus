@@ -3,9 +3,9 @@
  * Aligned with OpenClaw's extensions/feishu/src/media.ts
  */
 
-import { createReadStream, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
-import { join, dirname, extname } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { Readable } from "node:stream";
 import type { FeishuConfig } from "./feishu-types.js";
@@ -15,7 +15,7 @@ import { createFeishuClient, FEISHU_MEDIA_HTTP_TIMEOUT_MS } from "./feishu-clien
 // Types
 // ---------------------------------------------------------------------------
 
-export type DownloadResult = {
+type DownloadResult = {
   buffer: Buffer;
   contentType?: string;
   fileName?: string;
@@ -174,113 +174,11 @@ export async function downloadMessageResource(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Public API: Upload
+// Helpers (internal)
 // ---------------------------------------------------------------------------
 
-function extractUploadKey(
-  response: unknown,
-  key: "image_key" | "file_key",
-  errorPrefix: string,
-): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const r = response as any;
-  if (r.code !== undefined && r.code !== 0) {
-    throw new Error(`${errorPrefix}: ${r.msg || `code ${r.code}`}`);
-  }
-  const value = r[key] ?? r.data?.[key];
-  if (!value) throw new Error(`${errorPrefix}: no ${key} returned`);
-  return value;
-}
-
-/**
- * Sanitize a filename for safe use in multipart uploads.
- */
-export function sanitizeFileName(fileName: string): string {
+function sanitizeFileName(fileName: string): string {
   return fileName.replace(/[\x00-\x1F\x7F\r\n"\\]/g, "_");
-}
-
-/**
- * Upload an image to Feishu.
- */
-export async function uploadImage(params: {
-  config: FeishuConfig;
-  image: Buffer | string;
-  imageType?: "message" | "avatar";
-}): Promise<{ imageKey: string }> {
-  const client = createFeishuClient(params.config, { httpTimeoutMs: FEISHU_MEDIA_HTTP_TIMEOUT_MS });
-  const imageData = typeof params.image === "string" ? createReadStream(params.image) : params.image;
-
-  const response = await client.im.image.create({
-    data: {
-      image_type: params.imageType ?? "message",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      image: imageData as any,
-    },
-  });
-
-  return {
-    imageKey: extractUploadKey(response, "image_key", "Feishu image upload failed"),
-  };
-}
-
-/**
- * Upload a file to Feishu.
- */
-export async function uploadFile(params: {
-  config: FeishuConfig;
-  file: Buffer | string;
-  fileName: string;
-  fileType: "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
-  duration?: number;
-}): Promise<{ fileKey: string }> {
-  const client = createFeishuClient(params.config, { httpTimeoutMs: FEISHU_MEDIA_HTTP_TIMEOUT_MS });
-  const fileData = typeof params.file === "string" ? createReadStream(params.file) : params.file;
-  const safeFileName = sanitizeFileName(params.fileName);
-
-  const response = await client.im.file.create({
-    data: {
-      file_type: params.fileType,
-      file_name: safeFileName,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      file: fileData as any,
-      ...(params.duration !== undefined && { duration: params.duration }),
-    },
-  });
-
-  return {
-    fileKey: extractUploadKey(response, "file_key", "Feishu file upload failed"),
-  };
-}
-
-/**
- * Detect file type from extension for Feishu upload.
- */
-export function detectFileType(
-  fileName: string,
-): "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream" {
-  const ext = extname(fileName).toLowerCase();
-  switch (ext) {
-    case ".opus":
-    case ".ogg":
-      return "opus";
-    case ".mp4":
-    case ".mov":
-    case ".avi":
-      return "mp4";
-    case ".pdf":
-      return "pdf";
-    case ".doc":
-    case ".docx":
-      return "doc";
-    case ".xls":
-    case ".xlsx":
-      return "xls";
-    case ".ppt":
-    case ".pptx":
-      return "ppt";
-    default:
-      return "stream";
-  }
 }
 
 // ---------------------------------------------------------------------------

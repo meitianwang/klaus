@@ -281,7 +281,7 @@ interface KlausWebSocket extends WebSocket {
   klausIp: string;
 }
 
-export function sendWsEvent(userId: string, event: WsEvent): void {
+function sendWsEvent(userId: string, event: WsEvent): void {
   gateway.sendEvent(userId, event);
 }
 

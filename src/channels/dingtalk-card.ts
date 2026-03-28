@@ -22,7 +22,7 @@ const AICardStatus = {
   FINISHED: "3",
 } as const;
 
-export interface AICardInstance {
+interface AICardInstance {
   cardInstanceId: string;
   accessToken: string;
 }
