@@ -8,6 +8,7 @@ export function getSettingsJs(): string {
   function switchSettingsTab(id) {
     sNavItems.forEach(function(n) { n.classList.toggle("active", n.getAttribute("data-stab") === id); });
     sTabPanels.forEach(function(p) { p.classList.toggle("active", p.id === "stab-" + id); });
+    if (id === "skills") loadSettingsSkills();
     if (id === "mcp" && isAdmin) loadMcpServers();
     if (id === "cron" && isAdmin) loadCronTasks();
     if (id === "channels") loadSettingsChannels();
@@ -559,6 +560,91 @@ export function getSettingsJs(): string {
   });
 
   disconnectChannel("wechat", showWechatState);
+
+  // --- Skills tab ---
+  var skGrid = document.getElementById("sk-grid");
+  var skEmpty = document.getElementById("sk-empty");
+  var skSearch = document.getElementById("sk-search");
+  var skAllData = [];
+  var skFilter = "all";
+
+  function esc(s) { if (s == null) return ""; return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  function renderSkillCards(skills) {
+    var filtered = skills.filter(function(s) {
+      if (skFilter === "enabled") return s.enabled || s.always;
+      if (skFilter === "disabled") return !s.enabled && !s.always;
+      return true;
+    });
+    var query = (skSearch.value || "").toLowerCase().trim();
+    if (query) {
+      filtered = filtered.filter(function(s) {
+        return s.name.toLowerCase().indexOf(query) >= 0 || (s.description || "").toLowerCase().indexOf(query) >= 0;
+      });
+    }
+    if (filtered.length === 0) {
+      skGrid.innerHTML = "";
+      skEmpty.style.display = "";
+      return;
+    }
+    skEmpty.style.display = "none";
+    skGrid.innerHTML = filtered.map(function(s) {
+      var emoji = s.emoji ? esc(s.emoji) : "🧩";
+      var statusBadge = s.always ? '<span class="s-badge s-badge-green">always-on</span>'
+        : s.eligible && s.enabled ? '<span class="s-badge s-badge-green">active</span>'
+        : !s.eligible ? '<span class="s-badge s-badge-red">missing deps</span>'
+        : '<span class="s-badge s-badge-gray">disabled</span>';
+      var srcBadge = '<span class="s-badge s-badge-gray">' + esc(s.source) + '</span>';
+      var toggle = s.always ? '' : '<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="' + esc(s.name) + '"' + (s.enabled ? ' checked' : '') + '><span class="sk-slider"></span></label>';
+      return '<div class="sk-card">' +
+        '<div class="sk-card-head">' +
+          '<div class="sk-card-info"><div class="sk-card-emoji">' + emoji + '</div><div class="sk-card-name">' + esc(s.name) + '</div></div>' +
+          toggle +
+        '</div>' +
+        '<div class="sk-card-desc">' + esc(s.description || '') + '</div>' +
+        '<div class="sk-card-badges">' + srcBadge + ' ' + statusBadge + '</div>' +
+      '</div>';
+    }).join("");
+    // Bind toggles
+    skGrid.querySelectorAll(".sk-toggle-input").forEach(function(el) {
+      el.addEventListener("change", function() {
+        var name = el.getAttribute("data-skill");
+        fetchJSON("/api/admin/skills", { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name: name, enabled: el.checked }) }).then(function() {
+          showSettingsToast(tt(el.checked ? "settings_skills_on" : "settings_skills_off"));
+          loadSettingsSkills();
+        });
+      });
+    });
+  }
+
+  function loadSettingsSkills() {
+    fetchJSON("/api/admin/skills").then(function(data) {
+      skAllData = data.skills || [];
+      // Update tab counts
+      var allCount = skAllData.length;
+      var enabledCount = skAllData.filter(function(s) { return s.enabled || s.always; }).length;
+      document.querySelectorAll(".sk-tab").forEach(function(t) {
+        var f = t.getAttribute("data-sk-filter");
+        var count = f === "all" ? allCount : f === "enabled" ? enabledCount : allCount - enabledCount;
+        var label = t.getAttribute("data-i18n") ? tt(t.getAttribute("data-i18n")) : t.textContent;
+        t.textContent = label.replace(/ \\d+$/, "") + " " + count;
+      });
+      renderSkillCards(skAllData);
+    });
+  }
+
+  // Tab filter buttons
+  document.querySelectorAll(".sk-tab").forEach(function(t) {
+    t.addEventListener("click", function() {
+      document.querySelectorAll(".sk-tab").forEach(function(b) { b.classList.remove("active"); });
+      t.classList.add("active");
+      skFilter = t.getAttribute("data-sk-filter");
+      renderSkillCards(skAllData);
+    });
+  });
+
+  // Search
+  skSearch.addEventListener("input", function() { renderSkillCards(skAllData); });
 
 `;
 }

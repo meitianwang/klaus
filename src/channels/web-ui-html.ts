@@ -84,6 +84,7 @@ export function getChatBodyHtml(): string {
           <div class="settings-sidebar-nav">
             <button class="settings-nav-item active" data-stab="profile" data-i18n="settings_profile">Profile</button>
             <button class="settings-nav-item" data-stab="channels" data-i18n="settings_channels">Channels</button>
+            <button class="settings-nav-item" data-stab="skills" data-i18n="settings_skills">Skills</button>
             <button class="settings-nav-item" data-stab="mcp" data-i18n="settings_mcp">MCP</button>
             <button class="settings-nav-item" data-stab="cron" data-i18n="settings_cron">Tasks</button>
           </div>
@@ -441,6 +442,23 @@ export function getChatBodyHtml(): string {
           </div>
 
           <!-- Cron tab -->
+          <div class="settings-tab-panel" id="stab-skills">
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <div class="settings-section-header-title" data-i18n="settings_skills">Skills</div>
+              </div>
+              <div class="settings-section-desc" data-i18n="settings_skills_desc">Enable skills to extend Klaus with specialized capabilities and tools.</div>
+              <div class="sk-tabs">
+                <button class="sk-tab active" data-sk-filter="all" data-i18n="settings_skills_all">All</button>
+                <button class="sk-tab" data-sk-filter="enabled" data-i18n="settings_skills_enabled">Enabled</button>
+                <button class="sk-tab" data-sk-filter="disabled" data-i18n="settings_skills_disabled">Disabled</button>
+              </div>
+              <input class="s-form-input sk-search" id="sk-search" placeholder="Search skills..." data-i18n-placeholder="settings_skills_search">
+              <div class="sk-grid" id="sk-grid"></div>
+              <div class="sk-empty" id="sk-empty" style="display:none" data-i18n="settings_skills_empty">No skills found.</div>
+            </div>
+          </div>
+
           <div class="settings-tab-panel" id="stab-cron">
             <div class="settings-section" id="settings-cron-section">
               <div class="settings-section-header">
