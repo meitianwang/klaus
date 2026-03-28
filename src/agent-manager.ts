@@ -356,7 +356,12 @@ export class AgentSessionManager {
       parts.push(buildMemoryPromptSection(this.memoryPool.citationsMode));
     }
     const skillRegistry = getSkillRegistry();
-    const resolvedSkills = skillRegistry.getSkills();
+    const allSkills = skillRegistry.getSkills();
+    // Per-user skill filter: exclude skills the user has explicitly turned off
+    const resolvedSkills = allSkills.filter((s) => {
+      const pref = this.store.get(`user.${userId}.skill.${s.name}`);
+      return pref !== "off";
+    });
     if (resolvedSkills.length > 0) {
       const skillList = resolvedSkills
         .map((s) => `- ${s.name}: ${s.description}`)

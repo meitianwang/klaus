@@ -1396,6 +1396,54 @@ async function handleAdminMcp(
 }
 
 // ---------------------------------------------------------------------------
+// User: Skills preferences
+// ---------------------------------------------------------------------------
+
+async function handleUserSkills(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const auth = authenticateRequest(req);
+  if (auth.kind === "invalid") {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+  if (!settingsStoreRef) { jsonResponse(res, 503, { error: "not ready" }); return; }
+
+  if (req.method === "GET") {
+    try {
+      const { buildUserSkillStatus } = await import("../skills/status.js");
+      const skills = buildUserSkillStatus(auth.user.id, settingsStoreRef);
+      jsonResponse(res, 200, { skills });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    try {
+      const parsed = await readJsonBody(req, 4096);
+      const name = typeof parsed.name === "string" ? parsed.name : "";
+      if (!name || !/^[a-zA-Z0-9_-]+$/.test(name) || name.length > 64) {
+        jsonResponse(res, 400, { error: "invalid skill name" });
+        return;
+      }
+      settingsStoreRef.set(
+        `user.${auth.user.id}.skill.${name}`,
+        parsed.enabled ? "on" : "off",
+      );
+      jsonResponse(res, 200, { ok: true });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
 // Admin: Skills management
 // ---------------------------------------------------------------------------
 
@@ -1517,6 +1565,13 @@ async function handleAdminChannels(
         enabled: settingsStoreRef.getBool("channel.telegram.enabled", false) && !!(settingsStoreRef.get("channel.telegram.bot_token") ?? ""),
         bot_username: settingsStoreRef.get("channel.telegram.bot_username") ?? "",
         bot_name: settingsStoreRef.get("channel.telegram.bot_name") ?? "",
+      },
+      imessage: {
+        enabled: settingsStoreRef.getBool("channel.imessage.enabled", false),
+        cli_path: settingsStoreRef.get("channel.imessage.cli_path") ?? "imsg",
+      },
+      whatsapp: {
+        enabled: settingsStoreRef.getBool("channel.whatsapp.enabled", false),
       },
     });
     return;
@@ -2125,6 +2180,76 @@ async function handleAdminChannelTelegram(
   jsonResponse(res, 405, { error: "method not allowed" });
 }
 
+async function handleAdminChannelImessage(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const authUser = adminAuth(req, res);
+  if (!authUser) return;
+  if (!settingsStoreRef) { jsonResponse(res, 503, { error: "settings store unavailable" }); return; }
+
+  if (req.method === "POST") {
+    try {
+      const parsed = await readJsonBody(req, 4096);
+      const cliPath = String(parsed.cli_path ?? "").trim() || "imsg";
+
+      // Probe imsg CLI
+      try {
+        const { execFileSync } = await import("node:child_process");
+        execFileSync(cliPath, ["--version"], { timeout: 5000 });
+      } catch {
+        jsonResponse(res, 400, { ok: false, error: `Cannot find imsg at "${cliPath}"` });
+        return;
+      }
+
+      settingsStoreRef.set("channel.imessage.cli_path", cliPath);
+      settingsStoreRef.set("channel.imessage.enabled", "true");
+      settingsStoreRef.set("channel.imessage.owner_id", authUser.id);
+
+      hotStartChannel("imessage");
+      jsonResponse(res, 200, { ok: true, cli_path: cliPath, enabled: true });
+    } catch (err) { gatewayErrorResponse(res, err); }
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    settingsStoreRef.set("channel.imessage.enabled", "false");
+    settingsStoreRef.set("channel.imessage.cli_path", "");
+    settingsStoreRef.set("channel.imessage.owner_id", "");
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+async function handleAdminChannelWhatsapp(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const authUser = adminAuth(req, res);
+  if (!authUser) return;
+  if (!settingsStoreRef) { jsonResponse(res, 503, { error: "settings store unavailable" }); return; }
+
+  if (req.method === "POST") {
+    // WhatsApp uses QR login — POST just enables the channel and starts it
+    settingsStoreRef.set("channel.whatsapp.enabled", "true");
+    settingsStoreRef.set("channel.whatsapp.owner_id", authUser.id);
+    hotStartChannel("whatsapp");
+    jsonResponse(res, 200, { ok: true, enabled: true, message: "WhatsApp started. Scan QR code in server terminal." });
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    settingsStoreRef.set("channel.whatsapp.enabled", "false");
+    settingsStoreRef.set("channel.whatsapp.owner_id", "");
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
 // ---------------------------------------------------------------------------
 // File download handler
 // ---------------------------------------------------------------------------
@@ -2273,6 +2398,10 @@ async function handleRequest(
       return servePublicFile(res, "wecom-icon.png", "image/jpeg");
     case "/telegram-icon.png":
       return servePublicFile(res, "telegram-icon.png", "image/jpeg");
+    case "/imessage-icon.png":
+      return servePublicFile(res, "imessage-icon.png", "image/jpeg");
+    case "/whatsapp-icon.png":
+      return servePublicFile(res, "whatsapp-icon.png", "image/jpeg");
 
     // Auth routes
     case "/api/auth/register":
@@ -2332,6 +2461,10 @@ async function handleRequest(
       }
       return handleGoogleCallback(req, res, cfg, userStoreRef, inviteStoreRef);
 
+    // User skills preferences
+    case "/api/skills":
+      return handleUserSkills(req, res);
+
     // Admin routes
     case "/api/admin/invites":
       return handleAdminInvites(req, res);
@@ -2383,6 +2516,10 @@ async function handleRequest(
       return handleAdminChannelWecom(req, res);
     case "/api/admin/channels/telegram":
       return handleAdminChannelTelegram(req, res);
+    case "/api/admin/channels/imessage":
+      return handleAdminChannelImessage(req, res);
+    case "/api/admin/channels/whatsapp":
+      return handleAdminChannelWhatsapp(req, res);
     case "/api/admin/memory":
       return handleAdminMemory(req, res);
     case "/api/admin/memory/sync":
@@ -2432,6 +2569,8 @@ async function handleRequest(
         "qq:": "channel.qq.owner_id",
         "wecom:": "channel.wecom.owner_id",
         "telegram:": "channel.telegram.owner_id",
+        "imessage:": "channel.imessage.owner_id",
+        "whatsapp:": "channel.whatsapp.owner_id",
       };
       for (const [prefix, ownerKey] of Object.entries(channelOwnerChecks)) {
         if (histSessionId.startsWith(prefix)) {
@@ -2486,6 +2625,10 @@ async function handleRequest(
           if (!wecomOwnerId || wecomOwnerId === sessAuth.user.id) channels.push("wecom:");
           const tgOwnerId = settingsStoreRef?.get("channel.telegram.owner_id");
           if (!tgOwnerId || tgOwnerId === sessAuth.user.id) channels.push("telegram:");
+          const imsgOwnerId = settingsStoreRef?.get("channel.imessage.owner_id");
+          if (!imsgOwnerId || imsgOwnerId === sessAuth.user.id) channels.push("imessage:");
+          const waOwnerId = settingsStoreRef?.get("channel.whatsapp.owner_id");
+          if (!waOwnerId || waOwnerId === sessAuth.user.id) channels.push("whatsapp:");
           const result = await gateway.listSessions({
             userId: sessAuth.user.id,
             includeChannels: channels,

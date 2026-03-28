@@ -404,7 +404,9 @@ export function getSettingsJs(): string {
     { id: "dingtalk", icon: "/dingtalk.png", displays: [["clientid-display","client_id"]], inputs: [["clientid","client_id"],["secret","client_secret"]] },
     { id: "wecom", icon: "/wecom-icon.png", displays: [["botid-display","bot_id"]], inputs: [["botid","bot_id"],["secret","secret"]] },
     { id: "qq", icon: "/qq-icon.png", displays: [["appid-display","app_id"]], inputs: [["appid","app_id"],["secret","client_secret"]] },
-    { id: "telegram", icon: "/telegram-icon.png", displays: [["bot-display","bot_username"]], inputs: [["token","bot_token"]] }
+    { id: "telegram", icon: "/telegram-icon.png", displays: [["bot-display","bot_username"]], inputs: [["token","bot_token"]] },
+    { id: "imessage", icon: "/imessage-icon.png", displays: [["cli-display","cli_path"]], inputs: [["cli","cli_path"]] },
+    { id: "whatsapp", icon: "/whatsapp-icon.png", displays: [], inputs: [] }
   ];
 
   // Generic state toggle for standard 2-state channels (connected/form)
@@ -572,8 +574,8 @@ export function getSettingsJs(): string {
 
   function renderSkillCards(skills) {
     var filtered = skills.filter(function(s) {
-      if (skFilter === "enabled") return s.enabled || s.always;
-      if (skFilter === "disabled") return !s.enabled && !s.always;
+      if (skFilter === "enabled") return s.userEnabled;
+      if (skFilter === "disabled") return !s.userEnabled;
       return true;
     });
     var query = (skSearch.value || "").toLowerCase().trim();
@@ -590,26 +592,22 @@ export function getSettingsJs(): string {
     skEmpty.style.display = "none";
     skGrid.innerHTML = filtered.map(function(s) {
       var emoji = s.emoji ? esc(s.emoji) : "🧩";
-      var statusBadge = s.always ? '<span class="s-badge s-badge-green">always-on</span>'
-        : s.eligible && s.enabled ? '<span class="s-badge s-badge-green">active</span>'
-        : !s.eligible ? '<span class="s-badge s-badge-red">missing deps</span>'
-        : '<span class="s-badge s-badge-gray">disabled</span>';
       var srcBadge = '<span class="s-badge s-badge-gray">' + esc(s.source) + '</span>';
-      var toggle = s.always ? '' : '<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="' + esc(s.name) + '"' + (s.enabled ? ' checked' : '') + '><span class="sk-slider"></span></label>';
+      var toggle = s.always ? '' : '<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="' + esc(s.name) + '"' + (s.userEnabled ? ' checked' : '') + '><span class="sk-slider"></span></label>';
       return '<div class="sk-card">' +
         '<div class="sk-card-head">' +
           '<div class="sk-card-info"><div class="sk-card-emoji">' + emoji + '</div><div class="sk-card-name">' + esc(s.name) + '</div></div>' +
           toggle +
         '</div>' +
         '<div class="sk-card-desc">' + esc(s.description || '') + '</div>' +
-        '<div class="sk-card-badges">' + srcBadge + ' ' + statusBadge + '</div>' +
+        '<div class="sk-card-badges">' + srcBadge + (s.always ? ' <span class="s-badge s-badge-green">always-on</span>' : '') + '</div>' +
       '</div>';
     }).join("");
     // Bind toggles
     skGrid.querySelectorAll(".sk-toggle-input").forEach(function(el) {
       el.addEventListener("change", function() {
         var name = el.getAttribute("data-skill");
-        fetchJSON("/api/admin/skills", { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name: name, enabled: el.checked }) }).then(function() {
+        fetchJSON("/api/skills", { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name: name, enabled: el.checked }) }).then(function() {
           showSettingsToast(tt(el.checked ? "settings_skills_on" : "settings_skills_off"));
           loadSettingsSkills();
         });
@@ -618,11 +616,11 @@ export function getSettingsJs(): string {
   }
 
   function loadSettingsSkills() {
-    fetchJSON("/api/admin/skills").then(function(data) {
+    fetchJSON("/api/skills").then(function(data) {
       skAllData = data.skills || [];
       // Update tab counts
       var allCount = skAllData.length;
-      var enabledCount = skAllData.filter(function(s) { return s.enabled || s.always; }).length;
+      var enabledCount = skAllData.filter(function(s) { return s.userEnabled; }).length;
       document.querySelectorAll(".sk-tab").forEach(function(t) {
         var f = t.getAttribute("data-sk-filter");
         var count = f === "all" ? allCount : f === "enabled" ? enabledCount : allCount - enabledCount;

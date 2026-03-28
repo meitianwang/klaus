@@ -624,7 +624,30 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   :root:not([data-theme="light"]) .s-badge-green{background:#14532d;color:#86efac}
   :root:not([data-theme="light"]) .s-badge-red{background:#450a0a;color:#fca5a5}
 }
-@media(max-width:640px){.s-form-grid{grid-template-columns:1fr}}
+/* Skills tab */
+.settings-section-desc{font-size:14px;color:var(--fg-tertiary);margin-bottom:16px}
+.sk-tabs{display:flex;gap:4px;margin-bottom:12px}
+.sk-tab{padding:6px 14px;border:1px solid var(--border);border-radius:18px;font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font);background:transparent;color:var(--fg-tertiary);transition:all .15s}
+.sk-tab:hover{color:var(--fg);background:var(--bg-hover)}
+.sk-tab.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.sk-search{margin-bottom:16px}
+.sk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.sk-card{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;transition:border-color .15s}
+.sk-card:hover{border-color:var(--accent)}
+.sk-card-head{display:flex;align-items:center;justify-content:space-between}
+.sk-card-info{display:flex;align-items:center;gap:8px;min-width:0}
+.sk-card-emoji{font-size:24px;flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:var(--bg-hover);border-radius:8px}
+.sk-card-name{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sk-card-desc{font-size:13px;color:var(--fg-tertiary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sk-card-badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:auto}
+.sk-toggle{position:relative;width:36px;height:20px;flex-shrink:0}
+.sk-toggle input{opacity:0;width:0;height:0}
+.sk-toggle .sk-slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:10px;transition:.2s}
+.sk-toggle .sk-slider:before{content:"";position:absolute;height:16px;width:16px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.2s}
+.sk-toggle input:checked+.sk-slider{background:var(--accent)}
+.sk-toggle input:checked+.sk-slider:before{transform:translateX(16px)}
+.sk-empty{text-align:center;padding:48px 24px;color:var(--fg-tertiary);font-size:14px}
+@media(max-width:640px){.s-form-grid{grid-template-columns:1fr}.sk-grid{grid-template-columns:1fr}}
 
 /* ─── Channel grid & modal ─── */
 .ch-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}

@@ -11,6 +11,7 @@ import {
 } from "./index.js";
 import { getSkillRegistry } from "./registry.js";
 import type { InstallSpec } from "./installer.js";
+import type { SettingsStore } from "../settings-store.js";
 
 
 // ---------------------------------------------------------------------------
@@ -118,6 +119,38 @@ export function buildSkillStatus(): SkillStatusEntry[] {
       always: meta?.always ?? false,
       missing: { bins: missingBins, env: missingEnv },
       install: extractInstallSpecs(meta),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Per-user skill status (user settings page)
+// ---------------------------------------------------------------------------
+
+export interface UserSkillStatusEntry {
+  readonly name: string;
+  readonly description: string;
+  readonly source: "bundled" | "user" | "plugin";
+  readonly emoji?: string;
+  readonly always: boolean;
+  readonly userEnabled: boolean;
+}
+
+/** Build skill list for a specific user — only admin-enabled skills, with user preferences. */
+export function buildUserSkillStatus(userId: string, store: SettingsStore): UserSkillStatusEntry[] {
+  const all = buildSkillStatus();
+  // Only show skills that admin has enabled (or always-on)
+  const available = all.filter((s) => s.enabled || s.always);
+
+  return available.map((s) => {
+    const pref = store.get(`user.${userId}.skill.${s.name}`);
+    return {
+      name: s.name,
+      description: s.description,
+      source: s.source,
+      emoji: s.emoji,
+      always: s.always,
+      userEnabled: s.always || pref !== "off", // always-on can't be disabled; default = on
     };
   });
 }
