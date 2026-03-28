@@ -7,7 +7,7 @@
  */
 
 import { TOPIC_ROBOT, type DWClient, type DWClientDownStream } from "dingtalk-stream";
-import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type {
   DingtalkConfig,
@@ -129,11 +129,13 @@ function toInboundMessage(raw: DingtalkRawMessage): InboundMessage {
 // Module-level config cached for deliver() and outbound
 let cachedConfig: DingtalkConfig | undefined;
 
-export const dingtalkPlugin: ChannelPlugin = {
+export const dingtalkPlugin: ChannelPlugin<DingtalkConfig> = {
   meta: {
     id: "dingtalk",
     label: "DingTalk",
     description: "钉钉机器人，通过 Stream 模式接收消息",
+    order: 2,
+    icon: "dingtalk",
   },
 
   capabilities: {
@@ -141,6 +143,14 @@ export const dingtalkPlugin: ChannelPlugin = {
     dm: true,
     group: true,
     mention: true,
+  },
+
+  configSchema: {
+    fields: [
+      { key: "client_id", type: "string", label: "Client ID", required: true },
+      { key: "client_secret", type: "secret", label: "Client Secret", required: true },
+    ],
+    deleteKeys: ["owner_id"],
   },
 
   config: singleAccountConfig<DingtalkConfig>("dingtalk", "client_id", (store) => {
@@ -172,8 +182,8 @@ export const dingtalkPlugin: ChannelPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext) => {
-      const config = ctx.account as DingtalkConfig;
+    startAccount: async (ctx) => {
+      const config = ctx.account;
       cachedConfig = config;
       const dedup = new MessageDedup();
 
@@ -250,10 +260,13 @@ export const dingtalkPlugin: ChannelPlugin = {
               // Send reply: update AI Card if available, otherwise send text
               if (card) {
                 await finishAICard({ card, content: reply });
-              } else {
-                const chatType = raw.conversationType === "1" ? "direct" : "group";
-                const to = chatType === "direct" ? raw.senderId : raw.conversationId;
-                await sendTextMessage({ config, to, text: reply, chatType });
+              } else if (ctx.sendOutbound) {
+                await ctx.sendOutbound({
+                  sessionKey: msg.sessionKey,
+                  chatType: raw.conversationType === "1" ? "direct" : "group",
+                  targetId: raw.conversationType === "1" ? raw.senderId : raw.conversationId,
+                  text: reply,
+                });
               }
             }
           } catch (err) {
@@ -265,7 +278,7 @@ export const dingtalkPlugin: ChannelPlugin = {
 
       // Connect
       await client.connect();
-      ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
+      ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), mode: "stream", tokenStatus: "valid" });
       console.log("[DingTalk] Stream client connected");
 
       // Block until abort signal

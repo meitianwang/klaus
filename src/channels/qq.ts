@@ -94,11 +94,16 @@ async function processMessage(
 
     ctx.setStatus({ lastOutboundAt: Date.now() });
 
-    const token = await getAccessToken(config.appId, config.clientSecret);
-    if (type === "group" && groupOpenid) {
-      await sendGroupMessage(token, groupOpenid, reply, messageId);
+    if (ctx.sendOutbound) {
+      await ctx.sendOutbound({
+        sessionKey: inbound.sessionKey,
+        chatType: type === "group" ? "group" : "direct",
+        targetId: type === "group" && groupOpenid ? groupOpenid : senderId,
+        text: reply,
+        replyToMessageId: messageId,
+      });
     } else {
-      await sendC2CMessage(token, senderId, reply, messageId);
+      console.error("[QQ] No outbound adapter — reply dropped");
     }
   } catch (err) {
     console.error("[QQ] Error handling message:", err);
@@ -109,17 +114,27 @@ async function processMessage(
 // Plugin export
 // ---------------------------------------------------------------------------
 
-export const qqPlugin: ChannelPlugin = {
+export const qqPlugin: ChannelPlugin<QQBotConfig> = {
   meta: {
     id: "qq",
     label: "QQ Bot",
     description: "QQ 机器人，通过 QQ 开放平台 API 连接",
+    order: 4,
+    icon: "qq",
   },
 
   capabilities: {
     chatTypes: ["direct", "group"],
     dm: true,
     group: true,
+  },
+
+  configSchema: {
+    fields: [
+      { key: "app_id", type: "string", label: "App ID", required: true },
+      { key: "client_secret", type: "secret", label: "Client Secret", required: true },
+    ],
+    deleteKeys: ["owner_id"],
   },
 
   config: singleAccountConfig<QQBotConfig>("qq", "app_id", (store) => {
@@ -151,8 +166,8 @@ export const qqPlugin: ChannelPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext) => {
-      const config = ctx.account as QQBotConfig;
+    startAccount: async (ctx) => {
+      const config = ctx.account;
       cachedConfig = config;
       const dedup = new MessageDedup();
 
@@ -231,7 +246,7 @@ export const qqPlugin: ChannelPlugin = {
                   if (t === "READY") {
                     sessionId = (d as { session_id: string }).session_id;
                     reconnectAttempts = 0;
-                    ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
+                    ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), mode: "websocket", tokenStatus: "valid" });
                     console.log(`[QQ] Ready, session: ${sessionId}`);
                   } else if (t === "RESUMED") {
                     reconnectAttempts = 0;

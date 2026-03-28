@@ -20,6 +20,9 @@ import type {
   ChannelContext,
   ChannelGatewayContext,
   ChannelAccountSnapshot,
+  OutboundContext,
+  OutboundDeliveryResult,
+  SendOutboundParams,
   TranscriptFn,
   NotifyFn,
 } from "./types.js";
@@ -84,6 +87,14 @@ export class ChannelManager {
 
   register(plugin: ChannelPlugin): void {
     this.plugins.push(plugin);
+  }
+
+  getPlugins(): readonly ChannelPlugin[] {
+    return this.plugins;
+  }
+
+  getPlugin(id: string): ChannelPlugin | undefined {
+    return this.plugins.find((p) => p.meta.id === id);
   }
 
   /** Start all enabled channels and accounts. */
@@ -194,11 +205,26 @@ export class ChannelManager {
     });
   }
 
-  /** Build the deliverers map for cron scheduler. */
+  /** Build the deliverers map for cron scheduler. Prefers outbound adapter over legacy deliver. */
   buildDeliverers(): Map<string, (to: string, text: string) => Promise<void>> {
     const result = new Map<string, (to: string, text: string) => Promise<void>>();
     for (const plugin of this.plugins) {
-      if (plugin.deliver) {
+      if (plugin.outbound) {
+        const outbound = plugin.outbound;
+        const store = this.opts.settingsStore;
+        const pid = plugin.meta.id;
+        result.set(pid, async (to, text) => {
+          const account = plugin.config?.resolveAccount(store, "default") ?? {};
+          const ctx: OutboundContext = {
+            accountId: "default",
+            sessionKey: "",
+            chatType: "direct",
+            targetId: to,
+            config: account,
+          };
+          await outbound.sendText(ctx, text);
+        });
+      } else if (plugin.deliver) {
         result.set(plugin.meta.id, plugin.deliver);
       }
     }
@@ -339,16 +365,31 @@ export class ChannelManager {
   ): ChannelGatewayContext {
     const account = plugin.config?.resolveAccount(this.opts.settingsStore, runtime.accountId) ?? {};
 
+    const sendOutbound = plugin.outbound
+      ? async (params: SendOutboundParams): Promise<OutboundDeliveryResult> => {
+          const outCtx: OutboundContext = {
+            accountId: runtime.accountId,
+            sessionKey: params.sessionKey,
+            chatType: params.chatType,
+            targetId: params.targetId,
+            replyToMessageId: params.replyToMessageId,
+            threadId: params.threadId,
+            config: account,
+          };
+          return plugin.outbound!.sendText(outCtx, params.text);
+        }
+      : undefined;
+
     return {
       ...base,
       accountId: runtime.accountId,
       account,
       getStatus: () => ({ ...runtime.snapshot }),
       setStatus: (patch) => {
-        // Prevent overwriting identity fields
         const { accountId: _, channelId: __, ...safe } = patch;
         Object.assign(runtime.snapshot, safe);
       },
+      sendOutbound,
     };
   }
 

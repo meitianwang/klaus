@@ -23,7 +23,7 @@
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 import crypto from "node:crypto";
-import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin } from "./types.js";
 import type { InboundMessage, MessageType, MediaFile } from "../message.js";
 import type {
   FeishuConfig,
@@ -642,11 +642,14 @@ async function startWebhook(config: FeishuConfig, eventDispatcher: Lark.EventDis
 // Plugin export
 // ---------------------------------------------------------------------------
 
-export const feishuPlugin: ChannelPlugin = {
+export const feishuPlugin: ChannelPlugin<FeishuConfig> = {
   meta: {
     id: "feishu",
     label: "Feishu / Lark",
     description: "飞书/Lark 机器人，支持 WebSocket 和 Webhook 两种连接模式",
+    order: 1,
+    icon: "feishu",
+    aliases: ["lark"],
   },
 
   capabilities: {
@@ -661,6 +664,19 @@ export const feishuPlugin: ChannelPlugin = {
     reply: true,
     threads: true,
     media: true,
+  },
+
+  configSchema: {
+    fields: [
+      { key: "app_id", type: "string", label: "App ID", required: true, placeholder: "cli_xxx" },
+      { key: "app_secret", type: "secret", label: "App Secret", required: true },
+    ],
+    async probe(config) {
+      const identity = await probeBotIdentity({ appId: config.app_id!, appSecret: config.app_secret! } as FeishuConfig, 10_000);
+      if (!identity.botOpenId) return { ok: false, error: "Failed to connect. Check App ID and App Secret." };
+      return { ok: true, meta: { bot_name: identity.botName ?? "", bot_open_id: identity.botOpenId } };
+    },
+    deleteKeys: ["bot_name", "bot_open_id", "owner_id"],
   },
 
   config: singleAccountConfig<FeishuConfig>("feishu", "app_id", (store) => {
@@ -830,8 +846,8 @@ export const feishuPlugin: ChannelPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext) => {
-    const config = ctx.account as FeishuConfig;
+    startAccount: async (ctx) => {
+    const config = ctx.account;
     cachedConfig = config;
     const mode = config.connectionMode ?? "websocket";
 
@@ -850,7 +866,7 @@ export const feishuPlugin: ChannelPlugin = {
     botOpenId = identity.botOpenId;
     botName = identity.botName;
     if (botOpenId) {
-      ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), name: botName });
+      ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), name: botName, mode: config.connectionMode ?? "websocket", tokenStatus: "valid" });
       console.log(`[Feishu] Bot identity: ${botName ?? "unknown"} (${botOpenId})`);
     } else {
       console.warn("[Feishu] Could not resolve bot identity; @mention detection may not work");
@@ -928,31 +944,24 @@ export const feishuPlugin: ChannelPlugin = {
           ctx.notify(msg.sessionKey, "assistant", reply);
           ctx.setStatus({ lastOutboundAt: Date.now() });
 
+          // Resolve reply-in-thread from config (per-group override or global)
           const groupConfig = resolveGroupConfig({ config, groupId: effectiveEvent.message.chat_id });
-          const replyInThread =
-            (groupConfig?.replyInThread ?? config.replyInThread ?? "disabled") === "enabled" ||
+          const configReplyInThread =
+            (groupConfig?.replyInThread ?? config.replyInThread ?? "disabled") === "enabled";
+          const replyInThread = configReplyInThread ||
             Boolean(effectiveEvent.message.thread_id || effectiveEvent.message.root_id);
 
-          const renderMode = config.renderMode ?? "auto";
-          const useCard = renderMode === "card" ||
-            (renderMode === "auto" && /[*_`#\[\]|>~]/.test(reply));
-
-          if (useCard) {
-            await sendCardMessage({
-              config,
-              chatId: effectiveEvent.message.chat_id,
-              markdown: reply,
-              replyToMessageId: effectiveEvent.message.message_id,
-              replyInThread,
-            });
-          } else {
-            await sendTextMessage({
-              config,
-              chatId: effectiveEvent.message.chat_id,
+          if (ctx.sendOutbound) {
+            await ctx.sendOutbound({
+              sessionKey: msg.sessionKey,
+              chatType: effectiveEvent.message.chat_type === "p2p" ? "direct" : "group",
+              targetId: effectiveEvent.message.chat_id,
               text: reply,
               replyToMessageId: effectiveEvent.message.message_id,
-              replyInThread,
+              threadId: replyInThread ? (effectiveEvent.message.thread_id || effectiveEvent.message.root_id || effectiveEvent.message.message_id) : undefined,
             });
+          } else {
+            console.error("[Feishu] No outbound adapter — reply dropped");
           }
         }
       } catch (err) {

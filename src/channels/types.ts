@@ -55,6 +55,10 @@ export type ChannelMeta = {
   readonly id: string;
   readonly label: string;
   readonly description: string;
+  readonly order?: number;
+  readonly icon?: string;
+  readonly docsUrl?: string;
+  readonly aliases?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -110,7 +114,13 @@ export interface ChannelAccountSnapshot {
   lastOutboundAt?: number;
   busy: boolean;
   activeRuns: number;
-  // Backward-compat fields (mapped from above in ChannelManager)
+  // Transport / credential status
+  mode?: string;
+  tokenStatus?: string;
+  credentialSource?: string;
+  webhookUrl?: string;
+  baseUrl?: string;
+  // Backward-compat
   state: ChannelState;
   restartCount: number;
   startedAt?: number;
@@ -148,16 +158,27 @@ export function singleAccountConfig<T>(
 // ChannelGatewayAdapter — replaces start(), richer context
 // ---------------------------------------------------------------------------
 
-export interface ChannelGatewayContext extends ChannelContext {
-  readonly accountId: string;
-  readonly account: unknown;
-  readonly getStatus: () => ChannelAccountSnapshot;
-  readonly setStatus: (patch: Partial<ChannelAccountSnapshot>) => void;
+export interface SendOutboundParams {
+  readonly sessionKey: string;
+  readonly chatType: ChatType;
+  readonly targetId: string;
+  readonly text: string;
+  readonly replyToMessageId?: string;
+  readonly threadId?: string;
 }
 
-export interface ChannelGatewayAdapter {
-  startAccount(ctx: ChannelGatewayContext): Promise<void>;
-  stopAccount?(ctx: ChannelGatewayContext): Promise<void>;
+export interface ChannelGatewayContext<TAccount = unknown> extends ChannelContext {
+  readonly accountId: string;
+  readonly account: TAccount;
+  readonly getStatus: () => ChannelAccountSnapshot;
+  readonly setStatus: (patch: Partial<ChannelAccountSnapshot>) => void;
+  /** Send via the plugin's outbound adapter. Undefined if no outbound adapter. */
+  readonly sendOutbound?: (params: SendOutboundParams) => Promise<OutboundDeliveryResult>;
+}
+
+export interface ChannelGatewayAdapter<TAccount = unknown> {
+  startAccount(ctx: ChannelGatewayContext<TAccount>): Promise<void>;
+  stopAccount?(ctx: ChannelGatewayContext<TAccount>): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,16 +366,40 @@ export interface ChannelLifecycleAdapter {
 }
 
 // ---------------------------------------------------------------------------
+// ChannelConfigSchema — schema-driven config for admin UI
+// ---------------------------------------------------------------------------
+
+export interface ChannelConfigField {
+  readonly key: string;
+  readonly type: "string" | "secret" | "boolean";
+  readonly label: string;
+  readonly required?: boolean;
+  readonly placeholder?: string;
+  readonly help?: string;
+}
+
+export interface ChannelConfigSchema {
+  readonly fields: readonly ChannelConfigField[];
+  /** Validate credentials before saving. Return meta to store alongside config. */
+  readonly probe?: (config: Record<string, string>) => Promise<{
+    ok: boolean;
+    error?: string;
+    meta?: Record<string, string>;
+  }>;
+  /** Extra SettingsStore keys to clear on DELETE (beyond field keys + enabled). */
+  readonly deleteKeys?: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
 // ChannelPlugin — the core contract with all adapter slots
 // ---------------------------------------------------------------------------
 
-export type ChannelPlugin = {
+export type ChannelPlugin<TAccount = any> = {
   readonly meta: ChannelMeta;
   readonly capabilities: ChannelCapabilities;
 
-  // --- Adapters (new architecture) ---
-  readonly config?: ChannelConfigAdapter;
-  readonly gateway?: ChannelGatewayAdapter;
+  readonly config?: ChannelConfigAdapter<TAccount>;
+  readonly gateway?: ChannelGatewayAdapter<TAccount>;
   readonly outbound?: ChannelOutboundAdapter;
   readonly status?: ChannelStatusAdapter;
   readonly security?: ChannelSecurityAdapter;
@@ -365,6 +410,7 @@ export type ChannelPlugin = {
   readonly mentions?: ChannelMentionAdapter;
   readonly streaming?: ChannelStreamingAdapter;
   readonly lifecycle?: ChannelLifecycleAdapter;
+  readonly configSchema?: ChannelConfigSchema;
 
   /** Proactively send a message (used by cron scheduler). */
   readonly deliver?: (to: string, text: string) => Promise<void>;

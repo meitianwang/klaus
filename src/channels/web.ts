@@ -1419,7 +1419,11 @@ async function handleAdminSkills(
       const parsed = await readJsonBody(req, 4096);
       const name = typeof parsed.name === "string" ? parsed.name : "";
       if (!name) { jsonResponse(res, 400, { error: "name required" }); return; }
-      jsonResponse(res, 200, gateway.updateAdminSkill({ name, enabled: Boolean(parsed.enabled) }));
+      jsonResponse(res, 200, await gateway.updateAdminSkill({
+        name,
+        enabled: "enabled" in parsed ? Boolean(parsed.enabled) : undefined,
+        apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : undefined,
+      }));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }

@@ -1628,6 +1628,14 @@ tr.clickable:hover { background: var(--card-bg); }
         if (s.missing.env.length > 0) {
           missingHtml += '<div style="margin-top:4px;font-size:12px;color:var(--fg-muted)">Missing env: <b>' + esc(s.missing.env.join(', ')) + '</b></div>';
         }
+        var apiKeyHtml = '';
+        if (s.primaryEnv) {
+          apiKeyHtml = '<div style="margin-top:8px;display:flex;gap:6px;align-items:center">' +
+            '<input type="password" class="f-input f-input-sm skill-apikey" data-skill="' + esc(s.name) + '" data-changed="false" placeholder="' + esc(s.primaryEnv) + '" style="flex:1;max-width:320px" value="' + (s.hasApiKey ? '••••••••' : '') + '">' +
+            '<button class="btn btn-primary btn-sm skill-apikey-save" data-skill="' + esc(s.name) + '">Save</button>' +
+            (s.hasApiKey ? '<span class="badge badge-green" style="margin-left:4px">set</span>' : '') +
+          '</div>';
+        }
         var installHtml = '';
         if (s.install && s.install.length > 0 && s.missing.bins.length > 0) {
           installHtml = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + s.install.map(function(inst) {
@@ -1641,7 +1649,7 @@ tr.clickable:hover { background: var(--card-bg); }
             toggleHtml +
           '</div>' +
           '<div style="margin-top:6px;font-size:13px;color:var(--fg-muted)">' + esc(s.description || '') + '</div>' +
-          missingHtml + installHtml +
+          missingHtml + apiKeyHtml + installHtml +
         '</div>';
       }).join('');
       // Bind toggle handlers
@@ -1649,6 +1657,21 @@ tr.clickable:hover { background: var(--card-bg); }
         el.addEventListener("change", function() {
           api("skills", "PATCH", { name: el.dataset.skill, enabled: el.checked }).then(function() {
             showToast("Skill " + (el.checked ? "enabled" : "disabled"));
+            loadSkills();
+          });
+        });
+      });
+      // Track API key input changes
+      document.querySelectorAll(".skill-apikey").forEach(function(el) {
+        el.addEventListener("input", function() { el.dataset.changed = "true"; });
+      });
+      // Bind API key save handlers
+      document.querySelectorAll(".skill-apikey-save").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          var input = document.querySelector('.skill-apikey[data-skill="' + btn.dataset.skill + '"]');
+          if (!input || input.dataset.changed !== "true" || !input.value) return;
+          api("skills", "PATCH", { name: btn.dataset.skill, apiKey: input.value }).then(function() {
+            showToast("API key saved");
             loadSkills();
           });
         });

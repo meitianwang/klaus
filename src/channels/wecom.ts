@@ -8,7 +8,7 @@
 
 import crypto from "node:crypto";
 import { WSClient, type WsFrame } from "@wecom/aibot-node-sdk";
-import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type { WecomConfig, WecomInboundMessage } from "./wecom-types.js";
 import { decryptCred } from "./channel-creds.js";
@@ -98,17 +98,30 @@ export async function probeWecomCredentials(
 // Module-level client reference for deliver() support
 let activeClient: WSClient | undefined;
 
-export const wecomPlugin: ChannelPlugin = {
+export const wecomPlugin: ChannelPlugin<WecomConfig> = {
   meta: {
     id: "wecom",
     label: "WeCom",
     description: "企业微信智能机器人（WebSocket 长连接）",
+    order: 5,
+    icon: "wecom",
   },
 
   capabilities: {
     chatTypes: ["direct", "group"],
     dm: true,
     group: true,
+  },
+
+  configSchema: {
+    fields: [
+      { key: "bot_id", type: "string", label: "Bot ID", required: true },
+      { key: "secret", type: "secret", label: "Secret", required: true },
+    ],
+    async probe(config) {
+      return probeWecomCredentials({ botId: config.bot_id!, secret: config.secret! });
+    },
+    deleteKeys: ["owner_id"],
   },
 
   config: singleAccountConfig<WecomConfig>("wecom", "bot_id", (store) => {
@@ -146,8 +159,8 @@ export const wecomPlugin: ChannelPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext) => {
-      const config = ctx.account as WecomConfig;
+    startAccount: async (ctx) => {
+      const config = ctx.account;
       const dedup = new MessageDedup();
 
       console.log("[WeCom] Starting (mode=ws)");
@@ -162,7 +175,7 @@ export const wecomPlugin: ChannelPlugin = {
       activeClient = client;
 
       client.on("authenticated", () => {
-        ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
+        ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), mode: "websocket", tokenStatus: "valid" });
         console.log("[WeCom] WebSocket authenticated");
       });
 
@@ -236,15 +249,21 @@ export const wecomPlugin: ChannelPlugin = {
               try {
                 await client.replyStream(frameHeaders, streamId, reply, true);
               } catch (err) {
-                console.error("[WeCom] Failed to send reply:", err);
-                try {
-                  const chatId = chatType === "private" ? senderId : (msg.chatid ?? peerId);
-                  await client.sendMessage(chatId, {
-                    msgtype: "markdown",
-                    markdown: { content: reply },
-                  });
-                } catch (fallbackErr) {
-                  console.error("[WeCom] Fallback send also failed:", fallbackErr);
+                console.error("[WeCom] Failed to send reply via stream:", err);
+                // Fallback to outbound adapter
+                if (ctx.sendOutbound) {
+                  try {
+                    await ctx.sendOutbound({
+                      sessionKey,
+                      chatType: chatType === "private" ? "direct" : "group",
+                      targetId: chatType === "private" ? senderId : (msg.chatid ?? peerId),
+                      text: reply,
+                    });
+                  } catch (fallbackErr) {
+                    console.error("[WeCom] Fallback outbound also failed:", fallbackErr);
+                  }
+                } else {
+                  console.error("[WeCom] No outbound adapter — reply dropped");
                 }
               }
             }

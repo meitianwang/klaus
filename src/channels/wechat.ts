@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type { WechatConfig, WechatMessage } from "./wechat-types.js";
 import { decryptCred } from "./channel-creds.js";
@@ -133,11 +133,13 @@ let cachedConfig: WechatConfig | undefined;
 // Plugin export
 // ---------------------------------------------------------------------------
 
-export const wechatPlugin: ChannelPlugin = {
+export const wechatPlugin: ChannelPlugin<WechatConfig> = {
   meta: {
     id: "wechat",
     label: "WeChat",
     description: "微信机器人，通过二维码扫码登录",
+    order: 3,
+    icon: "wechat",
   },
 
   capabilities: {
@@ -171,8 +173,8 @@ export const wechatPlugin: ChannelPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext) => {
-      const config = ctx.account as WechatConfig;
+    startAccount: async (ctx) => {
+      const config = ctx.account;
       cachedConfig = config;
       const dedup = new MessageDedup();
 
@@ -204,7 +206,7 @@ export const wechatPlugin: ChannelPlugin = {
           }
 
           // Successful poll → mark connected
-          ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
+          ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), mode: "long-poll", tokenStatus: "valid" });
 
           if (!resp.msgs?.length) continue;
 
@@ -233,13 +235,16 @@ export const wechatPlugin: ChannelPlugin = {
                   ctx.notify(inbound.sessionKey, "assistant", reply);
                   ctx.setStatus({ lastOutboundAt: Date.now() });
 
-                  const senderId = msg.from_user_id || "";
-                  await sendMessageWechat({
-                    config,
-                    to: senderId,
-                    text: reply,
-                    contextToken: contextTokens.get(senderId),
-                  });
+                  if (ctx.sendOutbound) {
+                    await ctx.sendOutbound({
+                      sessionKey: inbound.sessionKey,
+                      chatType: "direct",
+                      targetId: msg.from_user_id || "",
+                      text: reply,
+                    });
+                  } else {
+                    console.error("[WeChat] No outbound adapter — reply dropped");
+                  }
                 }
               } catch (err) {
                 ctx.setStatus({ lastError: String(err) });
