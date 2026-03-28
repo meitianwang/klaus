@@ -23,7 +23,7 @@
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 import crypto from "node:crypto";
-import type { ChannelPlugin, ChannelContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
 import type { InboundMessage, MessageType, MediaFile } from "../message.js";
 import type {
   FeishuConfig,
@@ -70,7 +70,7 @@ import {
 } from "./feishu-media.js";
 
 // ---------------------------------------------------------------------------
-// Module-level state (bot identity, cached config for deliver/probe)
+// Module-level state (bot identity, cached config for deliver)
 // ---------------------------------------------------------------------------
 
 let cachedConfig: FeishuConfig | undefined;
@@ -477,6 +477,7 @@ async function startWebSocket(config: FeishuConfig, eventDispatcher: Lark.EventD
   return new Promise<void>((resolve) => {
     const shutdown = () => {
       console.log("[Feishu] Shutting down WebSocket...");
+      try { wsClient.close(); } catch { /* ignore */ }
       resolve();
     };
     if (signal.aborted) { shutdown(); return; }
@@ -649,6 +650,7 @@ export const feishuPlugin: ChannelPlugin = {
   },
 
   capabilities: {
+    chatTypes: ["direct", "group"],
     dm: true,
     group: true,
     image: true,
@@ -657,26 +659,180 @@ export const feishuPlugin: ChannelPlugin = {
     video: true,
     mention: true,
     reply: true,
+    threads: true,
+    media: true,
   },
 
-  resolveConfig: (store) => {
+  config: singleAccountConfig<FeishuConfig>("feishu", "app_id", (store) => {
     const appId = store.get("channel.feishu.app_id");
     const appSecret = decryptCred(store.get("channel.feishu.app_secret") ?? "");
-    const enabled = store.getBool("channel.feishu.enabled", false);
-    if (!enabled || !appId || !appSecret) return null;
+    return appId && appSecret ? { appId, appSecret } as FeishuConfig : null;
+  }),
 
-    cachedConfig = { appId, appSecret };
-    return {
-      enabled: true,
-      ownerId: store.get("channel.feishu.owner_id") ?? undefined,
-      appId,
-      appSecret,
-    };
+  security: {
+    resolveDmPolicy: (ctx) => {
+      const config = ctx.config as FeishuConfig;
+      const policy = config.dmPolicy ?? "pairing";
+      if ((policy as string) === "disabled") return "deny";
+      if (policy === "pairing" || policy === "open") return "allow";
+      // allowlist mode
+      return isDmAllowed({ dmPolicy: policy, allowFrom: config.allowFrom ?? [], senderId: ctx.senderId })
+        ? "allow" : "deny";
+    },
+    resolveGroupPolicy: (ctx) => {
+      const config = ctx.config as FeishuConfig;
+      const groupConfig = resolveGroupConfig({ config, groupId: ctx.groupId ?? "" });
+      const policy = config.groupPolicy ?? "allowlist";
+      if (policy === "disabled" || groupConfig?.enabled === false) return "deny";
+      if (policy === "open") return "allow";
+      // allowlist mode
+      const allowFrom = groupConfig?.allowFrom ?? config.groupSenderAllowFrom ?? config.groupAllowFrom ?? [];
+      return isGroupAllowed({ groupPolicy: policy, allowFrom, senderId: ctx.senderId })
+        ? "allow" : "deny";
+    },
   },
 
-  start: async (ctx: ChannelContext) => {
-    if (!cachedConfig) throw new Error("Feishu config not resolved");
-    const config = cachedConfig;
+  groups: {
+    resolveRequireMention: (params) => {
+      const config = params.config as FeishuConfig;
+      const groupConfig = resolveGroupConfig({ config, groupId: params.groupId });
+      const { requireMention } = resolveReplyPolicy({
+        isDirectMessage: false,
+        globalConfig: config,
+        groupConfig,
+      });
+      return requireMention;
+    },
+  },
+
+  mentions: {
+    stripMentions: (text, ctx) => {
+      let result = stripBotMention(text, ctx.mentions as any, ctx.botId);
+      result = normalizeMentions(result, ctx.mentions as any, ctx.botId);
+      return result;
+    },
+  },
+
+  status: {
+    async probeAccount(params) {
+      const config = params.config as FeishuConfig;
+      try {
+        const identity = await probeBotIdentity(config);
+        return identity.botOpenId ? { ok: true } : { ok: false, error: "Could not resolve bot identity" };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  },
+
+  messaging: {
+    resolveOutboundSessionRoute(params) {
+      const config = params.config as FeishuConfig;
+      if (params.chatType === "direct") {
+        return {
+          sessionKey: `feishu:${params.senderId}`,
+          chatType: "direct" as const,
+          targetId: params.targetId,
+        };
+      }
+      const session = resolveFeishuGroupSession({
+        chatId: params.targetId,
+        senderOpenId: params.senderId,
+        messageId: "",
+        rootId: undefined,
+        threadId: params.threadId,
+        groupSessionScope: config.groupSessionScope,
+        replyInThread: config.replyInThread,
+        topicSessionMode: config.topicSessionMode,
+      });
+      return {
+        sessionKey: `feishu:${session.peerId}`,
+        chatType: "group" as const,
+        targetId: params.targetId,
+        threadId: params.threadId,
+      };
+    },
+  },
+
+  allowlist: {
+    readConfig(params) {
+      const config = params.config as FeishuConfig;
+      const scope = params.scope;
+      if (scope === "dm") {
+        return { entries: [...(config.allowFrom ?? [])], policy: config.dmPolicy ?? "pairing" };
+      }
+      return { entries: [...(config.groupAllowFrom ?? config.groupSenderAllowFrom ?? [])], policy: config.groupPolicy ?? "allowlist" };
+    },
+    supportsScope: () => true,
+  },
+
+  lifecycle: {
+    async onAccountConfigChanged(params) {
+      // Clear bot identity cache so next start re-probes
+      botOpenId = undefined;
+      botName = undefined;
+      senderNameCache.clear();
+    },
+    async onAccountRemoved() {
+      botOpenId = undefined;
+      botName = undefined;
+      cachedConfig = undefined;
+      senderNameCache.clear();
+      permissionErrorNotifiedAt.clear();
+    },
+  },
+
+  threading: {
+    resolveReplyToMode(params) {
+      const config = params.config as FeishuConfig;
+      const groupConfig = resolveGroupConfig({ config, groupId: params.groupId ?? "" });
+      const mode = groupConfig?.replyInThread ?? config.replyInThread ?? "disabled";
+      return mode === "enabled" ? "thread" : "reply";
+    },
+    resolveAutoThreadId(params) {
+      return params.threadId?.trim() || params.rootId?.trim() || null;
+    },
+  },
+
+  outbound: {
+    deliveryMode: "gateway",
+    chunkerMode: "markdown",
+    async sendText(ctx, text) {
+      const config = ctx.config as FeishuConfig;
+      try {
+        const renderMode = config.renderMode ?? "auto";
+        const useCard = renderMode === "card" ||
+          (renderMode === "auto" && /[*_`#\[\]|>~]/.test(text));
+        const replyInThread = Boolean(ctx.threadId);
+
+        if (useCard) {
+          await sendCardMessage({
+            config,
+            chatId: ctx.targetId,
+            markdown: text,
+            replyToMessageId: ctx.replyToMessageId,
+            replyInThread,
+          });
+        } else {
+          await sendTextMessage({
+            config,
+            chatId: ctx.targetId,
+            text,
+            replyToMessageId: ctx.replyToMessageId,
+            replyInThread,
+          });
+        }
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+  },
+
+  gateway: {
+    startAccount: async (ctx: ChannelGatewayContext) => {
+    const config = ctx.account as FeishuConfig;
+    cachedConfig = config;
     const mode = config.connectionMode ?? "websocket";
 
     console.log(
@@ -694,6 +850,7 @@ export const feishuPlugin: ChannelPlugin = {
     botOpenId = identity.botOpenId;
     botName = identity.botName;
     if (botOpenId) {
+      ctx.setStatus({ connected: true, lastConnectedAt: Date.now(), name: botName });
       console.log(`[Feishu] Bot identity: ${botName ?? "unknown"} (${botOpenId})`);
     } else {
       console.warn("[Feishu] Could not resolve bot identity; @mention detection may not work");
@@ -729,8 +886,8 @@ export const feishuPlugin: ChannelPlugin = {
         const msg = await toInboundMessage(config, effectiveEvent);
         if (!msg.text.trim() && !msg.media?.length) return;
 
-        // Write user message to transcript + push to web clients
         if (msg.text.trim()) {
+          ctx.setStatus({ lastInboundAt: Date.now() });
           await ctx.transcript(msg.sessionKey, "user", msg.text.trim());
           ctx.notify(msg.sessionKey, "user", msg.text.trim());
         }
@@ -769,6 +926,7 @@ export const feishuPlugin: ChannelPlugin = {
         if (reply) {
           await ctx.transcript(msg.sessionKey, "assistant", reply);
           ctx.notify(msg.sessionKey, "assistant", reply);
+          ctx.setStatus({ lastOutboundAt: Date.now() });
 
           const groupConfig = resolveGroupConfig({ config, groupId: effectiveEvent.message.chat_id });
           const replyInThread =
@@ -827,6 +985,10 @@ export const feishuPlugin: ChannelPlugin = {
         // Access control
         if (isDirectMessage) {
           const dmPolicy = config.dmPolicy ?? "pairing";
+          if ((dmPolicy as string) === "disabled") {
+            releaseProcessing(messageId);
+            return;
+          }
           if (dmPolicy === "allowlist" && senderOpenId) {
             const allowed = isDmAllowed({
               dmPolicy,
@@ -910,12 +1072,15 @@ export const feishuPlugin: ChannelPlugin = {
       permissionErrorNotifiedAt.clear();
     }, { once: true });
 
+    ctx.setStatus({ connected: false });
+
     // Start transport
     if (mode === "webhook") {
       await startWebhook(config, eventDispatcher, ctx.signal);
     } else {
       await startWebSocket(config, eventDispatcher, ctx.signal);
     }
+    },
   },
 
   deliver: async (to: string, text: string) => {

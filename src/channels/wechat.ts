@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import type { ChannelPlugin, ChannelContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type { WechatConfig, WechatMessage } from "./wechat-types.js";
 import { decryptCred } from "./channel-creds.js";
@@ -124,7 +124,7 @@ function toInboundMessage(msg: WechatMessage): InboundMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level config cached from last resolveConfig
+// Module-level config cached for deliver() and outbound
 // ---------------------------------------------------------------------------
 
 let cachedConfig: WechatConfig | undefined;
@@ -141,102 +141,122 @@ export const wechatPlugin: ChannelPlugin = {
   },
 
   capabilities: {
+    chatTypes: ["direct"],
     dm: true,
   },
 
-  resolveConfig: (store) => {
+  config: singleAccountConfig<WechatConfig>("wechat", "account_id", (store) => {
     const token = decryptCred(store.get("channel.wechat.token") ?? "");
     const baseUrl = store.get("channel.wechat.base_url");
     const accountId = store.get("channel.wechat.account_id");
-    const enabled = store.getBool("channel.wechat.enabled", false);
-    if (!enabled || !token || !baseUrl || !accountId) return null;
+    return token && baseUrl && accountId ? { token, baseUrl, accountId } : null;
+  }),
 
-    cachedConfig = { token, baseUrl, accountId };
-    return {
-      enabled: true,
-      ownerId: store.get("channel.wechat.owner_id") ?? undefined,
-      token,
-      baseUrl,
-      accountId,
-    };
+  outbound: {
+    deliveryMode: "direct",
+    async sendText(ctx, text) {
+      if (!cachedConfig) return { ok: false, error: "Not configured" };
+      try {
+        await sendMessageWechat({
+          config: cachedConfig,
+          to: ctx.targetId,
+          text,
+          contextToken: contextTokens.get(ctx.targetId),
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
   },
 
-  start: async (ctx: ChannelContext) => {
-    if (!cachedConfig) throw new Error("WeChat config not resolved");
-    const config = cachedConfig;
-    const dedup = new MessageDedup();
+  gateway: {
+    startAccount: async (ctx: ChannelGatewayContext) => {
+      const config = ctx.account as WechatConfig;
+      cachedConfig = config;
+      const dedup = new MessageDedup();
 
-    console.log("[WeChat] Starting (mode=long-poll)");
+      console.log("[WeChat] Starting (mode=long-poll)");
 
-    let getUpdatesBuf = loadSyncBuf();
-    if (getUpdatesBuf) console.log("[WeChat] Restored sync cursor from disk");
+      let getUpdatesBuf = loadSyncBuf();
+      if (getUpdatesBuf) console.log("[WeChat] Restored sync cursor from disk");
 
-    // Long-poll loop
-    while (!ctx.signal.aborted) {
-      try {
-        const resp = await getUpdates({
-          baseUrl: config.baseUrl,
-          token: config.token,
-          getUpdatesBuf,
-        });
+      // Long-poll loop
+      while (!ctx.signal.aborted) {
+        try {
+          const resp = await getUpdates({
+            baseUrl: config.baseUrl,
+            token: config.token,
+            getUpdatesBuf,
+          });
 
-        // Session expired
-        if (resp.errcode === -14) {
-          console.error("[WeChat] Session expired. Please re-login via Settings > Channels.");
-          await sleep(3600_000, ctx.signal);
-          continue;
-        }
+          // Session expired
+          if (resp.errcode === -14) {
+            ctx.setStatus({ connected: false, lastError: "Session expired. Please re-login via Settings > Channels." });
+            console.error("[WeChat] Session expired. Please re-login via Settings > Channels.");
+            await sleep(3600_000, ctx.signal);
+            continue;
+          }
 
-        if (resp.get_updates_buf) {
-          getUpdatesBuf = resp.get_updates_buf;
-          saveSyncBuf(getUpdatesBuf);
-        }
+          if (resp.get_updates_buf) {
+            getUpdatesBuf = resp.get_updates_buf;
+            saveSyncBuf(getUpdatesBuf);
+          }
 
-        if (!resp.msgs?.length) continue;
+          // Successful poll → mark connected
+          ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
 
-        for (const msg of resp.msgs) {
-          // Skip bot's own messages
-          if (msg.message_type === 2) continue;
+          if (!resp.msgs?.length) continue;
 
-          // Dedup
-          const dedupeKey = `wechat:${msg.message_id ?? msg.client_id ?? Date.now()}`;
-          if (dedup.isDuplicate(dedupeKey)) continue;
+          for (const msg of resp.msgs) {
+            // Skip bot's own messages
+            if (msg.message_type === 2) continue;
 
-          // Process
-          void (async () => {
-            try {
-              const inbound = toInboundMessage(msg);
-              if (!inbound.text.trim()) return;
+            // Dedup
+            const dedupeKey = `wechat:${msg.message_id ?? msg.client_id ?? Date.now()}`;
+            if (dedup.isDuplicate(dedupeKey)) continue;
 
-              await ctx.transcript(inbound.sessionKey, "user", inbound.text.trim());
-              ctx.notify(inbound.sessionKey, "user", inbound.text.trim());
+            // Process
+            void (async () => {
+              try {
+                const inbound = toInboundMessage(msg);
+                if (!inbound.text.trim()) return;
 
-              const reply = await ctx.handler(inbound);
-              if (reply) {
-                await ctx.transcript(inbound.sessionKey, "assistant", reply);
-                ctx.notify(inbound.sessionKey, "assistant", reply);
+                ctx.setStatus({ lastInboundAt: Date.now() });
 
-                const senderId = msg.from_user_id || "";
-                await sendMessageWechat({
-                  config,
-                  to: senderId,
-                  text: reply,
-                  contextToken: contextTokens.get(senderId),
-                });
+                await ctx.transcript(inbound.sessionKey, "user", inbound.text.trim());
+                ctx.notify(inbound.sessionKey, "user", inbound.text.trim());
+
+                const reply = await ctx.handler(inbound);
+                if (reply) {
+                  await ctx.transcript(inbound.sessionKey, "assistant", reply);
+                  ctx.notify(inbound.sessionKey, "assistant", reply);
+                  ctx.setStatus({ lastOutboundAt: Date.now() });
+
+                  const senderId = msg.from_user_id || "";
+                  await sendMessageWechat({
+                    config,
+                    to: senderId,
+                    text: reply,
+                    contextToken: contextTokens.get(senderId),
+                  });
+                }
+              } catch (err) {
+                ctx.setStatus({ lastError: String(err) });
+                console.error("[WeChat] Error handling message:", err);
               }
-            } catch (err) {
-              console.error("[WeChat] Error handling message:", err);
-            }
-          })();
+            })();
+          }
+        } catch (err) {
+          ctx.setStatus({ connected: false, lastError: String(err) });
+          console.error("[WeChat] Long-poll error:", err);
+          await sleep(5000, ctx.signal);
         }
-      } catch (err) {
-        console.error("[WeChat] Long-poll error:", err);
-        await sleep(5000, ctx.signal);
       }
-    }
 
-    dedup.clear();
-    contextTokens.clear();
+      dedup.clear();
+      contextTokens.clear();
+    },
   },
 
   deliver: async (to: string, text: string) => {

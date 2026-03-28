@@ -7,7 +7,7 @@
  */
 
 import { TOPIC_ROBOT, type DWClient, type DWClientDownStream } from "dingtalk-stream";
-import type { ChannelPlugin, ChannelContext } from "./types.js";
+import { singleAccountConfig, type ChannelPlugin, type ChannelGatewayContext } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type {
   DingtalkConfig,
@@ -126,7 +126,7 @@ function toInboundMessage(raw: DingtalkRawMessage): InboundMessage {
 // Plugin export
 // ---------------------------------------------------------------------------
 
-// Module-level config cached from last resolveConfig for deliver()
+// Module-level config cached for deliver() and outbound
 let cachedConfig: DingtalkConfig | undefined;
 
 export const dingtalkPlugin: ChannelPlugin = {
@@ -137,128 +137,150 @@ export const dingtalkPlugin: ChannelPlugin = {
   },
 
   capabilities: {
+    chatTypes: ["direct", "group"],
     dm: true,
     group: true,
     mention: true,
   },
 
-  resolveConfig: (store) => {
+  config: singleAccountConfig<DingtalkConfig>("dingtalk", "client_id", (store) => {
     const clientId = store.get("channel.dingtalk.client_id");
     const clientSecret = decryptCred(store.get("channel.dingtalk.client_secret") ?? "");
-    const enabled = store.getBool("channel.dingtalk.enabled", false);
-    if (!enabled || !clientId || !clientSecret) return null;
+    return clientId && clientSecret ? { clientId, clientSecret } : null;
+  }),
 
-    cachedConfig = { clientId, clientSecret };
-    return {
-      enabled: true,
-      ownerId: store.get("channel.dingtalk.owner_id") ?? undefined,
-      clientId,
-      clientSecret,
-    };
+  groups: {
+    resolveRequireMention: () => true, // DingTalk always requires @mention in groups
   },
 
-  start: async (ctx: ChannelContext) => {
-    if (!cachedConfig) throw new Error("DingTalk config not resolved");
-    const config = cachedConfig;
-    const dedup = new MessageDedup();
+  mentions: {
+    stripMentions: (text) => text.replace(/@\S+\s*/g, "").trim(),
+  },
 
-    console.log("[DingTalk] Starting (mode=stream)");
-
-    // Create Stream client
-    const client = createDingtalkClient(config);
-
-    // Register message handler
-    client.registerCallbackListener(TOPIC_ROBOT, (payload: DWClientDownStream) => {
-      const streamMessageId = payload?.headers?.messageId;
-
-      // ACK immediately
-      if (streamMessageId) {
-        try {
-          client.socketCallBackResponse(streamMessageId, { success: true });
-        } catch (err) {
-          console.error(`[DingTalk] ACK failed for ${streamMessageId}:`, err);
-        }
-      }
-
-      // Dedup
-      if (streamMessageId && dedup.isDuplicate(`dingtalk:${streamMessageId}`)) return;
-
-      // Parse and handle
-      let raw: DingtalkRawMessage;
+  outbound: {
+    deliveryMode: "gateway",
+    async sendText(ctx, text) {
+      if (!cachedConfig) return { ok: false, error: "Not configured" };
       try {
-        raw = JSON.parse(payload.data) as DingtalkRawMessage;
-        if (streamMessageId) raw.streamMessageId = streamMessageId;
+        const chatType = ctx.chatType === "direct" ? "direct" : "group";
+        await sendTextMessage({ config: cachedConfig, to: ctx.targetId, text, chatType });
+        return { ok: true };
       } catch (err) {
-        console.error("[DingTalk] Failed to parse message:", err);
-        return;
+        return { ok: false, error: String(err) };
       }
+    },
+  },
 
-      const senderName = raw.senderNick ?? raw.senderId;
-      const preview = (raw.text?.content ?? "").slice(0, 50);
-      console.log(`[DingTalk] Inbound: from=${senderName} text="${preview}"`);
+  gateway: {
+    startAccount: async (ctx: ChannelGatewayContext) => {
+      const config = ctx.account as DingtalkConfig;
+      cachedConfig = config;
+      const dedup = new MessageDedup();
 
-      // In group chats, only respond when bot is @mentioned
-      if (raw.conversationType === "2") {
-        const botMentioned = raw.atUsers?.some(
-          (u) => u.dingtalkId === raw.robotCode,
-        );
-        if (!botMentioned) return;
-      }
+      console.log("[DingTalk] Starting (mode=stream)");
 
-      // Process message
-      void (async () => {
-        try {
-          const msg = toInboundMessage(raw);
-          if (!msg.text.trim()) return;
+      // Create Stream client
+      const client = createDingtalkClient(config);
 
-          // Write user message to transcript + push to web
-          await ctx.transcript(msg.sessionKey, "user", msg.text.trim());
-          ctx.notify(msg.sessionKey, "user", msg.text.trim());
+      // Register message handler
+      client.registerCallbackListener(TOPIC_ROBOT, (payload: DWClientDownStream) => {
+        const streamMessageId = payload?.headers?.messageId;
 
-          // Create AI Card as typing indicator
-          const card = await createAICard({
-            config,
-            conversationType: raw.conversationType,
-            conversationId: raw.conversationId,
-            senderId: raw.senderId,
-          });
-
-          const reply = await ctx.handler(msg);
-          if (reply) {
-            // Write assistant reply to transcript + push to web
-            await ctx.transcript(msg.sessionKey, "assistant", reply);
-            ctx.notify(msg.sessionKey, "assistant", reply);
-
-            // Send reply: update AI Card if available, otherwise send text
-            if (card) {
-              await finishAICard({ card, content: reply });
-            } else {
-              const chatType = raw.conversationType === "1" ? "direct" : "group";
-              const to = chatType === "direct" ? raw.senderId : raw.conversationId;
-              await sendTextMessage({ config, to, text: reply, chatType });
-            }
+        // ACK immediately
+        if (streamMessageId) {
+          try {
+            client.socketCallBackResponse(streamMessageId, { success: true });
+          } catch (err) {
+            console.error(`[DingTalk] ACK failed for ${streamMessageId}:`, err);
           }
-        } catch (err) {
-          console.error("[DingTalk] Error handling message:", err);
         }
-      })();
-    });
 
-    // Connect
-    await client.connect();
-    console.log("[DingTalk] Stream client connected");
+        // Dedup
+        if (streamMessageId && dedup.isDuplicate(`dingtalk:${streamMessageId}`)) return;
 
-    // Block until abort signal
-    return new Promise<void>((resolve) => {
-      const shutdown = () => {
-        console.log("[DingTalk] Shutting down...");
-        dedup.clear();
-        try { client.disconnect(); } catch { /* ignore */ }
-        resolve();
-      };
-      if (ctx.signal.aborted) { shutdown(); return; }
-      ctx.signal.addEventListener("abort", shutdown, { once: true });
-    });
+        // Parse and handle
+        let raw: DingtalkRawMessage;
+        try {
+          raw = JSON.parse(payload.data) as DingtalkRawMessage;
+          if (streamMessageId) raw.streamMessageId = streamMessageId;
+        } catch (err) {
+          console.error("[DingTalk] Failed to parse message:", err);
+          return;
+        }
+
+        const senderName = raw.senderNick ?? raw.senderId;
+        const preview = (raw.text?.content ?? "").slice(0, 50);
+        console.log(`[DingTalk] Inbound: from=${senderName} text="${preview}"`);
+
+        ctx.setStatus({ lastInboundAt: Date.now() });
+
+        // In group chats, only respond when bot is @mentioned
+        if (raw.conversationType === "2") {
+          const botMentioned = raw.atUsers?.some(
+            (u) => u.dingtalkId === raw.robotCode,
+          );
+          if (!botMentioned) return;
+        }
+
+        // Process message
+        void (async () => {
+          try {
+            const msg = toInboundMessage(raw);
+            if (!msg.text.trim()) return;
+
+            // Write user message to transcript + push to web
+            await ctx.transcript(msg.sessionKey, "user", msg.text.trim());
+            ctx.notify(msg.sessionKey, "user", msg.text.trim());
+
+            // Create AI Card as typing indicator
+            const card = await createAICard({
+              config,
+              conversationType: raw.conversationType,
+              conversationId: raw.conversationId,
+              senderId: raw.senderId,
+            });
+
+            const reply = await ctx.handler(msg);
+            if (reply) {
+              // Write assistant reply to transcript + push to web
+              await ctx.transcript(msg.sessionKey, "assistant", reply);
+              ctx.notify(msg.sessionKey, "assistant", reply);
+              ctx.setStatus({ lastOutboundAt: Date.now() });
+
+              // Send reply: update AI Card if available, otherwise send text
+              if (card) {
+                await finishAICard({ card, content: reply });
+              } else {
+                const chatType = raw.conversationType === "1" ? "direct" : "group";
+                const to = chatType === "direct" ? raw.senderId : raw.conversationId;
+                await sendTextMessage({ config, to, text: reply, chatType });
+              }
+            }
+          } catch (err) {
+            ctx.setStatus({ lastError: String(err) });
+            console.error("[DingTalk] Error handling message:", err);
+          }
+        })();
+      });
+
+      // Connect
+      await client.connect();
+      ctx.setStatus({ connected: true, lastConnectedAt: Date.now() });
+      console.log("[DingTalk] Stream client connected");
+
+      // Block until abort signal
+      return new Promise<void>((resolve) => {
+        const shutdown = () => {
+          console.log("[DingTalk] Shutting down...");
+          ctx.setStatus({ connected: false });
+          dedup.clear();
+          try { client.disconnect(); } catch { /* ignore */ }
+          resolve();
+        };
+        if (ctx.signal.aborted) { shutdown(); return; }
+        ctx.signal.addEventListener("abort", shutdown, { once: true });
+      });
+    },
   },
 
   deliver: async (to: string, text: string) => {

@@ -500,9 +500,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   position:absolute;inset:0;background:var(--bg);z-index:5;
   overflow-y:auto;padding:48px 24px;
 }
-.settings-inner{max-width:800px;margin:0 auto;display:flex;gap:32px}
-.settings-sidebar{width:160px;min-width:160px;position:sticky;top:0;align-self:flex-start}
-.settings-sidebar-title{font-size:22px;font-weight:600;margin-bottom:16px}
+.settings-inner{max-width:960px;margin:0 auto;display:flex;gap:32px}
+.settings-sidebar{width:200px;min-width:200px;position:sticky;top:0;align-self:flex-start}
+.settings-sidebar-title{font-size:24px;font-weight:600;margin-bottom:20px}
 .settings-sidebar-nav{display:flex;flex-direction:column;gap:2px}
 .settings-nav-item{
   display:block;width:100%;padding:8px 12px;border-radius:8px;font-size:14px;font-weight:500;
@@ -517,7 +517,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 @media(max-width:640px){
   .settings-inner{flex-direction:column;gap:16px}
   .settings-sidebar{width:100%;min-width:0;position:static;display:flex;align-items:center;gap:12px}
-  .settings-sidebar-title{margin-bottom:0}
+  .settings-sidebar-title{margin-bottom:0;font-size:20px}
   .settings-sidebar-nav{flex-direction:row;flex-wrap:wrap}
 }
 .settings-back{

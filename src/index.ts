@@ -16,6 +16,7 @@ import {
   loadEnabledSkills,
   listSkillNames,
 } from "./skills/index.js";
+import { getSkillRegistry } from "./skills/registry.js";
 import { generateLocalToken } from "./local-token.js";
 import { AgentSessionManager } from "./agent-manager.js";
 import { SettingsStore } from "./settings-store.js";
@@ -65,6 +66,12 @@ async function start(): Promise<void> {
   console.log(
     `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
   );
+
+  // Initialize skill registry with hot-reload watcher
+  const skillRegistry = getSkillRegistry();
+  skillRegistry.startWatching();
+  const enabledSkills = skillRegistry.getSkills();
+  console.log(`[Skills] ${enabledSkills.length} skill(s) loaded, watcher started`);
 
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");

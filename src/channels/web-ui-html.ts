@@ -76,7 +76,7 @@ export function getChatBodyHtml(): string {
     <div id="settings-view" style="display:none">
       <div class="settings-inner">
         <div class="settings-sidebar">
-          <button class="settings-back" id="settings-back" style="margin-bottom:16px">
+          <button class="settings-back" id="settings-back">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
             <span data-i18n="settings_back">Back</span>
           </button>

@@ -1,30 +1,54 @@
 /**
- * Channel plugin system: composition over inheritance.
- * Inspired by OpenClaw's ChannelPlugin adapter architecture.
+ * Channel plugin system — adapter-based architecture aligned with OpenClaw.
+ *
+ * Each concern (config, gateway, outbound, security, etc.) lives in a
+ * separate optional adapter slot on ChannelPlugin.
  */
 
 import type { Handler } from "../types.js";
 import type { SettingsStore } from "../settings-store.js";
+import type { MediaFile } from "../message.js";
 
 // ---------------------------------------------------------------------------
-// Capabilities — explicitly declares what a channel supports
+// Chat types
+// ---------------------------------------------------------------------------
+
+export type ChatType = "direct" | "group" | "thread";
+
+// ---------------------------------------------------------------------------
+// Capabilities
 // ---------------------------------------------------------------------------
 
 export type ChannelCapabilities = {
+  readonly chatTypes?: ChatType[];
+  // Legacy aliases (computed from chatTypes for backward compat)
   readonly dm?: boolean;
   readonly group?: boolean;
+  // Media
   readonly image?: boolean;
   readonly file?: boolean;
   readonly audio?: boolean;
   readonly video?: boolean;
+  // Interaction
   readonly reply?: boolean;
   readonly emoji?: boolean;
   readonly mention?: boolean;
+  readonly reactions?: boolean;
+  readonly edit?: boolean;
+  readonly unsend?: boolean;
+  // Advanced
+  readonly threads?: boolean;
+  readonly polls?: boolean;
+  readonly effects?: boolean;
+  readonly groupManagement?: boolean;
+  readonly media?: boolean;
+  readonly nativeCommands?: boolean;
+  readonly blockStreaming?: boolean;
   readonly requiresPublicUrl?: boolean;
 };
 
 // ---------------------------------------------------------------------------
-// Meta — human-readable identity for setup wizard, doctor, etc.
+// Meta
 // ---------------------------------------------------------------------------
 
 export type ChannelMeta = {
@@ -34,7 +58,7 @@ export type ChannelMeta = {
 };
 
 // ---------------------------------------------------------------------------
-// ChannelContext — everything a channel needs at runtime
+// ChannelContext — base runtime context for channels
 // ---------------------------------------------------------------------------
 
 export type TranscriptFn = (
@@ -54,63 +78,297 @@ export interface ChannelContext {
   readonly transcript: TranscriptFn;
   readonly notify: NotifyFn;
   readonly signal: AbortSignal;
-  /** Extra services (e.g. web channel needs stores, agentManager, etc.) */
   readonly services?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
-// ChannelResolvedConfig — result of resolveConfig()
+// ChannelAccountSnapshot — rich runtime state per account
 // ---------------------------------------------------------------------------
 
-export interface ChannelResolvedConfig {
-  readonly enabled: boolean;
-  readonly ownerId?: string;
-  readonly [key: string]: unknown;
+export type ChannelState = "starting" | "running" | "errored" | "stopped";
+export type HealthState = "healthy" | "degraded" | "unhealthy" | "unknown";
+
+export interface ChannelAccountSnapshot {
+  readonly accountId: string;
+  readonly channelId: string;
+  name?: string;
+  enabled: boolean;
+  configured: boolean;
+  running: boolean;
+  connected: boolean;
+  restartPending: boolean;
+  reconnectAttempts: number;
+  lastConnectedAt?: number;
+  lastDisconnect?: { at: number; reason?: string };
+  lastMessageAt?: number;
+  lastEventAt?: number;
+  lastError?: string;
+  healthState: HealthState;
+  lastStartAt?: number;
+  lastStopAt?: number;
+  lastInboundAt?: number;
+  lastOutboundAt?: number;
+  busy: boolean;
+  activeRuns: number;
+  // Backward-compat fields (mapped from above in ChannelManager)
+  state: ChannelState;
+  restartCount: number;
+  startedAt?: number;
 }
 
 // ---------------------------------------------------------------------------
-// ChannelPlugin — the core contract
+// ChannelConfigAdapter — mandatory, replaces resolveConfig
+// ---------------------------------------------------------------------------
+
+export interface ChannelConfigAdapter<TAccount = unknown> {
+  listAccountIds(store: SettingsStore): string[];
+  resolveAccount(store: SettingsStore, accountId?: string): TAccount | null;
+  isEnabled(account: TAccount, store: SettingsStore): boolean;
+  isConfigured(account: TAccount, store: SettingsStore): boolean;
+}
+
+/**
+ * Factory for single-account channels. Only `resolve` differs per channel;
+ * listAccountIds, isEnabled, isConfigured share the same logic.
+ */
+export function singleAccountConfig<T>(
+  channelId: string,
+  primaryKey: string,
+  resolve: (store: SettingsStore) => T | null,
+): ChannelConfigAdapter<T> {
+  return {
+    listAccountIds: (store) => store.get(`channel.${channelId}.${primaryKey}`) ? ["default"] : [],
+    resolveAccount: resolve,
+    isEnabled: (_account, store) => store.getBool(`channel.${channelId}.enabled`, false),
+    isConfigured: (account) => Boolean(account),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ChannelGatewayAdapter — replaces start(), richer context
+// ---------------------------------------------------------------------------
+
+export interface ChannelGatewayContext extends ChannelContext {
+  readonly accountId: string;
+  readonly account: unknown;
+  readonly getStatus: () => ChannelAccountSnapshot;
+  readonly setStatus: (patch: Partial<ChannelAccountSnapshot>) => void;
+}
+
+export interface ChannelGatewayAdapter {
+  startAccount(ctx: ChannelGatewayContext): Promise<void>;
+  stopAccount?(ctx: ChannelGatewayContext): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelOutboundAdapter — framework-level outbound pipeline
+// ---------------------------------------------------------------------------
+
+export type DeliveryMode = "direct" | "gateway" | "hybrid";
+
+export interface OutboundContext {
+  readonly accountId: string;
+  readonly sessionKey: string;
+  readonly chatType: ChatType;
+  readonly targetId: string;
+  readonly replyToMessageId?: string;
+  readonly threadId?: string;
+  readonly config: unknown;
+}
+
+export interface OutboundDeliveryResult {
+  readonly messageId?: string;
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+export interface ChannelOutboundAdapter {
+  readonly deliveryMode: DeliveryMode;
+  readonly textChunkLimit?: number;
+  readonly chunkerMode?: "text" | "markdown";
+  chunker?(text: string, limit: number): string[];
+  sendText(ctx: OutboundContext, text: string): Promise<OutboundDeliveryResult>;
+  sendMedia?(ctx: OutboundContext, media: MediaFile): Promise<OutboundDeliveryResult>;
+  sendPayload?(ctx: OutboundContext, payload: unknown): Promise<OutboundDeliveryResult>;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelStatusAdapter — health, audit, diagnostics
+// ---------------------------------------------------------------------------
+
+export interface ChannelStatusAdapter {
+  probeAccount?(params: { accountId: string; config: unknown; timeoutMs?: number }): Promise<{ ok: boolean; error?: string }>;
+  auditAccount?(params: { accountId: string; config: unknown }): Promise<Record<string, unknown>>;
+  buildAccountSnapshot?(params: { accountId: string; config: unknown; runtime?: ChannelAccountSnapshot }): ChannelAccountSnapshot | Promise<ChannelAccountSnapshot>;
+  collectStatusIssues?(accounts: ChannelAccountSnapshot[]): ChannelStatusIssue[];
+}
+
+export interface ChannelStatusIssue {
+  readonly channelId: string;
+  readonly accountId: string;
+  readonly kind: "intent" | "permissions" | "config" | "auth" | "runtime";
+  readonly message: string;
+  readonly fix?: string;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelSecurityAdapter — DM/group access policies
+// ---------------------------------------------------------------------------
+
+export interface ChannelSecurityContext {
+  readonly senderId: string;
+  readonly chatType: ChatType;
+  readonly groupId?: string;
+  readonly config: unknown;
+}
+
+export interface ChannelSecurityAdapter {
+  resolveDmPolicy(ctx: ChannelSecurityContext): "allow" | "deny";
+  resolveGroupPolicy?(ctx: ChannelSecurityContext): "allow" | "deny";
+  collectWarnings?(ctx: { config: unknown }): string[];
+}
+
+// ---------------------------------------------------------------------------
+// ChannelAllowlistAdapter — allowlist management
+// ---------------------------------------------------------------------------
+
+export interface ChannelAllowlistAdapter {
+  readConfig(params: { config: unknown; scope: "dm" | "group" }): {
+    entries: Array<string | number>;
+    policy?: string;
+  };
+  applyConfigEdit?(params: {
+    config: unknown;
+    scope: "dm" | "group";
+    action: "add" | "remove";
+    entry: string;
+  }): { changed: boolean };
+  resolveNames?(params: { entries: string[] }): Promise<Map<string, string>>;
+  supportsScope?(params: { scope: "dm" | "group" }): boolean;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelMessagingAdapter — target normalization & session routing
+// ---------------------------------------------------------------------------
+
+export interface ChannelOutboundSessionRoute {
+  readonly sessionKey: string;
+  readonly baseSessionKey?: string;
+  readonly chatType: ChatType;
+  readonly targetId: string;
+  readonly threadId?: string;
+}
+
+export interface ChannelMessagingAdapter {
+  normalizeTarget?(raw: string): string | undefined;
+  resolveOutboundSessionRoute?(params: {
+    sessionKey: string;
+    chatType: ChatType;
+    targetId: string;
+    senderId: string;
+    threadId?: string;
+    config: unknown;
+  }): ChannelOutboundSessionRoute | null;
+  parseExplicitTarget?(params: { raw: string }): {
+    targetId: string;
+    threadId?: string;
+    chatType?: ChatType;
+  } | null;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelThreadingAdapter — reply-to & threading
+// ---------------------------------------------------------------------------
+
+export type ReplyToMode = "reply" | "thread" | "none";
+
+export interface ChannelThreadingAdapter {
+  resolveReplyToMode?(params: { chatType: ChatType; config: unknown; groupId?: string }): ReplyToMode;
+  resolveAutoThreadId?(params: {
+    messageId: string;
+    rootId?: string;
+    threadId?: string;
+  }): string | null;
+  resolveReplyTransport?(params: {
+    replyToMessageId?: string;
+    threadId?: string;
+    replyInThread: boolean;
+  }): unknown;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelGroupAdapter — group-specific policies
+// ---------------------------------------------------------------------------
+
+export interface ChannelGroupContext {
+  readonly groupId: string;
+  readonly senderId?: string;
+  readonly config: unknown;
+}
+
+export interface ChannelGroupAdapter {
+  resolveRequireMention(params: ChannelGroupContext): boolean;
+  resolveGroupToolPolicy?(params: ChannelGroupContext): unknown;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelMentionAdapter — mention stripping & normalization
+// ---------------------------------------------------------------------------
+
+export interface ChannelMentionContext {
+  readonly mentions?: unknown[];
+  readonly botId?: string;
+}
+
+export interface ChannelMentionAdapter {
+  stripMentions(text: string, ctx: ChannelMentionContext): string;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelStreamingAdapter — streaming response config
+// ---------------------------------------------------------------------------
+
+export interface ChannelStreamingAdapter {
+  readonly blockStreamingCoalesceDefaults?: {
+    readonly minChars: number;
+    readonly idleMs: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ChannelLifecycleAdapter — config change & removal hooks
+// ---------------------------------------------------------------------------
+
+export interface ChannelLifecycleAdapter {
+  onAccountConfigChanged?(params: { accountId: string; config: unknown }): Promise<void> | void;
+  onAccountRemoved?(params: { accountId: string }): Promise<void> | void;
+}
+
+// ---------------------------------------------------------------------------
+// ChannelPlugin — the core contract with all adapter slots
 // ---------------------------------------------------------------------------
 
 export type ChannelPlugin = {
   readonly meta: ChannelMeta;
   readonly capabilities: ChannelCapabilities;
 
-  /**
-   * Resolve channel-specific config from SettingsStore.
-   * Return null if not configured or not enabled.
-   */
-  readonly resolveConfig: (store: SettingsStore) => ChannelResolvedConfig | null;
+  // --- Adapters (new architecture) ---
+  readonly config?: ChannelConfigAdapter;
+  readonly gateway?: ChannelGatewayAdapter;
+  readonly outbound?: ChannelOutboundAdapter;
+  readonly status?: ChannelStatusAdapter;
+  readonly security?: ChannelSecurityAdapter;
+  readonly allowlist?: ChannelAllowlistAdapter;
+  readonly messaging?: ChannelMessagingAdapter;
+  readonly threading?: ChannelThreadingAdapter;
+  readonly groups?: ChannelGroupAdapter;
+  readonly mentions?: ChannelMentionAdapter;
+  readonly streaming?: ChannelStreamingAdapter;
+  readonly lifecycle?: ChannelLifecycleAdapter;
 
-  /**
-   * Start the channel. Should resolve when signal is aborted or
-   * the channel stops for any other reason.
-   */
-  readonly start: (ctx: ChannelContext) => Promise<void>;
-
-  /**
-   * Proactively send a message to a user/target. Optional — not all channels
-   * support unsolicited messages.
-   * Used by cron scheduler for result delivery.
-   */
+  /** Proactively send a message (used by cron scheduler). */
   readonly deliver?: (to: string, text: string) => Promise<void>;
 
-  /**
-   * Health probe: verify credentials and connectivity.
-   */
-  readonly probe?: () => Promise<{ ok: boolean; error?: string }>;
+  /** Optional skill directories bundled with this channel plugin. */
+  readonly skillDirs?: readonly string[];
 };
-
-// ---------------------------------------------------------------------------
-// Channel status (tracked by ChannelManager)
-// ---------------------------------------------------------------------------
-
-export type ChannelState = "starting" | "running" | "errored" | "stopped";
-
-export interface ChannelStatus {
-  state: ChannelState;
-  lastError?: string;
-  restartCount: number;
-  startedAt?: number;
-}
-
