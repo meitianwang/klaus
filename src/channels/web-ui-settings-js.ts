@@ -55,6 +55,7 @@ export function getSettingsJs(): string {
   function hideSettings() {
     settingsView.style.display = "none";
     chatElements.forEach(function(el) { if (el) el.style.display = ""; });
+    closeChModal();
   }
 
   document.getElementById("settings-back").addEventListener("click", hideSettings);
@@ -356,47 +357,152 @@ export function getSettingsJs(): string {
   });
 
   // --- Settings: Channels tab ---
-  var sChFeishuStatus = document.getElementById("s-ch-feishu-status");
-  var sChFeishuConnected = document.getElementById("s-ch-feishu-connected");
-  var sChFeishuForm = document.getElementById("s-ch-feishu-form");
-  var sChFeishuSetup = document.getElementById("s-ch-feishu-setup");
+  // =====================================================
+  // CHANNEL MODAL
+  // =====================================================
+  var chModalOverlay = document.getElementById("ch-modal-overlay");
+  var chModalIcon = document.getElementById("ch-modal-icon");
+  var chModalTitle = document.getElementById("ch-modal-title");
+  var chModalDesc = document.getElementById("ch-modal-desc");
+  var chModalContents = document.querySelectorAll("[id$='-modal-content']");
+  function openChModal(channelId, icon, title, desc) {
+    chModalIcon.src = icon;
+    chModalTitle.textContent = title;
+    chModalDesc.textContent = desc;
+    chModalContents.forEach(function(el) { el.style.display = "none"; });
+    var content = document.getElementById("s-ch-" + channelId + "-modal-content");
+    if (content) content.style.display = "block";
+    chModalOverlay.classList.add("show");
+  }
 
-  function showFeishuState(state, data) {
-    sChFeishuConnected.style.display = state === "connected" ? "block" : "none";
-    sChFeishuForm.style.display = state === "form" ? "block" : "none";
-    sChFeishuSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      sChFeishuStatus.textContent = tt("settings_ch_connected");
-      sChFeishuStatus.className = "s-badge s-badge-green";
-      document.getElementById("s-ch-feishu-appid-display").textContent = data && data.app_id || "";
-      document.getElementById("s-ch-feishu-bot-display").textContent = data && data.bot_name || "-";
+  function closeChModal() {
+    chModalOverlay.classList.remove("show");
+    if (wxPollTimer) { clearInterval(wxPollTimer); wxPollTimer = null; }
+  }
+
+  document.getElementById("ch-modal-close").addEventListener("click", closeChModal);
+  chModalOverlay.addEventListener("click", function(e) { if (e.target === chModalOverlay) closeChModal(); });
+  document.addEventListener("keydown", function(e) { if (e.key === "Escape" && chModalOverlay.classList.contains("show")) closeChModal(); });
+
+  // Channel card button state
+  function updateCardBtn(channelId, connected) {
+    var btn = document.getElementById("s-ch-" + channelId + "-cfg-btn");
+    if (!btn) return;
+    if (connected) {
+      btn.textContent = tt("settings_ch_configured");
+      btn.className = "ch-card-btn connected";
     } else {
-      sChFeishuStatus.textContent = tt("settings_ch_not_connected");
-      sChFeishuStatus.className = "s-badge s-badge-gray";
+      btn.textContent = tt("settings_ch_setup");
+      btn.className = "ch-card-btn";
+    }
+  }
+
+  // --- Channel config (data-driven) ---
+  var chConfigs = [
+    { id: "feishu", icon: "/feishu.png", displays: [["appid-display","app_id"],["bot-display","bot_name"]], inputs: [["appid","app_id"],["secret","app_secret"]] },
+    { id: "dingtalk", icon: "/dingtalk.png", displays: [["clientid-display","client_id"]], inputs: [["clientid","client_id"],["secret","client_secret"]] },
+    { id: "wecom", icon: "/wecom-icon.png", displays: [["botid-display","bot_id"]], inputs: [["botid","bot_id"],["secret","secret"]] },
+    { id: "qq", icon: "/qq-icon.png", displays: [["appid-display","app_id"]], inputs: [["appid","app_id"],["secret","client_secret"]] }
+  ];
+
+  // Generic state toggle for standard 2-state channels (connected/form)
+  function showChannelState(id, state, data) {
+    var el = function(suffix) { return document.getElementById("s-ch-" + id + "-" + suffix); };
+    el("connected").style.display = state === "connected" ? "block" : "none";
+    el("form").style.display = state === "connected" ? "none" : "block";
+    updateCardBtn(id, state === "connected");
+    if (state === "connected") {
+      var cfg = chConfigs.filter(function(c) { return c.id === id; })[0];
+      if (cfg) cfg.displays.forEach(function(d) {
+        var target = el(d[0]);
+        if (target) target.textContent = data && data[d[1]] || (d[0].indexOf("bot") >= 0 ? "-" : "");
+      });
+    }
+  }
+
+  // WeChat is special: 3 states (connected/qr/setup)
+  function showWechatState(state, data) {
+    document.getElementById("s-ch-wechat-connected").style.display = state === "connected" ? "block" : "none";
+    document.getElementById("s-ch-wechat-qr").style.display = state === "qr" ? "block" : "none";
+    document.getElementById("s-ch-wechat-setup").style.display = state !== "connected" && state !== "qr" ? "block" : "none";
+    updateCardBtn("wechat", state === "connected");
+    if (state === "connected") {
+      document.getElementById("s-ch-wechat-account-display").textContent = data && data.account_id || "";
     }
   }
 
   function loadSettingsChannels() {
     adminApi("channels", "GET").then(function(d) {
-      var feishu = d && d.feishu;
-      showFeishuState(feishu && feishu.enabled ? "connected" : "setup", feishu);
-      var dt = d && d.dingtalk;
-      showDingtalkState(dt && dt.enabled ? "connected" : "setup", dt);
+      chConfigs.forEach(function(cfg) {
+        var ch = d && d[cfg.id];
+        showChannelState(cfg.id, ch && ch.enabled ? "connected" : "setup", ch);
+      });
       var wx = d && d.wechat;
       showWechatState(wx && wx.enabled ? "connected" : "setup", wx);
-      var wecom = d && d.wecom;
-      showWecomState(wecom && wecom.enabled ? "connected" : "setup", wecom);
-      var qq = d && d.qq;
-      showQQState(qq && qq.enabled ? "connected" : "setup", qq);
     }).catch(function() {
-      showFeishuState("setup", null);
-      showDingtalkState("setup", null);
+      chConfigs.forEach(function(cfg) { showChannelState(cfg.id, "setup", null); });
       showWechatState("setup", null);
-      showWecomState("setup", null);
-      showQQState("setup", null);
     });
   }
 
+  // Card click -> open modal
+  [{ id: "wechat", icon: "/wechat-icon.png" }].concat(chConfigs).forEach(function(cfg) {
+    document.getElementById("s-ch-" + cfg.id + "-cfg-btn").addEventListener("click", function() {
+      var card = document.getElementById("s-ch-" + cfg.id + "-card");
+      var nameEl = card.querySelector("[data-i18n]");
+      var descEl = card.querySelector(".ch-card-desc");
+      openChModal(cfg.id, cfg.icon, nameEl ? nameEl.textContent : cfg.id, descEl ? descEl.textContent : "");
+    });
+  });
+
+  // Generic connect handler for standard channels
+  function connectChannel(cfg) {
+    var btn = document.getElementById("s-ch-" + cfg.id + "-connect-btn");
+    btn.addEventListener("click", function() {
+      var payload = {};
+      var valid = true;
+      cfg.inputs.forEach(function(inp) {
+        var val = document.getElementById("s-ch-" + cfg.id + "-" + inp[0]).value.trim();
+        if (!val) valid = false;
+        payload[inp[1]] = val;
+      });
+      if (!valid) return;
+      btn.disabled = true;
+      btn.textContent = tt("settings_ch_connecting");
+      adminApi("channels/" + cfg.id, "POST", payload)
+        .then(function(d) {
+          if (d && d.ok) {
+            showSettingsToast(tt("settings_ch_connect_ok"));
+            showChannelState(cfg.id, "connected", d);
+          } else {
+            showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
+          }
+        })
+        .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
+        .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
+    });
+  }
+
+  // Generic disconnect handler
+  function disconnectChannel(id, showFn) {
+    document.getElementById("s-ch-" + id + "-disconnect-btn").addEventListener("click", function() {
+      if (!confirm(tt("settings_confirm_delete"))) return;
+      adminApi("channels/" + id, "DELETE")
+        .then(function() {
+          showSettingsToast(tt("settings_ch_disconnected"));
+          showFn("setup", null);
+        })
+        .catch(function() { showSettingsToast(tt("settings_failed")); });
+    });
+  }
+
+  // Wire up standard channels
+  chConfigs.forEach(function(cfg) {
+    connectChannel(cfg);
+    disconnectChannel(cfg.id, function(s, d) { showChannelState(cfg.id, s, d); });
+  });
+
+  // --- Feishu: extra permissions copy button ---
   var FEISHU_PERMISSIONS_JSON = '{"scopes":{"tenant":["contact:contact.base:readonly","docx:document:readonly","im:chat:read","im:chat:update","im:message.group_at_msg:readonly","im:message.p2p_msg:readonly","im:message.pins:read","im:message.pins:write_only","im:message.reactions:read","im:message.reactions:write_only","im:message:readonly","im:message:recall","im:message:send_as_bot","im:message:send_multi_users","im:message:send_sys_msg","im:message:update","im:resource","application:application:self_manage","cardkit:card:write","cardkit:card:read"],"user":["contact:user.employee_id:readonly","offline_access","base:app:copy","base:field:create","base:field:delete","base:field:read","base:field:update","base:record:create","base:record:delete","base:record:retrieve","base:record:update","base:table:create","base:table:delete","base:table:read","base:table:update","base:view:read","base:view:write_only","base:app:create","base:app:update","base:app:read","board:whiteboard:node:create","board:whiteboard:node:read","calendar:calendar:read","calendar:calendar.event:create","calendar:calendar.event:delete","calendar:calendar.event:read","calendar:calendar.event:reply","calendar:calendar.event:update","calendar:calendar.free_busy:read","contact:contact.base:readonly","contact:user.base:readonly","contact:user:search","docs:document.comment:create","docs:document.comment:read","docs:document.comment:update","docs:document.media:download","docs:document:copy","docx:document:create","docx:document:readonly","docx:document:write_only","drive:drive.metadata:readonly","drive:file:download","drive:file:upload","im:chat.members:read","im:chat:read","im:message","im:message.group_msg:get_as_user","im:message.p2p_msg:get_as_user","im:message:readonly","search:docs:read","search:message","space:document:delete","space:document:move","space:document:retrieve","task:comment:read","task:comment:write","task:task:read","task:task:write","task:task:writeonly","task:tasklist:read","task:tasklist:write","wiki:node:copy","wiki:node:create","wiki:node:move","wiki:node:read","wiki:node:retrieve","wiki:space:read","wiki:space:retrieve","wiki:space:write_only"]}}';
 
   document.getElementById("s-ch-feishu-copy-perms").addEventListener("click", function() {
@@ -405,142 +511,7 @@ export function getSettingsJs(): string {
     });
   });
 
-  document.getElementById("s-ch-feishu-setup-btn").addEventListener("click", function() {
-    document.getElementById("s-ch-feishu-appid").value = "";
-    document.getElementById("s-ch-feishu-secret").value = "";
-    showFeishuState("form", null);
-  });
-
-  document.getElementById("s-ch-feishu-cancel-btn").addEventListener("click", function() {
-    loadSettingsChannels();
-  });
-
-  document.getElementById("s-ch-feishu-connect-btn").addEventListener("click", function() {
-    var appId = document.getElementById("s-ch-feishu-appid").value.trim();
-    var secret = document.getElementById("s-ch-feishu-secret").value.trim();
-    if (!appId || !secret) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = tt("settings_ch_connecting");
-    adminApi("channels/feishu", "POST", { app_id: appId, app_secret: secret })
-      .then(function(d) {
-        if (d && d.ok) {
-          showSettingsToast(tt("settings_ch_connect_ok"));
-          showFeishuState("connected", d);
-        } else {
-          showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
-          showFeishuState("form", null);
-        }
-      })
-      .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
-      .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
-  });
-
-  document.getElementById("s-ch-feishu-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
-    adminApi("channels/feishu", "DELETE")
-      .then(function() {
-        showSettingsToast(tt("settings_ch_disconnected"));
-        showFeishuState("setup", null);
-      })
-      .catch(function() { showSettingsToast(tt("settings_failed")); });
-  });
-
-  // --- DingTalk ---
-  var sDtStatus = document.getElementById("s-ch-dingtalk-status");
-  var sDtConnected = document.getElementById("s-ch-dingtalk-connected");
-  var sDtForm = document.getElementById("s-ch-dingtalk-form");
-  var sDtSetup = document.getElementById("s-ch-dingtalk-setup");
-
-  function showDingtalkState(state, data) {
-    sDtConnected.style.display = state === "connected" ? "block" : "none";
-    sDtForm.style.display = state === "form" ? "block" : "none";
-    sDtSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      sDtStatus.textContent = tt("settings_ch_connected");
-      sDtStatus.className = "s-badge s-badge-green";
-      document.getElementById("s-ch-dingtalk-clientid-display").textContent = data && data.client_id || "";
-    } else {
-      sDtStatus.textContent = tt("settings_ch_not_connected");
-      sDtStatus.className = "s-badge s-badge-gray";
-    }
-  }
-
-  function loadDingtalkState() {
-    adminApi("channels", "GET").then(function(d) {
-      var dt = d && d.dingtalk;
-      showDingtalkState(dt && dt.enabled ? "connected" : "setup", dt);
-    }).catch(function() { showDingtalkState("setup", null); });
-  }
-
-  document.getElementById("s-ch-dingtalk-setup-btn").addEventListener("click", function() {
-    document.getElementById("s-ch-dingtalk-clientid").value = "";
-    document.getElementById("s-ch-dingtalk-secret").value = "";
-    showDingtalkState("form", null);
-  });
-
-  document.getElementById("s-ch-dingtalk-cancel-btn").addEventListener("click", function() {
-    loadDingtalkState();
-  });
-
-  document.getElementById("s-ch-dingtalk-connect-btn").addEventListener("click", function() {
-    var clientId = document.getElementById("s-ch-dingtalk-clientid").value.trim();
-    var secret = document.getElementById("s-ch-dingtalk-secret").value.trim();
-    if (!clientId || !secret) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = tt("settings_ch_connecting");
-    adminApi("channels/dingtalk", "POST", { client_id: clientId, client_secret: secret })
-      .then(function(d) {
-        if (d && d.ok) {
-          showSettingsToast(tt("settings_ch_connect_ok"));
-          showDingtalkState("connected", d);
-        } else {
-          showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
-          showDingtalkState("form", null);
-        }
-      })
-      .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
-      .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
-  });
-
-  document.getElementById("s-ch-dingtalk-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
-    adminApi("channels/dingtalk", "DELETE")
-      .then(function() {
-        showSettingsToast(tt("settings_ch_disconnected"));
-        showDingtalkState("setup", null);
-      })
-      .catch(function() { showSettingsToast(tt("settings_failed")); });
-  });
-
-  // --- WeChat ---
-  var sWxStatus = document.getElementById("s-ch-wechat-status");
-  var sWxConnected = document.getElementById("s-ch-wechat-connected");
-  var sWxQr = document.getElementById("s-ch-wechat-qr");
-  var sWxSetup = document.getElementById("s-ch-wechat-setup");
-
-  function showWechatState(state, data) {
-    sWxConnected.style.display = state === "connected" ? "block" : "none";
-    sWxQr.style.display = state === "qr" ? "block" : "none";
-    sWxSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      sWxStatus.textContent = tt("settings_ch_connected");
-      sWxStatus.className = "s-badge s-badge-green";
-      document.getElementById("s-ch-wechat-account-display").textContent = data && data.account_id || "";
-    } else {
-      sWxStatus.textContent = tt("settings_ch_not_connected");
-      sWxStatus.className = "s-badge s-badge-gray";
-    }
-  }
-
-  function loadWechatState() {
-    adminApi("channels", "GET").then(function(d) {
-      var wx = d && d.wechat;
-      showWechatState(wx && wx.enabled ? "connected" : "setup", wx);
-    }).catch(function() { showWechatState("setup", null); });
-  }
-
+  // --- WeChat: QR code flow ---
   var wxPollTimer = null;
   function startWxQrPoll() {
     if (wxPollTimer) clearInterval(wxPollTimer);
@@ -579,151 +550,7 @@ export function getSettingsJs(): string {
     }).finally(function() { btn.disabled = false; });
   });
 
-  document.getElementById("s-ch-wechat-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
-    adminApi("channels/wechat", "DELETE")
-      .then(function() {
-        showSettingsToast(tt("settings_ch_disconnected"));
-        showWechatState("setup", null);
-      })
-      .catch(function() { showSettingsToast(tt("settings_failed")); });
-  });
-
-  // --- WeCom ---
-  var sWecomStatus = document.getElementById("s-ch-wecom-status");
-  var sWecomConnected = document.getElementById("s-ch-wecom-connected");
-  var sWecomForm = document.getElementById("s-ch-wecom-form");
-  var sWecomSetup = document.getElementById("s-ch-wecom-setup");
-
-  function showWecomState(state, data) {
-    sWecomConnected.style.display = state === "connected" ? "block" : "none";
-    sWecomForm.style.display = state === "form" ? "block" : "none";
-    sWecomSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      sWecomStatus.textContent = tt("settings_ch_connected");
-      sWecomStatus.className = "s-badge s-badge-green";
-      document.getElementById("s-ch-wecom-botid-display").textContent = data && data.bot_id || "";
-    } else {
-      sWecomStatus.textContent = tt("settings_ch_not_connected");
-      sWecomStatus.className = "s-badge s-badge-gray";
-    }
-  }
-
-  function loadWecomState() {
-    adminApi("channels", "GET").then(function(d) {
-      var wecom = d && d.wecom;
-      showWecomState(wecom && wecom.enabled ? "connected" : "setup", wecom);
-    }).catch(function() { showWecomState("setup", null); });
-  }
-
-  document.getElementById("s-ch-wecom-setup-btn").addEventListener("click", function() {
-    document.getElementById("s-ch-wecom-botid").value = "";
-    document.getElementById("s-ch-wecom-secret").value = "";
-    showWecomState("form", null);
-  });
-
-  document.getElementById("s-ch-wecom-cancel-btn").addEventListener("click", function() {
-    loadWecomState();
-  });
-
-  document.getElementById("s-ch-wecom-connect-btn").addEventListener("click", function() {
-    var botId = document.getElementById("s-ch-wecom-botid").value.trim();
-    var secret = document.getElementById("s-ch-wecom-secret").value.trim();
-    if (!botId || !secret) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = tt("settings_ch_connecting");
-    adminApi("channels/wecom", "POST", { bot_id: botId, secret: secret })
-      .then(function(d) {
-        if (d && d.ok) {
-          showSettingsToast(tt("settings_ch_connect_ok"));
-          showWecomState("connected", d);
-        } else {
-          showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
-          showWecomState("form", null);
-        }
-      })
-      .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
-      .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
-  });
-
-  document.getElementById("s-ch-wecom-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
-    adminApi("channels/wecom", "DELETE")
-      .then(function() {
-        showSettingsToast(tt("settings_ch_disconnected"));
-        showWecomState("setup", null);
-      })
-      .catch(function() { showSettingsToast(tt("settings_failed")); });
-  });
-
-  // --- QQ Bot ---
-  var sQqStatus = document.getElementById("s-ch-qq-status");
-  var sQqConnected = document.getElementById("s-ch-qq-connected");
-  var sQqForm = document.getElementById("s-ch-qq-form");
-  var sQqSetup = document.getElementById("s-ch-qq-setup");
-
-  function showQQState(state, data) {
-    sQqConnected.style.display = state === "connected" ? "block" : "none";
-    sQqForm.style.display = state === "form" ? "block" : "none";
-    sQqSetup.style.display = state === "setup" ? "block" : "none";
-    if (state === "connected") {
-      sQqStatus.textContent = tt("settings_ch_connected");
-      sQqStatus.className = "s-badge s-badge-green";
-      document.getElementById("s-ch-qq-appid-display").textContent = data && data.app_id || "";
-    } else {
-      sQqStatus.textContent = tt("settings_ch_not_connected");
-      sQqStatus.className = "s-badge s-badge-gray";
-    }
-  }
-
-  function loadQQState() {
-    adminApi("channels", "GET").then(function(d) {
-      var qq = d && d.qq;
-      showQQState(qq && qq.enabled ? "connected" : "setup", qq);
-    }).catch(function() { showQQState("setup", null); });
-  }
-
-  document.getElementById("s-ch-qq-setup-btn").addEventListener("click", function() {
-    document.getElementById("s-ch-qq-appid").value = "";
-    document.getElementById("s-ch-qq-secret").value = "";
-    showQQState("form", null);
-  });
-
-  document.getElementById("s-ch-qq-cancel-btn").addEventListener("click", function() {
-    loadQQState();
-  });
-
-  document.getElementById("s-ch-qq-connect-btn").addEventListener("click", function() {
-    var appId = document.getElementById("s-ch-qq-appid").value.trim();
-    var secret = document.getElementById("s-ch-qq-secret").value.trim();
-    if (!appId || !secret) return;
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = tt("settings_ch_connecting");
-    adminApi("channels/qq", "POST", { app_id: appId, client_secret: secret })
-      .then(function(d) {
-        if (d && d.ok) {
-          showSettingsToast(tt("settings_ch_connect_ok"));
-          showQQState("connected", d);
-        } else {
-          showSettingsToast(d && d.error ? d.error : tt("settings_ch_connect_fail"));
-          showQQState("form", null);
-        }
-      })
-      .catch(function() { showSettingsToast(tt("settings_ch_connect_fail")); })
-      .finally(function() { btn.disabled = false; btn.textContent = tt("settings_ch_connect"); });
-  });
-
-  document.getElementById("s-ch-qq-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
-    adminApi("channels/qq", "DELETE")
-      .then(function() {
-        showSettingsToast(tt("settings_ch_disconnected"));
-        showQQState("setup", null);
-      })
-      .catch(function() { showSettingsToast(tt("settings_failed")); });
-  });
+  disconnectChannel("wechat", showWechatState);
 
 `;
 }

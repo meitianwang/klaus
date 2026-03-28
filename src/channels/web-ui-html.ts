@@ -140,241 +140,228 @@ export function getChatBodyHtml(): string {
               <div class="settings-section-title" data-i18n="settings_channels">Channels</div>
               <p style="color:var(--fg-tertiary);font-size:14px;margin-bottom:20px" data-i18n="settings_channels_desc">Connect messaging platforms so users can chat with Klaus directly from their IM apps.</p>
 
-              <!-- Feishu card -->
-              <div style="border:1px solid var(--border);border-radius:12px;padding:20px" id="s-ch-feishu-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/feishu.png" alt="Feishu" width="36" height="36" style="border-radius:8px">
-                    <div>
-                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_feishu">Feishu / Lark</div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_feishu_desc">Connect to Feishu bot for team messaging</div>
+              <div class="ch-grid">
+                <!-- WeChat -->
+                <div class="ch-card" id="s-ch-wechat-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/wechat-icon.png" alt="WeChat" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_wechat">WeChat</div>
                     </div>
+                    <button class="ch-card-btn" id="s-ch-wechat-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
                   </div>
-                  <span class="s-badge" id="s-ch-feishu-status"></span>
+                  <div class="ch-card-desc" data-i18n="settings_ch_wechat_desc">Scan QR code to connect WeChat bot</div>
                 </div>
 
-                <!-- Connected state -->
-                <div id="s-ch-feishu-connected" style="display:none;margin-top:16px">
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)">App ID</div>
-                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-feishu-appid-display"></div>
+                <!-- WeCom -->
+                <div class="ch-card" id="s-ch-wecom-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/wecom-icon.png" alt="WeCom" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_wecom">WeCom</div>
                     </div>
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_bot">Bot</div>
-                      <div style="font-size:14px;font-weight:500" id="s-ch-feishu-bot-display">-</div>
-                    </div>
-                    <button class="s-btn s-btn-danger" id="s-ch-feishu-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                    <button class="ch-card-btn" id="s-ch-wecom-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
                   </div>
-                  <div style="margin-top:12px;padding:12px 16px;background:var(--bg-surface);border-radius:8px;font-size:13px;color:var(--fg-tertiary)">
-                    <div style="font-weight:500;color:var(--fg);margin-bottom:6px" data-i18n="settings_ch_feishu_after_connect">After connecting:</div>
-                    <div data-i18n="settings_ch_feishu_step_event">5. Configure event subscription: Events &amp; Callbacks &rarr; Long Connection &rarr; Add &quot;Receive Message&quot;</div>
-                    <div style="margin-top:4px" data-i18n="settings_ch_feishu_step_callback">6. Add callback: Callback Config &rarr; Long Connection &rarr; Add &quot;Card Interaction&quot;</div>
-                    <div style="margin-top:4px" data-i18n="settings_ch_feishu_step_publish">7. Create version and publish the app</div>
-                    <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;color:var(--accent);text-decoration:underline;font-size:13px" data-i18n="settings_ch_feishu_open_console">Open Feishu Console</a>
-                  </div>
+                  <div class="ch-card-desc" data-i18n="settings_ch_wecom_desc">Connect to WeCom smart bot</div>
                 </div>
 
-                <!-- Config form with step-by-step guide -->
-                <div id="s-ch-feishu-form" style="display:none;margin-top:16px">
-                  <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
-                    <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_feishu_guide_title">Setup Steps</div>
-
-                    <div style="margin-bottom:6px">
-                      <span style="font-weight:500;color:var(--fg)">1.</span>
-                      <span data-i18n="settings_ch_feishu_step1">Create app on Feishu Open Platform</span>
-                      <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_feishu_step1_link">Create App &rarr;</a>
+                <!-- QQ -->
+                <div class="ch-card" id="s-ch-qq-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/qq-icon.png" alt="QQ" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_qq">QQ</div>
                     </div>
-
-                    <div style="margin-bottom:6px">
-                      <span style="font-weight:500;color:var(--fg)">2.</span>
-                      <span data-i18n="settings_ch_feishu_step2">In app details, click &quot;Add Capability&quot; &rarr; add &quot;Bot&quot;</span>
-                    </div>
-
-                    <div style="margin-bottom:6px">
-                      <span style="font-weight:500;color:var(--fg)">3.</span>
-                      <span data-i18n="settings_ch_feishu_step3">Go to &quot;Permissions&quot; &rarr; &quot;Batch Import&quot;, paste the permission JSON below, then click &quot;Apply&quot;</span>
-                      <button class="s-btn s-btn-ghost" style="margin-left:6px;font-size:12px;padding:2px 8px" id="s-ch-feishu-copy-perms" data-i18n="settings_ch_feishu_copy_perms">Copy Permissions</button>
-                    </div>
-
-                    <div style="margin-bottom:6px">
-                      <span style="font-weight:500;color:var(--fg)">4.</span>
-                      <span data-i18n="settings_ch_feishu_step4">Go to &quot;Credentials &amp; Basic Info&quot;, copy App ID and App Secret below</span>
-                    </div>
+                    <button class="ch-card-btn" id="s-ch-qq-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
                   </div>
-
-                  <div style="display:flex;flex-direction:column;gap:12px">
-                    <div><label class="settings-field-label">App ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-feishu-appid" style="max-width:100%" placeholder="cli_xxxxxxxxxxxxxxxx"></div>
-                    <div><label class="settings-field-label">App Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-feishu-secret" type="password" style="max-width:100%" placeholder="Enter App Secret"></div>
-                  </div>
-                  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-                    <button class="s-btn s-btn-ghost" id="s-ch-feishu-cancel-btn" data-i18n="settings_cancel">Cancel</button>
-                    <button class="s-btn s-btn-primary" id="s-ch-feishu-connect-btn" data-i18n="settings_ch_connect">Connect</button>
-                  </div>
+                  <div class="ch-card-desc" data-i18n="settings_ch_qq_desc">Connect to QQ via official QQ Bot API</div>
                 </div>
 
-                <!-- Setup button -->
-                <div id="s-ch-feishu-setup" style="margin-top:16px">
-                  <button class="s-btn s-btn-primary" id="s-ch-feishu-setup-btn" data-i18n="settings_ch_setup">Configure</button>
+                <!-- Feishu -->
+                <div class="ch-card" id="s-ch-feishu-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/feishu.png" alt="Feishu" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_feishu">Feishu / Lark</div>
+                    </div>
+                    <button class="ch-card-btn" id="s-ch-feishu-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
+                  </div>
+                  <div class="ch-card-desc" data-i18n="settings_ch_feishu_desc">Connect to Feishu bot for team messaging</div>
+                </div>
+
+                <!-- DingTalk -->
+                <div class="ch-card" id="s-ch-dingtalk-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/dingtalk.png" alt="DingTalk" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_dingtalk">DingTalk</div>
+                    </div>
+                    <button class="ch-card-btn" id="s-ch-dingtalk-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
+                  </div>
+                  <div class="ch-card-desc" data-i18n="settings_ch_dingtalk_desc">Connect to DingTalk bot for team messaging</div>
                 </div>
               </div>
             </div>
 
-              <!-- DingTalk card -->
-              <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-dingtalk-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <!-- Channel config modal -->
+            <div class="ch-modal-overlay" id="ch-modal-overlay">
+              <div class="ch-modal" role="dialog" aria-modal="true">
+                <div class="ch-modal-header">
                   <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/dingtalk.png" alt="DingTalk" width="36" height="36" style="border-radius:8px">
+                    <img id="ch-modal-icon" width="36" height="36" style="border-radius:8px" alt="">
                     <div>
-                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_dingtalk">DingTalk</div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_dingtalk_desc">Connect to DingTalk bot for team messaging</div>
+                      <div style="font-weight:600;font-size:17px" id="ch-modal-title"></div>
+                      <div style="font-size:13px;color:var(--fg-tertiary)" id="ch-modal-desc"></div>
                     </div>
                   </div>
-                  <span class="s-badge" id="s-ch-dingtalk-status"></span>
+                  <button class="ch-modal-close" id="ch-modal-close">&times;</button>
                 </div>
-                <div id="s-ch-dingtalk-connected" style="display:none;margin-top:16px">
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)">Client ID</div>
-                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-dingtalk-clientid-display"></div>
+                <div class="ch-modal-body" id="ch-modal-body">
+                  <!-- Feishu content -->
+                  <div id="s-ch-feishu-modal-content" style="display:none">
+                    <div id="s-ch-feishu-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">App ID</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-feishu-appid-display"></div>
+                        </div>
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_bot">Bot</div>
+                          <div style="font-size:14px;font-weight:500" id="s-ch-feishu-bot-display">-</div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-feishu-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
+                      <div style="margin-top:12px;padding:12px 16px;background:var(--bg-surface);border-radius:8px;font-size:13px;color:var(--fg-tertiary)">
+                        <div style="font-weight:500;color:var(--fg);margin-bottom:6px" data-i18n="settings_ch_feishu_after_connect">After connecting:</div>
+                        <div data-i18n="settings_ch_feishu_step_event">5. Configure event subscription: Events &amp; Callbacks &rarr; Long Connection &rarr; Add &quot;Receive Message&quot;</div>
+                        <div style="margin-top:4px" data-i18n="settings_ch_feishu_step_callback">6. Add callback: Callback Config &rarr; Long Connection &rarr; Add &quot;Card Interaction&quot;</div>
+                        <div style="margin-top:4px" data-i18n="settings_ch_feishu_step_publish">7. Create version and publish the app</div>
+                        <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;color:var(--accent);text-decoration:underline;font-size:13px" data-i18n="settings_ch_feishu_open_console">Open Feishu Console</a>
+                      </div>
                     </div>
-                    <button class="s-btn s-btn-danger" id="s-ch-dingtalk-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                    <div id="s-ch-feishu-form">
+                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_feishu_guide_title">Setup Steps</div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_feishu_step1">Create app on Feishu Open Platform</span> <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_feishu_step1_link">Create App &rarr;</a></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_feishu_step2">In app details, click &quot;Add Capability&quot; &rarr; add &quot;Bot&quot;</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_feishu_step3">Go to &quot;Permissions&quot; &rarr; &quot;Batch Import&quot;, paste the permission JSON below, then click &quot;Apply&quot;</span> <button class="s-btn s-btn-ghost" style="margin-left:6px;font-size:12px;padding:2px 8px" id="s-ch-feishu-copy-perms" data-i18n="settings_ch_feishu_copy_perms">Copy Permissions</button></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">4.</span> <span data-i18n="settings_ch_feishu_step4">Go to &quot;Credentials &amp; Basic Info&quot;, copy App ID and App Secret below</span></div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:12px">
+                        <div><label class="settings-field-label">App ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-feishu-appid" style="max-width:100%" placeholder="cli_xxxxxxxxxxxxxxxx"></div>
+                        <div><label class="settings-field-label">App Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-feishu-secret" type="password" style="max-width:100%" placeholder="Enter App Secret"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                        <button class="s-btn s-btn-primary" id="s-ch-feishu-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div id="s-ch-dingtalk-form" style="display:none;margin-top:16px">
-                  <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
-                    <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_dingtalk_guide_title">Setup Steps</div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_dingtalk_step1">Create app on DingTalk Open Platform</span> <a href="https://open-dev.dingtalk.com/fe/app" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_dingtalk_step1_link">Create App</a></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_dingtalk_step2">Add "Bot" capability, enable Stream mode</span></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_dingtalk_step3">Copy Client ID (AppKey) and Client Secret (AppSecret) below</span></div>
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:12px">
-                    <div><label class="settings-field-label">Client ID (AppKey) <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-dingtalk-clientid" style="max-width:100%" placeholder="dingxxxxxxxx"></div>
-                    <div><label class="settings-field-label">Client Secret (AppSecret) <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-dingtalk-secret" type="password" style="max-width:100%" placeholder="Enter Client Secret"></div>
-                  </div>
-                  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-                    <button class="s-btn s-btn-ghost" id="s-ch-dingtalk-cancel-btn" data-i18n="settings_cancel">Cancel</button>
-                    <button class="s-btn s-btn-primary" id="s-ch-dingtalk-connect-btn" data-i18n="settings_ch_connect">Connect</button>
-                  </div>
-                </div>
-                <div id="s-ch-dingtalk-setup" style="margin-top:16px">
-                  <button class="s-btn s-btn-primary" id="s-ch-dingtalk-setup-btn" data-i18n="settings_ch_setup">Configure</button>
-                </div>
-              </div>
 
-              <!-- WeChat card -->
-              <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-wechat-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/wechat-icon.png" alt="WeChat" width="36" height="36" style="border-radius:8px">
-                    <div>
-                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_wechat">WeChat</div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_wechat_desc">Scan QR code to connect WeChat bot</div>
+                  <!-- DingTalk content -->
+                  <div id="s-ch-dingtalk-modal-content" style="display:none">
+                    <div id="s-ch-dingtalk-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">Client ID</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-dingtalk-clientid-display"></div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-dingtalk-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
+                    </div>
+                    <div id="s-ch-dingtalk-form">
+                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_dingtalk_guide_title">Setup Steps</div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_dingtalk_step1">Create app on DingTalk Open Platform</span> <a href="https://open-dev.dingtalk.com/fe/app" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_dingtalk_step1_link">Create App</a></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_dingtalk_step2">Add "Bot" capability, enable Stream mode</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_dingtalk_step3">Copy Client ID (AppKey) and Client Secret (AppSecret) below</span></div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:12px">
+                        <div><label class="settings-field-label">Client ID (AppKey) <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-dingtalk-clientid" style="max-width:100%" placeholder="dingxxxxxxxx"></div>
+                        <div><label class="settings-field-label">Client Secret (AppSecret) <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-dingtalk-secret" type="password" style="max-width:100%" placeholder="Enter Client Secret"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                        <button class="s-btn s-btn-primary" id="s-ch-dingtalk-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                      </div>
                     </div>
                   </div>
-                  <span class="s-badge" id="s-ch-wechat-status"></span>
-                </div>
-                <div id="s-ch-wechat-connected" style="display:none;margin-top:16px">
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)">Account ID</div>
-                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-wechat-account-display"></div>
-                    </div>
-                    <button class="s-btn s-btn-danger" id="s-ch-wechat-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
-                  </div>
-                </div>
-                <div id="s-ch-wechat-qr" style="display:none;margin-top:16px;text-align:center">
-                  <div style="font-size:13px;color:var(--fg-tertiary);margin-bottom:12px" data-i18n="settings_ch_wechat_scan_hint">Open WeChat and scan the QR code below</div>
-                  <img id="s-ch-wechat-qr-img" style="max-width:280px;border-radius:8px" alt="QR Code">
-                  <div style="margin-top:8px;font-size:12px;color:var(--fg-tertiary)" id="s-ch-wechat-qr-status" data-i18n="settings_ch_wechat_waiting">Waiting for scan...</div>
-                </div>
-                <div id="s-ch-wechat-setup" style="margin-top:16px">
-                  <button class="s-btn s-btn-primary" id="s-ch-wechat-login-btn" data-i18n="settings_ch_wechat_login">Login with QR Code</button>
-                </div>
-              </div>
 
-              <!-- WeCom card -->
-              <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-wecom-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/wecom-icon.png" alt="WeCom" width="36" height="36" style="border-radius:8px">
-                    <div>
-                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_wecom">WeCom</div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_wecom_desc">Connect to WeCom smart bot</div>
+                  <!-- WeChat content -->
+                  <div id="s-ch-wechat-modal-content" style="display:none">
+                    <div id="s-ch-wechat-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">Account ID</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-wechat-account-display"></div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-wechat-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
+                    </div>
+                    <div id="s-ch-wechat-qr" style="display:none;text-align:center">
+                      <div style="font-size:13px;color:var(--fg-tertiary);margin-bottom:12px" data-i18n="settings_ch_wechat_scan_hint">Open WeChat and scan the QR code below</div>
+                      <img id="s-ch-wechat-qr-img" style="max-width:280px;border-radius:8px" alt="QR Code">
+                      <div style="margin-top:8px;font-size:12px;color:var(--fg-tertiary)" id="s-ch-wechat-qr-status" data-i18n="settings_ch_wechat_waiting">Waiting for scan...</div>
+                    </div>
+                    <div id="s-ch-wechat-setup">
+                      <button class="s-btn s-btn-primary" id="s-ch-wechat-login-btn" data-i18n="settings_ch_wechat_login">Login with QR Code</button>
                     </div>
                   </div>
-                  <span class="s-badge" id="s-ch-wecom-status"></span>
-                </div>
-                <div id="s-ch-wecom-connected" style="display:none;margin-top:16px">
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)">Bot ID</div>
-                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-wecom-botid-display"></div>
-                    </div>
-                    <button class="s-btn s-btn-danger" id="s-ch-wecom-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
-                  </div>
-                </div>
-                <div id="s-ch-wecom-form" style="display:none;margin-top:16px">
-                  <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
-                    <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_wecom_guide_title">Setup Steps</div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_wecom_step1">Admin Console &rarr; &ldquo;Admin Tools&rdquo; (left sidebar, bottom)</span> <a href="https://work.weixin.qq.com/wework_admin/frame#manageTools" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_wecom_step1_link">Open Console</a></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_wecom_step2">Click &ldquo;Smart Bot&rdquo; &rarr; &ldquo;Create Bot&rdquo; &rarr; &ldquo;Manual Create&rdquo;</span></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_wecom_step3">At the bottom, click &ldquo;API Mode&rdquo; &rarr; choose &ldquo;Long Connection&rdquo; &rarr; Save</span></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">4.</span> <span data-i18n="settings_ch_wecom_step4">Copy Bot ID and Secret below</span></div>
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:12px">
-                    <div><label class="settings-field-label">Bot ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-wecom-botid" style="max-width:100%" placeholder="Enter Bot ID"></div>
-                    <div><label class="settings-field-label">Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-wecom-secret" type="password" style="max-width:100%" placeholder="Enter Secret"></div>
-                  </div>
-                  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-                    <button class="s-btn s-btn-ghost" id="s-ch-wecom-cancel-btn" data-i18n="settings_cancel">Cancel</button>
-                    <button class="s-btn s-btn-primary" id="s-ch-wecom-connect-btn" data-i18n="settings_ch_connect">Connect</button>
-                  </div>
-                </div>
-                <div id="s-ch-wecom-setup" style="margin-top:16px">
-                  <button class="s-btn s-btn-primary" id="s-ch-wecom-setup-btn" data-i18n="settings_ch_setup">Configure</button>
-                </div>
-              </div>
 
-              <!-- QQ Bot card -->
-              <div style="border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:16px" id="s-ch-qq-card">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <img src="/qq-icon.png" alt="QQ" width="36" height="36" style="border-radius:8px">
-                    <div>
-                      <div style="font-weight:600;font-size:15px" data-i18n="settings_ch_qq">QQ</div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)" data-i18n="settings_ch_qq_desc">Connect to QQ via official QQ Bot API</div>
+                  <!-- WeCom content -->
+                  <div id="s-ch-wecom-modal-content" style="display:none">
+                    <div id="s-ch-wecom-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">Bot ID</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-wecom-botid-display"></div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-wecom-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
+                    </div>
+                    <div id="s-ch-wecom-form">
+                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_wecom_guide_title">Setup Steps</div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_wecom_step1">Admin Console &rarr; &ldquo;Admin Tools&rdquo; (left sidebar, bottom)</span> <a href="https://work.weixin.qq.com/wework_admin/frame#manageTools" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_wecom_step1_link">Open Console</a></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_wecom_step2">Click &ldquo;Smart Bot&rdquo; &rarr; &ldquo;Create Bot&rdquo; &rarr; &ldquo;Manual Create&rdquo;</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_wecom_step3">At the bottom, click &ldquo;API Mode&rdquo; &rarr; choose &ldquo;Long Connection&rdquo; &rarr; Save</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">4.</span> <span data-i18n="settings_ch_wecom_step4">Copy Bot ID and Secret below</span></div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:12px">
+                        <div><label class="settings-field-label">Bot ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-wecom-botid" style="max-width:100%" placeholder="Enter Bot ID"></div>
+                        <div><label class="settings-field-label">Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-wecom-secret" type="password" style="max-width:100%" placeholder="Enter Secret"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                        <button class="s-btn s-btn-primary" id="s-ch-wecom-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                      </div>
                     </div>
                   </div>
-                  <span class="s-badge" id="s-ch-qq-status"></span>
-                </div>
-                <div id="s-ch-qq-connected" style="display:none;margin-top:16px">
-                  <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-                    <div>
-                      <div style="font-size:12px;color:var(--fg-tertiary)">App ID</div>
-                      <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-qq-appid-display"></div>
+
+                  <!-- QQ content -->
+                  <div id="s-ch-qq-modal-content" style="display:none">
+                    <div id="s-ch-qq-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">App ID</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-qq-appid-display"></div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-qq-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
                     </div>
-                    <button class="s-btn s-btn-danger" id="s-ch-qq-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                    <div id="s-ch-qq-form">
+                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_qq_guide_title">Setup Steps</div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_qq_step1">Create a bot on QQ Open Platform</span> <a href="https://q.qq.com/" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_qq_step1_link">Open Platform</a></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_qq_step2">Find the bot's App ID and App Secret in the bot settings page</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_qq_step3">Copy App ID and App Secret below</span></div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:12px">
+                        <div><label class="settings-field-label">App ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-appid" style="max-width:100%" placeholder="102xxxxxx"></div>
+                        <div><label class="settings-field-label">App Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-secret" type="password" style="max-width:100%" placeholder="Enter App Secret"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                        <button class="s-btn s-btn-primary" id="s-ch-qq-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div id="s-ch-qq-form" style="display:none;margin-top:16px">
-                  <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
-                    <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_qq_guide_title">Setup Steps</div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_qq_step1">Create a bot on QQ Open Platform</span> <a href="https://q.qq.com/" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_qq_step1_link">Open Platform</a></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_qq_step2">Find the bot's App ID and App Secret in the bot settings page</span></div>
-                    <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_qq_step3">Copy App ID and App Secret below</span></div>
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:12px">
-                    <div><label class="settings-field-label">App ID <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-appid" style="max-width:100%" placeholder="102xxxxxx"></div>
-                    <div><label class="settings-field-label">App Secret <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-qq-secret" type="password" style="max-width:100%" placeholder="Enter App Secret"></div>
-                  </div>
-                  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-                    <button class="s-btn s-btn-ghost" id="s-ch-qq-cancel-btn" data-i18n="settings_cancel">Cancel</button>
-                    <button class="s-btn s-btn-primary" id="s-ch-qq-connect-btn" data-i18n="settings_ch_connect">Connect</button>
-                  </div>
-                </div>
-                <div id="s-ch-qq-setup" style="margin-top:16px">
-                  <button class="s-btn s-btn-primary" id="s-ch-qq-setup-btn" data-i18n="settings_ch_setup">Configure</button>
                 </div>
               </div>
             </div>
