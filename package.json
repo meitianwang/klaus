@@ -17,6 +17,7 @@
     "chokidar": "^5.0.0",
     "croner": "^10.0.1",
     "dingtalk-stream": "^2.1.6-beta.1",
+    "grammy": "^1.41.1",
     "js-yaml": "^4.1.0",
     "klaus-agent": "^0.4.1",
     "openai": "^6.32.0",

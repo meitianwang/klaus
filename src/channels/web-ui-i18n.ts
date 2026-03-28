@@ -135,6 +135,13 @@ export function getChatI18n(): string {
       settings_ch_qq_step1_link: "Open Platform",
       settings_ch_qq_step2: "Find the bot's App ID and App Secret in the bot settings page",
       settings_ch_qq_step3: "Copy App ID and App Secret below",
+      settings_ch_telegram: "Telegram", settings_ch_telegram_desc: "Connect Telegram Bot via Bot API",
+      settings_ch_telegram_guide_title: "Setup Steps",
+      settings_ch_telegram_step1: "Open Telegram, search @BotFather and start a chat",
+      settings_ch_telegram_step1_link: "Open @BotFather",
+      settings_ch_telegram_step2: "Send /newbot, set a name and username for your bot",
+      settings_ch_telegram_step3: "BotFather will reply with a Bot Token (format: 123456:ABC-DEF...)",
+      settings_ch_telegram_step4: "Copy the Bot Token and paste it below",
       settings_confirm_delete: "Are you sure?",
     },
     zh: {
@@ -269,6 +276,13 @@ export function getChatI18n(): string {
       settings_ch_qq_step1_link: "\u524d\u5f80\u5f00\u653e\u5e73\u53f0",
       settings_ch_qq_step2: "\u5728\u673a\u5668\u4eba\u8bbe\u7f6e\u9875\u627e\u5230 App ID \u548c App Secret",
       settings_ch_qq_step3: "\u590d\u5236 App ID \u548c App Secret \u586b\u5165\u4e0b\u65b9",
+      settings_ch_telegram: "Telegram", settings_ch_telegram_desc: "\u901a\u8fc7 Bot API \u63a5\u5165 Telegram \u673a\u5668\u4eba",
+      settings_ch_telegram_guide_title: "\u914d\u7f6e\u6b65\u9aa4",
+      settings_ch_telegram_step1: "\u6253\u5f00 Telegram\uff0c\u641c\u7d22 @BotFather \u5e76\u5f00\u59cb\u5bf9\u8bdd",
+      settings_ch_telegram_step1_link: "\u6253\u5f00 @BotFather",
+      settings_ch_telegram_step2: "\u53d1\u9001 /newbot\uff0c\u8bbe\u7f6e\u673a\u5668\u4eba\u540d\u79f0\u548c\u7528\u6237\u540d",
+      settings_ch_telegram_step3: "BotFather \u4f1a\u56de\u590d Bot Token\uff08\u683c\u5f0f\uff1a123456:ABC-DEF...\uff09",
+      settings_ch_telegram_step4: "\u590d\u5236 Bot Token \u586b\u5165\u4e0b\u65b9",
       settings_confirm_delete: "\u786e\u5b9a\u64cd\u4f5c\uff1f",
     }
   };

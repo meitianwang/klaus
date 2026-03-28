@@ -402,7 +402,8 @@ export function getSettingsJs(): string {
     { id: "feishu", icon: "/feishu.png", displays: [["appid-display","app_id"],["bot-display","bot_name"]], inputs: [["appid","app_id"],["secret","app_secret"]] },
     { id: "dingtalk", icon: "/dingtalk.png", displays: [["clientid-display","client_id"]], inputs: [["clientid","client_id"],["secret","client_secret"]] },
     { id: "wecom", icon: "/wecom-icon.png", displays: [["botid-display","bot_id"]], inputs: [["botid","bot_id"],["secret","secret"]] },
-    { id: "qq", icon: "/qq-icon.png", displays: [["appid-display","app_id"]], inputs: [["appid","app_id"],["secret","client_secret"]] }
+    { id: "qq", icon: "/qq-icon.png", displays: [["appid-display","app_id"]], inputs: [["appid","app_id"],["secret","client_secret"]] },
+    { id: "telegram", icon: "/telegram-icon.png", displays: [["bot-display","bot_username"]], inputs: [["token","bot_token"]] }
   ];
 
   // Generic state toggle for standard 2-state channels (connected/form)
@@ -452,6 +453,13 @@ export function getSettingsJs(): string {
       var nameEl = card.querySelector("[data-i18n]");
       var descEl = card.querySelector(".ch-card-desc");
       openChModal(cfg.id, cfg.icon, nameEl ? nameEl.textContent : cfg.id, descEl ? descEl.textContent : "");
+      // WeChat: auto-trigger QR scan when modal opens and not connected
+      if (cfg.id === "wechat") {
+        var connected = document.getElementById("s-ch-wechat-connected");
+        if (connected && connected.style.display === "none") {
+          document.getElementById("s-ch-wechat-login-btn").click();
+        }
+      }
     });
   });
 

@@ -1513,6 +1513,11 @@ async function handleAdminChannels(
         enabled: settingsStoreRef.getBool("channel.wecom.enabled", false) && !!(settingsStoreRef.get("channel.wecom.bot_id") ?? ""),
         bot_id: settingsStoreRef.get("channel.wecom.bot_id") ?? "",
       },
+      telegram: {
+        enabled: settingsStoreRef.getBool("channel.telegram.enabled", false) && !!(settingsStoreRef.get("channel.telegram.bot_token") ?? ""),
+        bot_username: settingsStoreRef.get("channel.telegram.bot_username") ?? "",
+        bot_name: settingsStoreRef.get("channel.telegram.bot_name") ?? "",
+      },
     });
     return;
   }
@@ -2062,6 +2067,64 @@ async function handleAdminChannelWecom(
   jsonResponse(res, 405, { error: "method not allowed" });
 }
 
+async function handleAdminChannelTelegram(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const authUser = adminAuth(req, res);
+  if (!authUser) return;
+
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "settings store unavailable" });
+    return;
+  }
+
+  if (req.method === "POST") {
+    try {
+      const parsed = await readJsonBody(req, 4096);
+      const botToken = String(parsed.bot_token ?? "").trim();
+      if (!botToken) {
+        jsonResponse(res, 400, { error: "bot_token is required" });
+        return;
+      }
+
+      const { Bot, GrammyError } = await import("grammy");
+      try {
+        const bot = new Bot(botToken);
+        const me = await bot.api.getMe();
+
+        settingsStoreRef.set("channel.telegram.bot_token", encryptCred(botToken));
+        settingsStoreRef.set("channel.telegram.enabled", "true");
+        settingsStoreRef.set("channel.telegram.bot_username", me.username);
+        settingsStoreRef.set("channel.telegram.bot_name", me.first_name);
+        settingsStoreRef.set("channel.telegram.owner_id", authUser.id);
+
+        hotStartChannel("telegram");
+
+        jsonResponse(res, 200, { ok: true, bot_username: me.username, bot_name: me.first_name, enabled: true });
+      } catch (err) {
+        const msg = err instanceof GrammyError ? err.description : String(err);
+        jsonResponse(res, 400, { ok: false, error: msg || "Invalid bot token" });
+      }
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    settingsStoreRef.set("channel.telegram.enabled", "false");
+    settingsStoreRef.set("channel.telegram.bot_token", "");
+    settingsStoreRef.set("channel.telegram.bot_username", "");
+    settingsStoreRef.set("channel.telegram.bot_name", "");
+    settingsStoreRef.set("channel.telegram.owner_id", "");
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
 // ---------------------------------------------------------------------------
 // File download handler
 // ---------------------------------------------------------------------------
@@ -2208,6 +2271,8 @@ async function handleRequest(
       return servePublicFile(res, "qq-icon.png", "image/jpeg");
     case "/wecom-icon.png":
       return servePublicFile(res, "wecom-icon.png", "image/jpeg");
+    case "/telegram-icon.png":
+      return servePublicFile(res, "telegram-icon.png", "image/jpeg");
 
     // Auth routes
     case "/api/auth/register":
@@ -2316,6 +2381,8 @@ async function handleRequest(
       return handleAdminChannelQQ(req, res);
     case "/api/admin/channels/wecom":
       return handleAdminChannelWecom(req, res);
+    case "/api/admin/channels/telegram":
+      return handleAdminChannelTelegram(req, res);
     case "/api/admin/memory":
       return handleAdminMemory(req, res);
     case "/api/admin/memory/sync":
@@ -2364,6 +2431,7 @@ async function handleRequest(
         "wechat:": "channel.wechat.owner_id",
         "qq:": "channel.qq.owner_id",
         "wecom:": "channel.wecom.owner_id",
+        "telegram:": "channel.telegram.owner_id",
       };
       for (const [prefix, ownerKey] of Object.entries(channelOwnerChecks)) {
         if (histSessionId.startsWith(prefix)) {

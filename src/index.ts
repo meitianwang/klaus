@@ -4,6 +4,7 @@ import { dingtalkPlugin } from "./channels/dingtalk.js";
 import { wechatPlugin } from "./channels/wechat.js";
 import { qqPlugin } from "./channels/qq.js";
 import { wecomPlugin } from "./channels/wecom.js";
+import { telegramPlugin } from "./channels/telegram.js";
 import { ChannelManager } from "./channels/manager.js";
 import {
   getChannelNames,
@@ -194,6 +195,7 @@ async function start(): Promise<void> {
   manager.register(wechatPlugin);
   manager.register(qqPlugin);
   manager.register(wecomPlugin);
+  manager.register(telegramPlugin);
 
   // Cron executor
   const cronExecutor = (sessionKey: string, prompt: string) =>

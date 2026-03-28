@@ -200,6 +200,18 @@ export function getChatBodyHtml(): string {
                   </div>
                   <div class="ch-card-desc" data-i18n="settings_ch_dingtalk_desc">Connect to DingTalk bot for team messaging</div>
                 </div>
+
+                <!-- Telegram -->
+                <div class="ch-card" id="s-ch-telegram-card">
+                  <div class="ch-card-head">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <img src="/telegram-icon.png" alt="Telegram" width="42" height="42" style="border-radius:10px">
+                      <div style="font-weight:600;font-size:16px" data-i18n="settings_ch_telegram">Telegram</div>
+                    </div>
+                    <button class="ch-card-btn" id="s-ch-telegram-cfg-btn" data-i18n="settings_ch_setup">Configure</button>
+                  </div>
+                  <div class="ch-card-desc" data-i18n="settings_ch_telegram_desc">Connect Telegram Bot via Bot API</div>
+                </div>
               </div>
             </div>
 
@@ -301,8 +313,9 @@ export function getChatBodyHtml(): string {
                       <img id="s-ch-wechat-qr-img" style="max-width:280px;border-radius:8px" alt="QR Code">
                       <div style="margin-top:8px;font-size:12px;color:var(--fg-tertiary)" id="s-ch-wechat-qr-status" data-i18n="settings_ch_wechat_waiting">Waiting for scan...</div>
                     </div>
-                    <div id="s-ch-wechat-setup">
-                      <button class="s-btn s-btn-primary" id="s-ch-wechat-login-btn" data-i18n="settings_ch_wechat_login">Login with QR Code</button>
+                    <div id="s-ch-wechat-setup" style="text-align:center;padding:20px 0">
+                      <div style="font-size:13px;color:var(--fg-tertiary)" data-i18n="settings_ch_wechat_waiting">Waiting for scan...</div>
+                      <button class="s-btn s-btn-primary" id="s-ch-wechat-login-btn" style="display:none">Login</button>
                     </div>
                   </div>
 
@@ -359,6 +372,34 @@ export function getChatBodyHtml(): string {
                       </div>
                       <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
                         <button class="s-btn s-btn-primary" id="s-ch-qq-connect-btn" data-i18n="settings_ch_connect">Connect</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Telegram content -->
+                  <div id="s-ch-telegram-modal-content" style="display:none">
+                    <div id="s-ch-telegram-connected" style="display:none">
+                      <div style="border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                          <div style="font-size:12px;color:var(--fg-tertiary)">Bot</div>
+                          <div style="font-family:var(--font-mono);font-size:13px" id="s-ch-telegram-bot-display"></div>
+                        </div>
+                        <button class="s-btn s-btn-danger" id="s-ch-telegram-disconnect-btn" data-i18n="settings_ch_disconnect">Disconnect</button>
+                      </div>
+                    </div>
+                    <div id="s-ch-telegram-form">
+                      <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.7;margin-bottom:20px">
+                        <div style="font-weight:600;color:var(--fg);margin-bottom:8px" data-i18n="settings_ch_telegram_guide_title">Setup Steps</div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">1.</span> <span data-i18n="settings_ch_telegram_step1">Open Telegram, search @BotFather and start a chat</span> <a href="https://t.me/BotFather" target="_blank" rel="noopener" style="margin-left:6px;color:var(--accent);text-decoration:underline" data-i18n="settings_ch_telegram_step1_link">Open @BotFather</a></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">2.</span> <span data-i18n="settings_ch_telegram_step2">Send /newbot, set a name and username for your bot</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">3.</span> <span data-i18n="settings_ch_telegram_step3">BotFather will reply with a Bot Token (format: 123456:ABC-DEF...)</span></div>
+                        <div style="margin-bottom:6px"><span style="font-weight:500;color:var(--fg)">4.</span> <span data-i18n="settings_ch_telegram_step4">Copy the Bot Token and paste it below</span></div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:12px">
+                        <div><label class="settings-field-label">Bot Token <span style="color:#dc2626">*</span></label><input class="settings-field-input" id="s-ch-telegram-token" type="password" style="max-width:100%" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"></div>
+                      </div>
+                      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+                        <button class="s-btn s-btn-primary" id="s-ch-telegram-connect-btn" data-i18n="settings_ch_connect">Connect</button>
                       </div>
                     </div>
                   </div>
