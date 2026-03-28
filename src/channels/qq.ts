@@ -7,10 +7,11 @@
  */
 
 import WebSocket from "ws";
-import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { InboundMessage } from "../message.js";
 import type { QQBotConfig, WSPayload, C2CMessageEvent, GroupMessageEvent } from "./qq-types.js";
+import { decryptCred } from "./channel-creds.js";
+import { MessageDedup } from "./dedup.js";
 import {
   getAccessToken,
   getGatewayUrl,
@@ -18,63 +19,6 @@ import {
   sendGroupMessage,
   clearTokenCache,
 } from "./qq-api.js";
-
-// ---------------------------------------------------------------------------
-// Module state
-// ---------------------------------------------------------------------------
-
-let qqConfig: QQBotConfig | undefined;
-let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
-let notifyWebClients: ((sessionKey: string, role: "user" | "assistant", text: string) => void) | undefined;
-
-export type { QQBotConfig } from "./qq-types.js";
-
-export function setQQBotConfig(config: QQBotConfig): void {
-  qqConfig = config;
-}
-
-export function setQQBotTranscript(
-  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
-): void {
-  transcriptAppend = append;
-}
-
-export function setQQBotNotify(
-  notify: (sessionKey: string, role: "user" | "assistant", text: string) => void,
-): void {
-  notifyWebClients = notify;
-}
-
-function getConfig(): QQBotConfig {
-  if (!qqConfig) throw new Error("QQ Bot config not set");
-  return qqConfig;
-}
-
-// ---------------------------------------------------------------------------
-// Dedup (in-memory, 60s TTL)
-// ---------------------------------------------------------------------------
-
-const processedMessages = new Map<string, number>();
-const DEDUP_TTL_MS = 60_000;
-const DEDUP_MAX = 10_000;
-
-function isDuplicate(key: string): boolean {
-  const now = Date.now();
-  if (processedMessages.has(key) && now - processedMessages.get(key)! < DEDUP_TTL_MS) {
-    return true;
-  }
-  processedMessages.set(key, now);
-  if (processedMessages.size > DEDUP_MAX) {
-    // Evict expired, then oldest if still over limit
-    for (const [k, ts] of processedMessages) {
-      if (now - ts > DEDUP_TTL_MS || processedMessages.size > DEDUP_MAX) {
-        processedMessages.delete(k);
-      }
-      if (processedMessages.size <= DEDUP_MAX) break;
-    }
-  }
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // @mention text cleanup
@@ -95,11 +39,17 @@ const RECONNECT_DELAYS = [1000, 2000, 5000, 10_000, 30_000, 60_000];
 const MAX_RECONNECT_ATTEMPTS = 100;
 
 // ---------------------------------------------------------------------------
+// Module-level config cached from last resolveConfig
+// ---------------------------------------------------------------------------
+
+let cachedConfig: QQBotConfig | undefined;
+
+// ---------------------------------------------------------------------------
 // Message processing
 // ---------------------------------------------------------------------------
 
 async function processMessage(
-  handler: Handler,
+  ctx: ChannelContext,
   config: QQBotConfig,
   params: {
     type: "c2c" | "group";
@@ -131,15 +81,14 @@ async function processMessage(
   };
 
   try {
-    // Fire transcript write without blocking the handler
-    transcriptAppend?.(inbound.sessionKey, "user", cleanContent).catch(() => {});
-    notifyWebClients?.(inbound.sessionKey, "user", cleanContent);
+    ctx.transcript(inbound.sessionKey, "user", cleanContent).catch(() => {});
+    ctx.notify(inbound.sessionKey, "user", cleanContent);
 
-    const reply = await handler(inbound);
+    const reply = await ctx.handler(inbound);
     if (!reply) return;
 
-    transcriptAppend?.(inbound.sessionKey, "assistant", reply).catch(() => {});
-    notifyWebClients?.(inbound.sessionKey, "assistant", reply);
+    ctx.transcript(inbound.sessionKey, "assistant", reply).catch(() => {});
+    ctx.notify(inbound.sessionKey, "assistant", reply);
 
     const token = await getAccessToken(config.appId, config.clientSecret);
     if (type === "group" && groupOpenid) {
@@ -168,8 +117,26 @@ export const qqPlugin: ChannelPlugin = {
     group: true,
   },
 
-  start: async (handler: Handler) => {
-    const config = getConfig();
+  resolveConfig: (store) => {
+    const appId = store.get("channel.qq.app_id");
+    const clientSecret = decryptCred(store.get("channel.qq.client_secret") ?? "");
+    const enabled = store.getBool("channel.qq.enabled", false);
+    if (!enabled || !appId || !clientSecret) return null;
+
+    cachedConfig = { appId, clientSecret };
+    return {
+      enabled: true,
+      ownerId: store.get("channel.qq.owner_id") ?? undefined,
+      appId,
+      clientSecret,
+    };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    if (!cachedConfig) throw new Error("QQ Bot config not resolved");
+    const config = cachedConfig;
+    const dedup = new MessageDedup();
+
     console.log("[QQ] Starting (mode=websocket-gateway)");
 
     let running = true;
@@ -180,11 +147,16 @@ export const qqPlugin: ChannelPlugin = {
     let lastSeq: number | null = null;
 
     let resolveBlock: (() => void) | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
         heartbeatInterval = null;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
       if (currentWs && (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING)) {
         currentWs.close();
@@ -195,11 +167,14 @@ export const qqPlugin: ChannelPlugin = {
     const shutdown = () => {
       console.log("[QQ] Shutting down...");
       running = false;
+      dedup.clear();
       cleanup();
       resolveBlock?.();
     };
-    process.once("SIGTERM", shutdown);
-    process.once("SIGINT", shutdown);
+
+    // Listen to abort signal instead of SIGTERM/SIGINT
+    if (ctx.signal.aborted) { shutdown(); return; }
+    ctx.signal.addEventListener("abort", shutdown, { once: true });
 
     const getReconnectDelay = () => {
       const idx = Math.min(reconnectAttempts, RECONNECT_DELAYS.length - 1);
@@ -262,8 +237,8 @@ export const qqPlugin: ChannelPlugin = {
                   console.log("[QQ] Session resumed");
                 } else if (t === "C2C_MESSAGE_CREATE") {
                   const event = d as C2CMessageEvent;
-                  if (!isDuplicate(`qq:c2c:${event.id}`)) {
-                    void processMessage(handler, config, {
+                  if (!dedup.isDuplicate(`qq:c2c:${event.id}`)) {
+                    void processMessage(ctx, config, {
                       type: "c2c",
                       senderId: event.author.user_openid,
                       content: event.content,
@@ -273,8 +248,8 @@ export const qqPlugin: ChannelPlugin = {
                   }
                 } else if (t === "GROUP_AT_MESSAGE_CREATE") {
                   const event = d as GroupMessageEvent;
-                  if (!isDuplicate(`qq:group:${event.id}`)) {
-                    void processMessage(handler, config, {
+                  if (!dedup.isDuplicate(`qq:group:${event.id}`)) {
+                    void processMessage(ctx, config, {
                       type: "group",
                       senderId: event.author.member_openid,
                       senderName: event.author.username,
@@ -325,7 +300,7 @@ export const qqPlugin: ChannelPlugin = {
             const delay = getReconnectDelay();
             reconnectAttempts++;
             console.log(`[QQ] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
-            setTimeout(() => { if (running) connect(); }, delay);
+            reconnectTimer = setTimeout(() => { reconnectTimer = null; if (running) connect(); }, delay);
           }
         });
 
@@ -345,7 +320,7 @@ export const qqPlugin: ChannelPlugin = {
 
     await connect();
 
-    // Block forever until shutdown signal
+    // Block until shutdown
     await new Promise<void>((resolve) => {
       resolveBlock = resolve;
       if (!running) resolve();
@@ -353,8 +328,11 @@ export const qqPlugin: ChannelPlugin = {
   },
 
   deliver: async (to: string, text: string) => {
-    const config = getConfig();
-    const token = await getAccessToken(config.appId, config.clientSecret);
+    if (!cachedConfig) {
+      console.warn("[QQ] deliver() skipped: not configured");
+      return;
+    }
+    const token = await getAccessToken(cachedConfig.appId, cachedConfig.clientSecret);
     if (to.startsWith("qq:group:")) {
       await sendGroupMessage(token, to.slice("qq:group:".length), text);
     } else {

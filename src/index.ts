@@ -1,15 +1,10 @@
 import { webPlugin } from "./channels/web.js";
-import { feishuPlugin, setFeishuConfig, setFeishuTranscript, setFeishuNotify } from "./channels/feishu.js";
-import { dingtalkPlugin, setDingtalkConfig, setDingtalkTranscript, setDingtalkNotify } from "./channels/dingtalk.js";
-import { wechatPlugin, setWechatConfig, setWechatTranscript, setWechatNotify } from "./channels/wechat.js";
-import { qqPlugin, setQQBotConfig, setQQBotTranscript, setQQBotNotify } from "./channels/qq.js";
-import { wecomPlugin, setWecomConfig, setWecomTranscript, setWecomNotify } from "./channels/wecom.js";
-import { decryptCred } from "./channels/channel-creds.js";
-import {
-  registerChannel,
-  getChannel,
-  type ChannelPlugin,
-} from "./channels/types.js";
+import { feishuPlugin } from "./channels/feishu.js";
+import { dingtalkPlugin } from "./channels/dingtalk.js";
+import { wechatPlugin } from "./channels/wechat.js";
+import { qqPlugin } from "./channels/qq.js";
+import { wecomPlugin } from "./channels/wecom.js";
+import { ChannelManager } from "./channels/manager.js";
 import {
   getChannelNames,
   loadWebConfig,
@@ -29,23 +24,11 @@ import { getGatewayService } from "./gateway/service.js";
 import { parseWebSessionKey } from "./gateway/protocol.js";
 
 // ---------------------------------------------------------------------------
-// Channel registration
-// ---------------------------------------------------------------------------
-
-registerChannel(webPlugin);
-registerChannel(feishuPlugin);
-registerChannel(dingtalkPlugin);
-registerChannel(wechatPlugin);
-registerChannel(qqPlugin);
-registerChannel(wecomPlugin);
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function start(): Promise<void> {
   const gateway = getGatewayService();
-  // Generate local token for macOS app authentication
   generateLocalToken();
 
   // Initialize settings store (SQLite)
@@ -83,17 +66,6 @@ async function start(): Promise<void> {
     `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
   );
 
-  const channelNames = getChannelNames();
-  const plugins: ChannelPlugin[] = [];
-  for (const name of channelNames) {
-    const plugin = getChannel(name);
-    if (!plugin) {
-      console.error(`Internal error: channel "${name}" not registered.`);
-      process.exit(1);
-    }
-    plugins.push(plugin);
-  }
-
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");
   const transcriptsCfg = {
@@ -109,216 +81,19 @@ async function start(): Promise<void> {
   );
   messageStore.prune();
 
-  // Build delivery registry from active channel plugins (needed by cron)
-  const deliverers = new Map<
-    string,
-    (to: string, text: string) => Promise<void>
-  >();
-  for (const p of plugins) {
-    if (p.deliver) {
-      deliverers.set(p.meta.id, p.deliver);
-    }
-  }
-
-  // Cron executor: uses agent manager (no streaming)
-  const cronExecutor = (sessionKey: string, prompt: string) =>
-    agentManager.chat(sessionKey, prompt);
-
-  // Initialize cron scheduler if configured
-  let cronScheduler: import("./cron.js").CronScheduler | null = null;
-  const cronEnabled = settingsStore.getBool("cron.enabled", false);
-  if (cronEnabled) {
-    const tasks = settingsStore.listTasks();
-    const { CronScheduler } = await import("./cron.js");
-    cronScheduler = new CronScheduler(
-      {
-        enabled: true,
-        tasks,
-        maxConcurrentRuns: settingsStore.getNumber("cron.max_concurrent_runs", 0) || undefined,
-      },
-      cronExecutor,
-      deliverers,
-    );
-    cronScheduler.start();
-    console.log("[Cron] Scheduler started");
-    if (channelNames.includes("web")) {
-      const { setCronScheduler } = await import("./channels/web.js");
-      setCronScheduler(cronScheduler);
-    }
-  }
-
-  // Initialize Feishu channel from SettingsStore (configured via admin panel).
-  {
-    const dbAppId = settingsStore.get("channel.feishu.app_id");
-    const dbSecret = decryptCred(settingsStore.get("channel.feishu.app_secret") ?? "");
-    const dbEnabled = settingsStore.getBool("channel.feishu.enabled", false);
-
-    if (dbEnabled && dbAppId && dbSecret) {
-      const dbOwnerId = settingsStore.get("channel.feishu.owner_id");
-      setFeishuConfig({ appId: dbAppId, appSecret: dbSecret });
-      setFeishuTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
-      setFeishuNotify((sessionKey, role, text) => {
-        const event = { type: "channel_message" as const, sessionKey, role, text };
-        if (dbOwnerId) gateway.sendEvent(dbOwnerId, event);
-        else gateway.broadcastEvent(event);
-      });
-      if (!channelNames.includes("feishu")) {
-        channelNames.push("feishu");
-        const feishu = getChannel("feishu");
-        if (feishu) plugins.push(feishu);
-      }
-      console.log("[Feishu] Enabled (configured via admin panel)");
-    }
-  }
-
-  // Initialize DingTalk channel from SettingsStore (configured via settings page).
-  {
-    const dbClientId = settingsStore.get("channel.dingtalk.client_id");
-    const dbClientSecret = decryptCred(settingsStore.get("channel.dingtalk.client_secret") ?? "");
-    const dbDtEnabled = settingsStore.getBool("channel.dingtalk.enabled", false);
-
-    if (dbDtEnabled && dbClientId && dbClientSecret) {
-      const dbDtOwnerId = settingsStore.get("channel.dingtalk.owner_id");
-      setDingtalkConfig({ clientId: dbClientId, clientSecret: dbClientSecret });
-      setDingtalkTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
-      setDingtalkNotify((sessionKey, role, text) => {
-        const event = { type: "channel_message" as const, sessionKey, role, text };
-        if (dbDtOwnerId) gateway.sendEvent(dbDtOwnerId, event);
-        else gateway.broadcastEvent(event);
-      });
-      if (!channelNames.includes("dingtalk")) {
-        channelNames.push("dingtalk");
-        const dt = getChannel("dingtalk");
-        if (dt) plugins.push(dt);
-      }
-      console.log("[DingTalk] Enabled (configured via settings page)");
-    }
-  }
-
-  // Initialize WeChat channel from SettingsStore (configured via QR login).
-  {
-    const wxToken = decryptCred(settingsStore.get("channel.wechat.token") ?? "");
-    const wxBaseUrl = settingsStore.get("channel.wechat.base_url");
-    const wxAccountId = settingsStore.get("channel.wechat.account_id");
-    const wxEnabled = settingsStore.getBool("channel.wechat.enabled", false);
-
-    if (wxEnabled && wxToken && wxBaseUrl && wxAccountId) {
-      const wxOwnerId = settingsStore.get("channel.wechat.owner_id");
-      setWechatConfig({ token: wxToken, baseUrl: wxBaseUrl, accountId: wxAccountId });
-      setWechatTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
-      setWechatNotify((sessionKey, role, text) => {
-        const event = { type: "channel_message" as const, sessionKey, role, text };
-        if (wxOwnerId) gateway.sendEvent(wxOwnerId, event);
-        else gateway.broadcastEvent(event);
-      });
-      if (!channelNames.includes("wechat")) {
-        channelNames.push("wechat");
-        const wx = getChannel("wechat");
-        if (wx) plugins.push(wx);
-      }
-      console.log("[WeChat] Enabled (configured via QR login)");
-    }
-  }
-
-  // Initialize QQ Bot channel from SettingsStore (configured via admin panel).
-  {
-    const qqAppId = settingsStore.get("channel.qq.app_id");
-    const qqSecret = decryptCred(settingsStore.get("channel.qq.client_secret") ?? "");
-    const qqEnabled = settingsStore.getBool("channel.qq.enabled", false);
-
-    if (qqEnabled && qqAppId && qqSecret) {
-      const qqOwnerId = settingsStore.get("channel.qq.owner_id");
-      setQQBotConfig({ appId: qqAppId, clientSecret: qqSecret });
-      setQQBotTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
-      setQQBotNotify((sessionKey, role, text) => {
-        const event = { type: "channel_message" as const, sessionKey, role, text };
-        if (qqOwnerId) gateway.sendEvent(qqOwnerId, event);
-        else gateway.broadcastEvent(event);
-      });
-      if (!channelNames.includes("qq")) {
-        channelNames.push("qq");
-        const qq = getChannel("qq");
-        if (qq) plugins.push(qq);
-      }
-      console.log("[QQ] Enabled (configured via admin panel)");
-    }
-  }
-
-  // Initialize WeCom channel from SettingsStore (configured via admin panel).
-  {
-    const wecomBotId = settingsStore.get("channel.wecom.bot_id");
-    const wecomSecret = decryptCred(settingsStore.get("channel.wecom.secret") ?? "");
-    const wecomEnabled = settingsStore.getBool("channel.wecom.enabled", false);
-
-    if (wecomEnabled && wecomBotId && wecomSecret) {
-      const wecomOwnerId = settingsStore.get("channel.wecom.owner_id");
-      setWecomConfig({ botId: wecomBotId, secret: wecomSecret });
-      setWecomTranscript((sessionKey, role, text) => messageStore.append(sessionKey, role, text));
-      setWecomNotify((sessionKey, role, text) => {
-        const event = { type: "channel_message" as const, sessionKey, role, text };
-        if (wecomOwnerId) gateway.sendEvent(wecomOwnerId, event);
-        else gateway.broadcastEvent(event);
-      });
-      if (!channelNames.includes("wecom")) {
-        channelNames.push("wecom");
-        const wc = getChannel("wecom");
-        if (wc) plugins.push(wc);
-      }
-      console.log("[WeCom] Enabled (configured via admin panel)");
-    }
-  }
-
-  // Expose stores to web channel for API endpoints
-  let inviteStoreInstance: { close(): void } | null = null;
-  let userStoreInstance: { close(): void } | null = null;
-  if (channelNames.includes("web")) {
-    const {
-      setMessageStore,
-      setInviteStore,
-      setUserStore,
-      setSettingsStore,
-      setMemoryPool: setWebMemoryPool,
-    } = await import("./channels/web.js");
-    setMessageStore(messageStore);
-    setSettingsStore(settingsStore);
-    if (memoryPool) setWebMemoryPool(memoryPool);
-
-    const { InviteStore } = await import("./invite-store.js");
-    const inviteStore = new InviteStore();
-    setInviteStore(inviteStore);
-    inviteStoreInstance = inviteStore;
-
-    const { UserStore } = await import("./user-store.js");
-    const webCfg = loadWebConfig();
-    const sessionMaxAgeDays = settingsStore.getNumber("web.session_max_age_days", webCfg.sessionMaxAgeDays);
-    const sessionMaxAgeMs = sessionMaxAgeDays * 24 * 60 * 60 * 1000;
-    const userStore = new UserStore(undefined, sessionMaxAgeMs);
-    setUserStore(userStore);
-    userStoreInstance = userStore;
-
-    const pruned = userStore.pruneExpiredSessions();
-    if (pruned > 0) {
-      console.log(`[UserStore] Pruned ${pruned} expired auth session(s)`);
-    }
-  }
-
+  // Build handler
   const handler = async (
     msg: InboundMessage,
   ): Promise<string | null> => {
     const trimmed = msg.text.trim();
 
-    // /help — list commands
-    if (trimmed === "/help") {
-      return t("cmd_help");
-    }
+    if (trimmed === "/help") return t("cmd_help");
 
-    // /new, /reset, /clear — reset session
     if (["/new", "/reset", "/clear"].includes(trimmed)) {
       await agentManager.reset(msg.sessionKey);
       return t("cmd_reset");
     }
 
-    // /skills — list enabled skills
     if (trimmed === "/skills") {
       const enabled = loadEnabledSkills();
       if (enabled.length === 0) {
@@ -344,15 +119,99 @@ async function start(): Promise<void> {
     return await agentManager.chat(msg.sessionKey, msg.text, onEvent);
   };
 
-  // Expose handler + agent manager to web channel
+  // ---------------------------------------------------------------------------
+  // Initialize web channel stores (web channel needs extra services)
+  // ---------------------------------------------------------------------------
+
+  let inviteStoreInstance: { close(): void } | null = null;
+  let userStoreInstance: { close(): void } | null = null;
+  const channelNames = getChannelNames();
+
+  // Web services (passed via ChannelContext.services)
+  const webServices: Record<string, unknown> = {};
+
   if (channelNames.includes("web")) {
-    const { setHandler, setAgentManager } = await import("./channels/web.js");
-    setHandler(handler);
-    setAgentManager(agentManager);
+    const { InviteStore } = await import("./invite-store.js");
+    const inviteStore = new InviteStore();
+    inviteStoreInstance = inviteStore;
+
+    const { UserStore } = await import("./user-store.js");
+    const webCfg = loadWebConfig();
+    const sessionMaxAgeDays = settingsStore.getNumber("web.session_max_age_days", webCfg.sessionMaxAgeDays);
+    const sessionMaxAgeMs = sessionMaxAgeDays * 24 * 60 * 60 * 1000;
+    const userStore = new UserStore(undefined, sessionMaxAgeMs);
+    userStoreInstance = userStore;
+
+    const pruned = userStore.pruneExpiredSessions();
+    if (pruned > 0) {
+      console.log(`[UserStore] Pruned ${pruned} expired auth session(s)`);
+    }
+
+    webServices.messageStore = messageStore;
+    webServices.inviteStore = inviteStore;
+    webServices.userStore = userStore;
+    webServices.settingsStore = settingsStore;
+    webServices.handler = handler;
+    webServices.agentManager = agentManager;
+    if (memoryPool) webServices.memoryPool = memoryPool;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ChannelManager: centralized lifecycle for all channels
+  // ---------------------------------------------------------------------------
+
+  const manager = new ChannelManager({
+    handler,
+    settingsStore,
+    messageStore,
+    buildNotify: (ownerId) => (sessionKey, role, text) => {
+      const event = { type: "channel_message" as const, sessionKey, role, text };
+      if (ownerId) gateway.sendEvent(ownerId, event);
+      else gateway.broadcastEvent(event);
+    },
+    services: webServices,
+  });
+
+  // Register all channel plugins + pass manager to web services for hot-start
+  webServices.channelManager = manager;
+  manager.register(webPlugin);
+  manager.register(feishuPlugin);
+  manager.register(dingtalkPlugin);
+  manager.register(wechatPlugin);
+  manager.register(qqPlugin);
+  manager.register(wecomPlugin);
+
+  // Cron executor
+  const cronExecutor = (sessionKey: string, prompt: string) =>
+    agentManager.chat(sessionKey, prompt);
+
+  // Initialize cron scheduler if configured
+  let cronScheduler: import("./cron.js").CronScheduler | null = null;
+  const cronEnabled = settingsStore.getBool("cron.enabled", false);
+  if (cronEnabled) {
+    const tasks = settingsStore.listTasks();
+    const { CronScheduler } = await import("./cron.js");
+    const deliverers = manager.buildDeliverers();
+    cronScheduler = new CronScheduler(
+      {
+        enabled: true,
+        tasks,
+        maxConcurrentRuns: settingsStore.getNumber("cron.max_concurrent_runs", 0) || undefined,
+      },
+      cronExecutor,
+      deliverers,
+    );
+    cronScheduler.start();
+    console.log("[Cron] Scheduler started");
+
+    // Pass cron scheduler to web channel via services
+    if (channelNames.includes("web")) {
+      webServices.cronScheduler = cronScheduler;
+    }
   }
 
   try {
-    await Promise.all(plugins.map((p) => p.start(handler)));
+    await manager.startAll();
   } finally {
     console.log("[Klaus] Shutting down...");
     cronScheduler?.stop();

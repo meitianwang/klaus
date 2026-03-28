@@ -7,48 +7,18 @@
  */
 
 import { TOPIC_ROBOT, type DWClient, type DWClientDownStream } from "dingtalk-stream";
-import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type {
   DingtalkConfig,
   DingtalkRawMessage,
   DingtalkMediaContent,
 } from "./dingtalk-types.js";
+import { decryptCred } from "./channel-creds.js";
+import { MessageDedup } from "./dedup.js";
 import { createDingtalkClient } from "./dingtalk-client.js";
 import { sendTextMessage, sendMessage } from "./dingtalk-send.js";
 import { createAICard, finishAICard } from "./dingtalk-card.js";
-
-// ---------------------------------------------------------------------------
-// Module state
-// ---------------------------------------------------------------------------
-
-let dingtalkConfig: DingtalkConfig | undefined;
-let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
-let notifyWebClients: ((sessionKey: string, role: "user" | "assistant", text: string) => void) | undefined;
-
-export type { DingtalkConfig } from "./dingtalk-types.js";
-
-export function setDingtalkConfig(config: DingtalkConfig): void {
-  dingtalkConfig = config;
-}
-
-export function setDingtalkTranscript(
-  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
-): void {
-  transcriptAppend = append;
-}
-
-export function setDingtalkNotify(
-  notify: (sessionKey: string, role: "user" | "assistant", text: string) => void,
-): void {
-  notifyWebClients = notify;
-}
-
-function getConfig(): DingtalkConfig {
-  if (!dingtalkConfig) throw new Error("DingTalk config not set");
-  return dingtalkConfig;
-}
 
 // ---------------------------------------------------------------------------
 // Message parsing (aligned with openclaw-china bot-handler.ts)
@@ -124,32 +94,6 @@ function toMessageType(contentType: string): MessageType {
 }
 
 // ---------------------------------------------------------------------------
-// Message dedup (in-memory, 60s TTL, aligned with openclaw-china)
-// ---------------------------------------------------------------------------
-
-const processedMessages = new Map<string, number>();
-const MESSAGE_DEDUP_TTL_MS = 60_000;
-const MESSAGE_DEDUP_MAX_ENTRIES = 10_000;
-
-function isDuplicate(key: string): boolean {
-  const now = Date.now();
-  const prev = processedMessages.get(key);
-  if (typeof prev === "number" && now - prev < MESSAGE_DEDUP_TTL_MS) {
-    return true;
-  }
-
-  processedMessages.set(key, now);
-
-  // Prune old entries
-  if (processedMessages.size > MESSAGE_DEDUP_MAX_ENTRIES) {
-    for (const [k, ts] of processedMessages) {
-      if (now - ts > MESSAGE_DEDUP_TTL_MS) processedMessages.delete(k);
-    }
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
 // Convert raw message → InboundMessage
 // ---------------------------------------------------------------------------
 
@@ -160,7 +104,6 @@ function toInboundMessage(raw: DingtalkRawMessage): InboundMessage {
   // Strip bot @mention from text
   let cleanText = text;
   if (chatType === "group" && raw.atUsers?.length) {
-    // DingTalk includes @bot name in text, remove it
     cleanText = text.replace(/@\S+\s*/g, "").trim();
   }
 
@@ -183,6 +126,9 @@ function toInboundMessage(raw: DingtalkRawMessage): InboundMessage {
 // Plugin export
 // ---------------------------------------------------------------------------
 
+// Module-level config cached from last resolveConfig for deliver()
+let cachedConfig: DingtalkConfig | undefined;
+
 export const dingtalkPlugin: ChannelPlugin = {
   meta: {
     id: "dingtalk",
@@ -196,8 +142,25 @@ export const dingtalkPlugin: ChannelPlugin = {
     mention: true,
   },
 
-  start: async (handler: Handler) => {
-    const config = getConfig();
+  resolveConfig: (store) => {
+    const clientId = store.get("channel.dingtalk.client_id");
+    const clientSecret = decryptCred(store.get("channel.dingtalk.client_secret") ?? "");
+    const enabled = store.getBool("channel.dingtalk.enabled", false);
+    if (!enabled || !clientId || !clientSecret) return null;
+
+    cachedConfig = { clientId, clientSecret };
+    return {
+      enabled: true,
+      ownerId: store.get("channel.dingtalk.owner_id") ?? undefined,
+      clientId,
+      clientSecret,
+    };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    if (!cachedConfig) throw new Error("DingTalk config not resolved");
+    const config = cachedConfig;
+    const dedup = new MessageDedup();
 
     console.log("[DingTalk] Starting (mode=stream)");
 
@@ -218,8 +181,7 @@ export const dingtalkPlugin: ChannelPlugin = {
       }
 
       // Dedup
-      const dedupeKey = streamMessageId ? `dingtalk:${streamMessageId}` : undefined;
-      if (dedupeKey && isDuplicate(dedupeKey)) return;
+      if (streamMessageId && dedup.isDuplicate(`dingtalk:${streamMessageId}`)) return;
 
       // Parse and handle
       let raw: DingtalkRawMessage;
@@ -250,12 +212,10 @@ export const dingtalkPlugin: ChannelPlugin = {
           if (!msg.text.trim()) return;
 
           // Write user message to transcript + push to web
-          if (transcriptAppend) {
-            await transcriptAppend(msg.sessionKey, "user", msg.text.trim());
-          }
-          if (notifyWebClients) notifyWebClients(msg.sessionKey, "user", msg.text.trim());
+          await ctx.transcript(msg.sessionKey, "user", msg.text.trim());
+          ctx.notify(msg.sessionKey, "user", msg.text.trim());
 
-          // Create AI Card as typing indicator (user sees "processing" immediately)
+          // Create AI Card as typing indicator
           const card = await createAICard({
             config,
             conversationType: raw.conversationType,
@@ -263,13 +223,11 @@ export const dingtalkPlugin: ChannelPlugin = {
             senderId: raw.senderId,
           });
 
-          const reply = await handler(msg);
+          const reply = await ctx.handler(msg);
           if (reply) {
             // Write assistant reply to transcript + push to web
-            if (transcriptAppend) {
-              await transcriptAppend(msg.sessionKey, "assistant", reply);
-            }
-            if (notifyWebClients) notifyWebClients(msg.sessionKey, "assistant", reply);
+            await ctx.transcript(msg.sessionKey, "assistant", reply);
+            ctx.notify(msg.sessionKey, "assistant", reply);
 
             // Send reply: update AI Card if available, otherwise send text
             if (card) {
@@ -290,20 +248,24 @@ export const dingtalkPlugin: ChannelPlugin = {
     await client.connect();
     console.log("[DingTalk] Stream client connected");
 
-    // Block forever
+    // Block until abort signal
     return new Promise<void>((resolve) => {
       const shutdown = () => {
         console.log("[DingTalk] Shutting down...");
+        dedup.clear();
         try { client.disconnect(); } catch { /* ignore */ }
         resolve();
       };
-      process.on("SIGTERM", shutdown);
-      process.on("SIGINT", shutdown);
+      if (ctx.signal.aborted) { shutdown(); return; }
+      ctx.signal.addEventListener("abort", shutdown, { once: true });
     });
   },
 
   deliver: async (to: string, text: string) => {
-    const config = getConfig();
-    await sendMessage({ config, to, text });
+    if (!cachedConfig) {
+      console.warn("[DingTalk] deliver() skipped: not configured");
+      return;
+    }
+    await sendMessage({ config: cachedConfig, to, text });
   },
 };

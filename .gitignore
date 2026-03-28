@@ -21,3 +21,4 @@ ios/*.log
 apps/macos/.build/
 apps/macos/.swiftpm/
 openclaw-china/
+claude-mem/

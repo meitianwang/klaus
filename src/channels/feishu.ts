@@ -23,15 +23,14 @@
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 import crypto from "node:crypto";
-import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { InboundMessage, MessageType, MediaFile } from "../message.js";
 import type {
   FeishuConfig,
   FeishuMessageEvent,
-  FeishuGroupConfig,
   FeishuPermissionError,
 } from "./feishu-types.js";
+import { decryptCred } from "./channel-creds.js";
 import {
   createFeishuClient,
   createFeishuWSClient,
@@ -70,45 +69,20 @@ import {
   saveMediaToLocal,
 } from "./feishu-media.js";
 
-// Re-export types and config setter for index.ts
-export type { FeishuConfig } from "./feishu-types.js";
-
 // ---------------------------------------------------------------------------
-// Module state
+// Module-level state (bot identity, cached config for deliver/probe)
 // ---------------------------------------------------------------------------
 
-let feishuConfig: FeishuConfig | undefined;
+let cachedConfig: FeishuConfig | undefined;
 let botOpenId: string | undefined;
 let botName: string | undefined;
-let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
-let notifyWebClients: ((sessionKey: string, role: "user" | "assistant", text: string) => void) | undefined;
-
-export function setFeishuConfig(config: FeishuConfig): void {
-  feishuConfig = config;
-}
-
-export function setFeishuTranscript(
-  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
-): void {
-  transcriptAppend = append;
-}
-
-export function setFeishuNotify(
-  notify: (sessionKey: string, role: "user" | "assistant", text: string) => void,
-): void {
-  notifyWebClients = notify;
-}
-
-function getConfig(): FeishuConfig {
-  if (!feishuConfig) throw new Error("Feishu config not set");
-  return feishuConfig;
-}
 
 // ---------------------------------------------------------------------------
 // Sender name resolution (aligned with OpenClaw bot-sender-name.ts)
 // ---------------------------------------------------------------------------
 
 const SENDER_NAME_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const SENDER_NAME_CACHE_MAX = 5_000;
 const senderNameCache = new Map<string, { name: string; expireAt: number }>();
 const IGNORED_PERMISSION_SCOPE_TOKENS = ["contact:contact.base:readonly"];
 const FEISHU_SCOPE_CORRECTIONS: Record<string, string> = {
@@ -149,8 +123,7 @@ function resolveSenderLookupIdType(senderId: string): "open_id" | "user_id" | "u
   return "user_id";
 }
 
-async function resolveSenderName(senderId: string): Promise<string | undefined> {
-  const config = getConfig();
+async function resolveSenderName(config: FeishuConfig, senderId: string): Promise<string | undefined> {
   if (config.resolveSenderNames === false) return undefined;
 
   const normalizedId = senderId.trim();
@@ -176,20 +149,25 @@ async function resolveSenderName(senderId: string): Promise<string | undefined> 
 
     if (name && typeof name === "string") {
       senderNameCache.set(normalizedId, { name, expireAt: now + SENDER_NAME_TTL_MS });
+      // Evict expired entries when over cap
+      if (senderNameCache.size > SENDER_NAME_CACHE_MAX) {
+        for (const [k, v] of senderNameCache) {
+          if (v.expireAt <= now) senderNameCache.delete(k);
+        }
+      }
       return name;
     }
     return undefined;
   } catch (err) {
     const permErr = extractPermissionError(err);
     if (permErr) {
-      // Suppress known stale scope errors
       if (IGNORED_PERMISSION_SCOPE_TOKENS.some((t) => permErr.message.toLowerCase().includes(t))) {
         return undefined;
       }
-      // Rate-limit permission error notifications
+      const now2 = Date.now();
       const lastNotified = permissionErrorNotifiedAt.get(config.appId) ?? 0;
-      if (now - lastNotified > PERMISSION_ERROR_COOLDOWN_MS) {
-        permissionErrorNotifiedAt.set(config.appId, now);
+      if (now2 - lastNotified > PERMISSION_ERROR_COOLDOWN_MS) {
+        permissionErrorNotifiedAt.set(config.appId, now2);
         console.warn(
           `[Feishu] Permission error resolving sender name (code=${permErr.code}).` +
           (permErr.grantUrl ? ` Grant URL: ${permErr.grantUrl}` : ""),
@@ -232,9 +210,9 @@ function toMessageType(feishuType: string): MessageType {
 // ---------------------------------------------------------------------------
 
 async function resolveMediaFiles(
+  config: FeishuConfig,
   event: FeishuMessageEvent,
 ): Promise<MediaFile[] | undefined> {
-  const config = getConfig();
   const { message } = event;
   const senderId = event.sender.sender_id.open_id || "unknown";
   const files: MediaFile[] = [];
@@ -305,7 +283,6 @@ async function resolveMediaFiles(
         files.push({ type: "video", path });
       }
     } else if (message.message_type === "post") {
-      // Extract embedded images from post content
       const postResult = parsePostContent(message.content);
       for (const imageKey of postResult.imageKeys) {
         try {
@@ -332,20 +309,16 @@ async function resolveMediaFiles(
 // Event → InboundMessage conversion
 // ---------------------------------------------------------------------------
 
-async function toInboundMessage(event: FeishuMessageEvent): Promise<InboundMessage> {
-  const config = getConfig();
+async function toInboundMessage(config: FeishuConfig, event: FeishuMessageEvent): Promise<InboundMessage> {
   const { sender, message } = event;
   const senderOpenId = sender.sender_id.open_id || sender.sender_id.user_id || "unknown";
   const isDirectMessage = message.chat_type === "p2p";
 
-  // Session key: feishu:{peerId} — isolation handled at query layer
   let sessionKey: string;
-  let replyInThread = false;
 
   if (isDirectMessage) {
     sessionKey = `feishu:${senderOpenId}`;
   } else {
-    // Resolve per-group config
     const groupConfig = resolveGroupConfig({ config, groupId: message.chat_id });
     const session = resolveFeishuGroupSession({
       chatId: message.chat_id,
@@ -361,7 +334,6 @@ async function toInboundMessage(event: FeishuMessageEvent): Promise<InboundMessa
         groupConfig?.topicSessionMode ?? config.topicSessionMode,
     });
     sessionKey = `feishu:${session.peerId}`;
-    replyInThread = session.replyInThread;
   }
 
   // Parse text content
@@ -396,10 +368,10 @@ async function toInboundMessage(event: FeishuMessageEvent): Promise<InboundMessa
     .map((m) => m.name);
 
   // Resolve sender name
-  const senderName = await resolveSenderName(senderOpenId);
+  const senderName = await resolveSenderName(config, senderOpenId);
 
   // Resolve media files
-  const media = await resolveMediaFiles(event);
+  const media = await resolveMediaFiles(config, event);
 
   return {
     sessionKey,
@@ -472,7 +444,7 @@ function isWebhookSignatureValid(params: {
   encryptKey?: string;
 }): boolean {
   const encryptKey = params.encryptKey?.trim();
-  if (!encryptKey) return true; // No key configured = skip verification
+  if (!encryptKey) return true;
 
   const getHeader = (name: string): string | undefined => {
     const val = params.headers[name];
@@ -489,7 +461,6 @@ function isWebhookSignatureValid(params: {
     .update(timestamp + nonce + encryptKey + JSON.stringify(params.payload))
     .digest("hex");
 
-  // Timing-safe comparison
   const computedBuf = Buffer.from(computed, "utf8");
   const signatureBuf = Buffer.from(signature, "utf8");
   if (computedBuf.length !== signatureBuf.length) return false;
@@ -500,8 +471,7 @@ function isWebhookSignatureValid(params: {
 // Transport: WebSocket
 // ---------------------------------------------------------------------------
 
-async function startWebSocket(eventDispatcher: Lark.EventDispatcher): Promise<void> {
-  const config = getConfig();
+async function startWebSocket(config: FeishuConfig, eventDispatcher: Lark.EventDispatcher, signal: AbortSignal): Promise<void> {
   const wsClient = await createFeishuWSClient(config);
 
   return new Promise<void>((resolve) => {
@@ -509,8 +479,8 @@ async function startWebSocket(eventDispatcher: Lark.EventDispatcher): Promise<vo
       console.log("[Feishu] Shutting down WebSocket...");
       resolve();
     };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    if (signal.aborted) { shutdown(); return; }
+    signal.addEventListener("abort", shutdown, { once: true });
 
     wsClient.start({ eventDispatcher });
     console.log("[Feishu] WebSocket client started");
@@ -521,8 +491,7 @@ async function startWebSocket(eventDispatcher: Lark.EventDispatcher): Promise<vo
 // Transport: Webhook (with signature verification + rate limiting)
 // ---------------------------------------------------------------------------
 
-async function startWebhook(eventDispatcher: Lark.EventDispatcher): Promise<void> {
-  const config = getConfig();
+async function startWebhook(config: FeishuConfig, eventDispatcher: Lark.EventDispatcher, signal: AbortSignal): Promise<void> {
   const http = await import("node:http");
 
   const port = config.webhookPort ?? 3000;
@@ -540,7 +509,6 @@ async function startWebhook(eventDispatcher: Lark.EventDispatcher): Promise<void
     const clientIp = req.socket.remoteAddress ?? "unknown";
     const now = Date.now();
 
-    // Evict stale entries when map grows too large
     if (rateLimitMap.size > RATE_LIMIT_MAP_MAX) {
       for (const [ip, entry] of rateLimitMap) {
         if (now >= entry.resetAt) rateLimitMap.delete(ip);
@@ -659,8 +627,8 @@ async function startWebhook(eventDispatcher: Lark.EventDispatcher): Promise<void
       server.close();
       resolve();
     };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    if (signal.aborted) { shutdown(); return; }
+    signal.addEventListener("abort", shutdown, { once: true });
 
     server.listen(port, host, () => {
       console.log(`[Feishu] Webhook server listening on ${host}:${port}${webhookPath}`);
@@ -691,8 +659,24 @@ export const feishuPlugin: ChannelPlugin = {
     reply: true,
   },
 
-  start: async (handler: Handler) => {
-    const config = getConfig();
+  resolveConfig: (store) => {
+    const appId = store.get("channel.feishu.app_id");
+    const appSecret = decryptCred(store.get("channel.feishu.app_secret") ?? "");
+    const enabled = store.getBool("channel.feishu.enabled", false);
+    if (!enabled || !appId || !appSecret) return null;
+
+    cachedConfig = { appId, appSecret };
+    return {
+      enabled: true,
+      ownerId: store.get("channel.feishu.owner_id") ?? undefined,
+      appId,
+      appSecret,
+    };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    if (!cachedConfig) throw new Error("Feishu config not resolved");
+    const config = cachedConfig;
     const mode = config.connectionMode ?? "websocket";
 
     console.log(
@@ -720,11 +704,9 @@ export const feishuPlugin: ChannelPlugin = {
 
     // Dispatch a batch of debounced messages
     const dispatchMessages = async (events: FeishuMessageEvent[]) => {
-      // Use the last event as the primary, merge text from all
       const last = events[events.length - 1];
       if (!last) return;
 
-      // Combine text from all events if multiple
       let effectiveEvent = last;
       if (events.length > 1) {
         const combinedText = events
@@ -744,15 +726,13 @@ export const feishuPlugin: ChannelPlugin = {
       }
 
       try {
-        const msg = await toInboundMessage(effectiveEvent);
+        const msg = await toInboundMessage(config, effectiveEvent);
         if (!msg.text.trim() && !msg.media?.length) return;
 
         // Write user message to transcript + push to web clients
         if (msg.text.trim()) {
-          if (transcriptAppend) {
-            await transcriptAppend(msg.sessionKey, "user", msg.text.trim());
-          }
-          if (notifyWebClients) notifyWebClients(msg.sessionKey, "user", msg.text.trim());
+          await ctx.transcript(msg.sessionKey, "user", msg.text.trim());
+          ctx.notify(msg.sessionKey, "user", msg.text.trim());
         }
 
         // Add typing indicator (emoji reaction) on the user's message
@@ -767,11 +747,11 @@ export const feishuPlugin: ChannelPlugin = {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             typingReactionId = (resp as any)?.data?.reaction_id ?? null;
           } catch {
-            // Non-critical — silently ignore (permission issues, message deleted, etc.)
+            // Non-critical
           }
         }
 
-        const reply = await handler(msg);
+        const reply = await ctx.handler(msg);
 
         // Remove typing indicator
         if (typingReactionId) {
@@ -787,18 +767,14 @@ export const feishuPlugin: ChannelPlugin = {
         }
 
         if (reply) {
-          // Write assistant reply to transcript + push to web clients
-          if (transcriptAppend) {
-            await transcriptAppend(msg.sessionKey, "assistant", reply);
-          }
-          if (notifyWebClients) notifyWebClients(msg.sessionKey, "assistant", reply);
-          // Determine reply mode
+          await ctx.transcript(msg.sessionKey, "assistant", reply);
+          ctx.notify(msg.sessionKey, "assistant", reply);
+
           const groupConfig = resolveGroupConfig({ config, groupId: effectiveEvent.message.chat_id });
           const replyInThread =
             (groupConfig?.replyInThread ?? config.replyInThread ?? "disabled") === "enabled" ||
             Boolean(effectiveEvent.message.thread_id || effectiveEvent.message.root_id);
 
-          // Use card for markdown content, text for plain
           const renderMode = config.renderMode ?? "auto";
           const useCard = renderMode === "card" ||
             (renderMode === "auto" && /[*_`#\[\]|>~]/.test(reply));
@@ -838,12 +814,8 @@ export const feishuPlugin: ChannelPlugin = {
         const messageId = event.message?.message_id?.trim();
         if (!messageId) return;
 
-        // Dedup check
-        if (!tryBeginProcessing(messageId)) {
-          return;
-        }
+        if (!tryBeginProcessing(messageId)) return;
 
-        // Skip messages from bot itself
         const senderOpenId = event.sender?.sender_id?.open_id;
         if (senderOpenId && senderOpenId === botOpenId) {
           releaseProcessing(messageId);
@@ -867,7 +839,6 @@ export const feishuPlugin: ChannelPlugin = {
             }
           }
         } else {
-          // Group access control
           const groupConfig = resolveGroupConfig({ config, groupId: event.message.chat_id });
           const groupPolicy = config.groupPolicy ?? "allowlist";
 
@@ -889,7 +860,6 @@ export const feishuPlugin: ChannelPlugin = {
             }
           }
 
-          // Check if @mention is required
           const { requireMention } = resolveReplyPolicy({
             isDirectMessage: false,
             globalConfig: config,
@@ -901,7 +871,6 @@ export const feishuPlugin: ChannelPlugin = {
           }
         }
 
-        // Debounce rapid consecutive messages
         debounceMessage(event, dispatchMessages);
       },
 
@@ -928,16 +897,32 @@ export const feishuPlugin: ChannelPlugin = {
       },
     });
 
+    // Cleanup debounce timers and caches on shutdown
+    ctx.signal.addEventListener("abort", () => {
+      for (const [chatId, queue] of debounceQueues) {
+        for (const entry of queue) {
+          clearTimeout(entry.timer);
+          releaseProcessing(entry.event.message.message_id);
+        }
+      }
+      debounceQueues.clear();
+      senderNameCache.clear();
+      permissionErrorNotifiedAt.clear();
+    }, { once: true });
+
     // Start transport
     if (mode === "webhook") {
-      await startWebhook(eventDispatcher);
+      await startWebhook(config, eventDispatcher, ctx.signal);
     } else {
-      await startWebSocket(eventDispatcher);
+      await startWebSocket(config, eventDispatcher, ctx.signal);
     }
   },
 
   deliver: async (to: string, text: string) => {
-    const config = getConfig();
-    await sendMessage({ config, to, text });
+    if (!cachedConfig) {
+      console.warn("[Feishu] deliver() skipped: not configured");
+      return;
+    }
+    await sendMessage({ config: cachedConfig, to, text });
   },
 };

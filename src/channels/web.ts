@@ -39,7 +39,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { encryptCred, decryptCred } from "./channel-creds.js";
-import type { ChannelPlugin } from "./types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { Handler } from "../types.js";
 import type { WebConfig } from "../types.js";
 import {
@@ -217,21 +217,21 @@ let userStoreRef: UserStore | null = null;
 let settingsStoreRef: import("../settings-store.js").SettingsStore | null = null;
 const gateway = getGatewayService();
 
-export function setMessageStore(store: MessageStore): void {
+function setMessageStore(store: MessageStore): void {
   messageStoreRef = store;
   gateway.setMessageStore(store);
 }
 
-export function setInviteStore(store: InviteStore): void {
+function setInviteStore(store: InviteStore): void {
   inviteStoreRef = store;
 }
 
-export function setUserStore(store: UserStore): void {
+function setUserStore(store: UserStore): void {
   userStoreRef = store;
   gateway.setUserStore(store);
 }
 
-export function setSettingsStore(store: import("../settings-store.js").SettingsStore): void {
+function setSettingsStore(store: import("../settings-store.js").SettingsStore): void {
   settingsStoreRef = store;
   gateway.setSettingsStore(store);
 }
@@ -248,11 +248,11 @@ let cronSchedulerRef: {
 
 let handlerRef: import("../types.js").Handler | null = null;
 
-export function setHandler(handler: import("../types.js").Handler): void {
+function setHandler(handler: import("../types.js").Handler): void {
   handlerRef = handler;
 }
 
-export function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
+function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
   cronSchedulerRef = scheduler;
   gateway.setCronScheduler(scheduler);
 }
@@ -260,15 +260,29 @@ export function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
 // Memory manager reference (optional — set from index.ts when memory is enabled)
 let memoryPoolRef: import("../memory/pool.js").MemoryManagerPool | null = null;
 
-export function setMemoryPool(pool: import("../memory/pool.js").MemoryManagerPool): void {
+function setMemoryPool(pool: import("../memory/pool.js").MemoryManagerPool): void {
   memoryPoolRef = pool;
 }
 
 // Agent manager reference (for direct tool invocation API)
 let agentManagerRef: import("../agent-manager.js").AgentSessionManager | null = null;
 
-export function setAgentManager(manager: import("../agent-manager.js").AgentSessionManager): void {
+function setAgentManager(manager: import("../agent-manager.js").AgentSessionManager): void {
   agentManagerRef = manager;
+}
+
+// ---------------------------------------------------------------------------
+// Hot-start: delegate to ChannelManager for proper lifecycle management
+// ---------------------------------------------------------------------------
+
+let channelManagerRef: import("./manager.js").ChannelManager | null = null;
+
+function hotStartChannel(channelId: string): void {
+  if (!channelManagerRef) {
+    console.warn(`[Web] Cannot hot-start "${channelId}": ChannelManager not available`);
+    return;
+  }
+  channelManagerRef.hotStart(channelId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,21 +1491,7 @@ async function handleAdminChannelFeishu(
       settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId);
       settingsStoreRef.set("channel.feishu.owner_id", authUser.id);
 
-      // Start feishu channel immediately (non-blocking)
-      if (handlerRef) {
-        const { setFeishuConfig, setFeishuTranscript, setFeishuNotify, feishuPlugin } = await import("./feishu.js");
-        setFeishuConfig({ appId, appSecret });
-        if (messageStoreRef) {
-          setFeishuTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
-        }
-        const ownerId = authUser.id;
-        setFeishuNotify((sk, role, text) => {
-          gateway.sendEvent(ownerId, { type: "channel_message" as const, sessionKey: sk, role, text });
-        });
-        feishuPlugin.start(handlerRef).catch((err) => {
-          console.error("[Feishu] Channel start failed:", err);
-        });
-      }
+      hotStartChannel("feishu");
 
       jsonResponse(res, 200, {
         ok: true,
@@ -1779,21 +1779,7 @@ async function handleAdminChannelWechat(
         settingsStoreRef.set("channel.wechat.enabled", "true");
         settingsStoreRef.set("channel.wechat.owner_id", authUser.id);
 
-        // Hot-start wechat channel
-        if (handlerRef) {
-          const { setWechatConfig, setWechatTranscript, setWechatNotify, wechatPlugin } = await import("./wechat.js");
-          setWechatConfig({ token: result.botToken, baseUrl: result.baseUrl || baseUrl, accountId: result.accountId });
-          if (messageStoreRef) {
-            setWechatTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
-          }
-          const ownerId = authUser.id;
-          setWechatNotify((sk, role, text) => {
-            gateway.sendEvent(ownerId, { type: "channel_message" as const, sessionKey: sk, role, text });
-          });
-          wechatPlugin.start(handlerRef).catch((err) => {
-            console.error("[WeChat] Channel start failed:", err);
-          });
-        }
+        hotStartChannel("wechat");
 
         wechatQrSession = null;
         jsonResponse(res, 200, {
@@ -1866,21 +1852,7 @@ async function handleAdminChannelDingtalk(
       settingsStoreRef.set("channel.dingtalk.enabled", "true");
       settingsStoreRef.set("channel.dingtalk.owner_id", authUser.id);
 
-      // Hot-start dingtalk channel
-      if (handlerRef) {
-        const { setDingtalkConfig, setDingtalkTranscript, setDingtalkNotify, dingtalkPlugin } = await import("./dingtalk.js");
-        setDingtalkConfig({ clientId, clientSecret });
-        if (messageStoreRef) {
-          setDingtalkTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
-        }
-        const ownerId = authUser.id;
-        setDingtalkNotify((sk, role, text) => {
-          gateway.sendEvent(ownerId, { type: "channel_message" as const, sessionKey: sk, role, text });
-        });
-        dingtalkPlugin.start(handlerRef).catch((err) => {
-          console.error("[DingTalk] Channel start failed:", err);
-        });
-      }
+      hotStartChannel("dingtalk");
 
       jsonResponse(res, 200, { ok: true, client_id: clientId, enabled: true });
     } catch (err) {
@@ -1939,21 +1911,7 @@ async function handleAdminChannelQQ(
       settingsStoreRef.set("channel.qq.enabled", "true");
       settingsStoreRef.set("channel.qq.owner_id", authUser.id);
 
-      // Hot-start QQ channel
-      if (handlerRef) {
-        const { setQQBotConfig, setQQBotTranscript, setQQBotNotify, qqPlugin } = await import("./qq.js");
-        setQQBotConfig({ appId, clientSecret });
-        if (messageStoreRef) {
-          setQQBotTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
-        }
-        const ownerId = authUser.id;
-        setQQBotNotify((sk, role, text) => {
-          gateway.sendEvent(ownerId, { type: "channel_message" as const, sessionKey: sk, role, text });
-        });
-        qqPlugin.start(handlerRef).catch((err) => {
-          console.error("[QQ] Channel start failed:", err);
-        });
-      }
+      hotStartChannel("qq");
 
       jsonResponse(res, 200, { ok: true, app_id: appId, enabled: true });
     } catch (err) {
@@ -2012,21 +1970,7 @@ async function handleAdminChannelWecom(
       settingsStoreRef.set("channel.wecom.enabled", "true");
       settingsStoreRef.set("channel.wecom.owner_id", authUser.id);
 
-      // Hot-start WeCom channel
-      if (handlerRef) {
-        const { setWecomConfig, setWecomTranscript, setWecomNotify, wecomPlugin } = await import("./wecom.js");
-        setWecomConfig({ botId, secret });
-        if (messageStoreRef) {
-          setWecomTranscript((sk, role, text) => messageStoreRef!.append(sk, role, text));
-        }
-        const ownerId = authUser.id;
-        setWecomNotify((sk, role, text) => {
-          gateway.sendEvent(ownerId, { type: "channel_message" as const, sessionKey: sk, role, text });
-        });
-        wecomPlugin.start(handlerRef).catch((err) => {
-          console.error("[WeCom] Channel start failed:", err);
-        });
-      }
+      hotStartChannel("wecom");
 
       jsonResponse(res, 200, { ok: true, bot_id: botId, enabled: true });
     } catch (err) {
@@ -2508,8 +2452,28 @@ export const webPlugin: ChannelPlugin = {
     dm: true,
   },
   deliver: deliverWebMessage,
-  start: async (handler: Handler) => {
+
+  resolveConfig: () => {
+    // Web channel is always enabled when listed in config.yaml channels
+    return { enabled: true };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    const handler = ctx.handler;
     const cfg = loadWebConfig();
+
+    // Apply services from ChannelContext if available (new architecture)
+    if (ctx.services) {
+      if (ctx.services.messageStore && !messageStoreRef) setMessageStore(ctx.services.messageStore as MessageStore);
+      if (ctx.services.inviteStore && !inviteStoreRef) setInviteStore(ctx.services.inviteStore as InviteStore);
+      if (ctx.services.userStore && !userStoreRef) setUserStore(ctx.services.userStore as UserStore);
+      if (ctx.services.settingsStore && !settingsStoreRef) setSettingsStore(ctx.services.settingsStore as import("../settings-store.js").SettingsStore);
+      if (ctx.services.memoryPool && !memoryPoolRef) setMemoryPool(ctx.services.memoryPool as import("../memory/pool.js").MemoryManagerPool);
+      if (ctx.services.agentManager && !agentManagerRef) setAgentManager(ctx.services.agentManager as import("../agent-manager.js").AgentSessionManager);
+      if (ctx.services.handler && !handlerRef) setHandler(ctx.services.handler as Handler);
+      if (ctx.services.cronScheduler && !cronSchedulerRef) setCronScheduler(ctx.services.cronScheduler as NonNullable<typeof cronSchedulerRef>);
+      if (ctx.services.channelManager) channelManagerRef = ctx.services.channelManager as import("./manager.js").ChannelManager;
+    }
 
     const server = createServer((req, res) => {
       handleRequest(req, res, cfg).catch((err) => {
@@ -2663,17 +2627,18 @@ export const webPlugin: ChannelPlugin = {
       if (configDebounce) clearTimeout(configDebounce);
       configWatcher?.close();
       wss.close();
+      server.close();
     };
     process.once("exit", cleanup);
 
-    // Block forever until process is killed
+    // Block until abort signal
     await new Promise<void>((resolve) => {
-      const onSignal = () => {
+      const onAbort = () => {
         cleanup();
         resolve();
       };
-      process.once("SIGTERM", onSignal);
-      process.once("SIGINT", onSignal);
+      if (ctx.signal.aborted) { onAbort(); return; }
+      ctx.signal.addEventListener("abort", onAbort, { once: true });
     });
   },
 };

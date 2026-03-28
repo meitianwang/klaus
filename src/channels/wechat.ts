@@ -10,10 +10,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type { WechatConfig, WechatMessage } from "./wechat-types.js";
+import { decryptCred } from "./channel-creds.js";
+import { MessageDedup } from "./dedup.js";
+import { sleep } from "../retry.js";
 import { getUpdates, sendMessageWechat } from "./wechat-api.js";
 
 // ---------------------------------------------------------------------------
@@ -40,37 +42,6 @@ function saveSyncBuf(buf: string): void {
   } catch (err) {
     console.warn("[WeChat] Failed to save sync cursor:", err);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Module state
-// ---------------------------------------------------------------------------
-
-let wechatConfig: WechatConfig | undefined;
-let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
-let notifyWebClients: ((sessionKey: string, role: "user" | "assistant", text: string) => void) | undefined;
-
-export type { WechatConfig } from "./wechat-types.js";
-
-export function setWechatConfig(config: WechatConfig): void {
-  wechatConfig = config;
-}
-
-export function setWechatTranscript(
-  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
-): void {
-  transcriptAppend = append;
-}
-
-export function setWechatNotify(
-  notify: (sessionKey: string, role: "user" | "assistant", text: string) => void,
-): void {
-  notifyWebClients = notify;
-}
-
-function getConfig(): WechatConfig {
-  if (!wechatConfig) throw new Error("WeChat config not set");
-  return wechatConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +73,6 @@ function parseMessageText(msg: WechatMessage): string {
     } else if (item.type === 2) {
       parts.push("[图片]");
     } else if (item.type === 3) {
-      // Voice: use transcription if available
       if (item.voice_item?.text) {
         parts.push(item.voice_item.text);
       } else {
@@ -130,28 +100,6 @@ function toMessageType(msg: WechatMessage): MessageType {
 }
 
 // ---------------------------------------------------------------------------
-// Dedup (in-memory, 60s TTL)
-// ---------------------------------------------------------------------------
-
-const processedMessages = new Map<string, number>();
-const DEDUP_TTL_MS = 60_000;
-const DEDUP_MAX = 10_000;
-
-function isDuplicate(key: string): boolean {
-  const now = Date.now();
-  if (processedMessages.has(key) && now - processedMessages.get(key)! < DEDUP_TTL_MS) {
-    return true;
-  }
-  processedMessages.set(key, now);
-  if (processedMessages.size > DEDUP_MAX) {
-    for (const [k, ts] of processedMessages) {
-      if (now - ts > DEDUP_TTL_MS) processedMessages.delete(k);
-    }
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
 // Convert WechatMessage → InboundMessage
 // ---------------------------------------------------------------------------
 
@@ -176,6 +124,12 @@ function toInboundMessage(msg: WechatMessage): InboundMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level config cached from last resolveConfig
+// ---------------------------------------------------------------------------
+
+let cachedConfig: WechatConfig | undefined;
+
+// ---------------------------------------------------------------------------
 // Plugin export
 // ---------------------------------------------------------------------------
 
@@ -190,23 +144,35 @@ export const wechatPlugin: ChannelPlugin = {
     dm: true,
   },
 
-  start: async (handler: Handler) => {
-    const config = getConfig();
+  resolveConfig: (store) => {
+    const token = decryptCred(store.get("channel.wechat.token") ?? "");
+    const baseUrl = store.get("channel.wechat.base_url");
+    const accountId = store.get("channel.wechat.account_id");
+    const enabled = store.getBool("channel.wechat.enabled", false);
+    if (!enabled || !token || !baseUrl || !accountId) return null;
+
+    cachedConfig = { token, baseUrl, accountId };
+    return {
+      enabled: true,
+      ownerId: store.get("channel.wechat.owner_id") ?? undefined,
+      token,
+      baseUrl,
+      accountId,
+    };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    if (!cachedConfig) throw new Error("WeChat config not resolved");
+    const config = cachedConfig;
+    const dedup = new MessageDedup();
+
     console.log("[WeChat] Starting (mode=long-poll)");
 
     let getUpdatesBuf = loadSyncBuf();
     if (getUpdatesBuf) console.log("[WeChat] Restored sync cursor from disk");
-    let running = true;
-
-    const shutdown = () => {
-      console.log("[WeChat] Shutting down...");
-      running = false;
-    };
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
 
     // Long-poll loop
-    while (running) {
+    while (!ctx.signal.aborted) {
       try {
         const resp = await getUpdates({
           baseUrl: config.baseUrl,
@@ -217,8 +183,7 @@ export const wechatPlugin: ChannelPlugin = {
         // Session expired
         if (resp.errcode === -14) {
           console.error("[WeChat] Session expired. Please re-login via Settings > Channels.");
-          // Pause 1 hour before retrying
-          await new Promise((r) => setTimeout(r, 3600_000));
+          await sleep(3600_000, ctx.signal);
           continue;
         }
 
@@ -235,7 +200,7 @@ export const wechatPlugin: ChannelPlugin = {
 
           // Dedup
           const dedupeKey = `wechat:${msg.message_id ?? msg.client_id ?? Date.now()}`;
-          if (isDuplicate(dedupeKey)) continue;
+          if (dedup.isDuplicate(dedupeKey)) continue;
 
           // Process
           void (async () => {
@@ -243,21 +208,14 @@ export const wechatPlugin: ChannelPlugin = {
               const inbound = toInboundMessage(msg);
               if (!inbound.text.trim()) return;
 
-              // Write user message to transcript + push to web
-              if (transcriptAppend) {
-                await transcriptAppend(inbound.sessionKey, "user", inbound.text.trim());
-              }
-              if (notifyWebClients) notifyWebClients(inbound.sessionKey, "user", inbound.text.trim());
+              await ctx.transcript(inbound.sessionKey, "user", inbound.text.trim());
+              ctx.notify(inbound.sessionKey, "user", inbound.text.trim());
 
-              const reply = await handler(inbound);
+              const reply = await ctx.handler(inbound);
               if (reply) {
-                // Write assistant reply to transcript + push to web
-                if (transcriptAppend) {
-                  await transcriptAppend(inbound.sessionKey, "assistant", reply);
-                }
-                if (notifyWebClients) notifyWebClients(inbound.sessionKey, "assistant", reply);
+                await ctx.transcript(inbound.sessionKey, "assistant", reply);
+                ctx.notify(inbound.sessionKey, "assistant", reply);
 
-                // Send reply to WeChat (echo context_token)
                 const senderId = msg.from_user_id || "";
                 await sendMessageWechat({
                   config,
@@ -273,16 +231,21 @@ export const wechatPlugin: ChannelPlugin = {
         }
       } catch (err) {
         console.error("[WeChat] Long-poll error:", err);
-        // Backoff before retry
-        await new Promise((r) => setTimeout(r, 5000));
+        await sleep(5000, ctx.signal);
       }
     }
+
+    dedup.clear();
+    contextTokens.clear();
   },
 
   deliver: async (to: string, text: string) => {
-    const config = getConfig();
+    if (!cachedConfig) {
+      console.warn("[WeChat] deliver() skipped: not configured");
+      return;
+    }
     await sendMessageWechat({
-      config,
+      config: cachedConfig,
       to,
       text,
       contextToken: contextTokens.get(to),

@@ -8,41 +8,11 @@
 
 import crypto from "node:crypto";
 import { WSClient, type WsFrame } from "@wecom/aibot-node-sdk";
-import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { ChannelPlugin, ChannelContext } from "./types.js";
 import type { InboundMessage, MessageType } from "../message.js";
 import type { WecomConfig, WecomInboundMessage } from "./wecom-types.js";
-
-// ---------------------------------------------------------------------------
-// Module state
-// ---------------------------------------------------------------------------
-
-let wecomConfig: WecomConfig | undefined;
-let transcriptAppend: ((sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>) | undefined;
-let notifyWebClients: ((sessionKey: string, role: "user" | "assistant", text: string) => void) | undefined;
-
-export type { WecomConfig } from "./wecom-types.js";
-
-export function setWecomConfig(config: WecomConfig): void {
-  wecomConfig = config;
-}
-
-export function setWecomTranscript(
-  append: (sessionKey: string, role: "user" | "assistant", text: string) => Promise<void>,
-): void {
-  transcriptAppend = append;
-}
-
-export function setWecomNotify(
-  notify: (sessionKey: string, role: "user" | "assistant", text: string) => void,
-): void {
-  notifyWebClients = notify;
-}
-
-function getConfig(): WecomConfig {
-  if (!wecomConfig) throw new Error("WeCom config not set");
-  return wecomConfig;
-}
+import { decryptCred } from "./channel-creds.js";
+import { MessageDedup } from "./dedup.js";
 
 // ---------------------------------------------------------------------------
 // Message parsing
@@ -80,35 +50,6 @@ function resolveTarget(msg: WecomInboundMessage): { chatType: "private" | "group
   const userId = String(msg.from?.userid ?? "").trim() || "unknown";
   return { chatType: "private", peerId: userId };
 }
-
-// ---------------------------------------------------------------------------
-// Message dedup (in-memory, 60s TTL)
-// ---------------------------------------------------------------------------
-
-const processedMessages = new Map<string, number>();
-const MESSAGE_DEDUP_TTL_MS = 60_000;
-const MESSAGE_DEDUP_MAX_ENTRIES = 10_000;
-
-function isDuplicate(key: string): boolean {
-  const now = Date.now();
-  const prev = processedMessages.get(key);
-  if (typeof prev === "number" && now - prev < MESSAGE_DEDUP_TTL_MS) {
-    return true;
-  }
-
-  processedMessages.set(key, now);
-
-  if (processedMessages.size > MESSAGE_DEDUP_MAX_ENTRIES) {
-    for (const [k, ts] of processedMessages) {
-      if (now - ts > MESSAGE_DEDUP_TTL_MS) processedMessages.delete(k);
-    }
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Plugin export
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Credential probe (quick connect → authenticate → disconnect)
@@ -156,6 +97,8 @@ export async function probeWecomCredentials(
 
 // Module-level client reference for deliver() support
 let activeClient: WSClient | undefined;
+// Module-level config cached from last resolveConfig for probe()
+let cachedConfig: WecomConfig | undefined;
 
 export const wecomPlugin: ChannelPlugin = {
   meta: {
@@ -169,8 +112,26 @@ export const wecomPlugin: ChannelPlugin = {
     group: true,
   },
 
-  start: async (handler: Handler) => {
-    const config = getConfig();
+  resolveConfig: (store) => {
+    const botId = store.get("channel.wecom.bot_id");
+    const secret = decryptCred(store.get("channel.wecom.secret") ?? "");
+    const enabled = store.getBool("channel.wecom.enabled", false);
+    if (!enabled || !botId || !secret) return null;
+
+    cachedConfig = { botId, secret };
+    return {
+      enabled: true,
+      ownerId: store.get("channel.wecom.owner_id") ?? undefined,
+      botId,
+      secret,
+    };
+  },
+
+  start: async (ctx: ChannelContext) => {
+    if (!cachedConfig) throw new Error("WeCom config not resolved");
+    const config = cachedConfig;
+
+    const dedup = new MessageDedup();
 
     console.log("[WeCom] Starting (mode=ws)");
 
@@ -208,8 +169,7 @@ export const wecomPlugin: ChannelPlugin = {
       const msgId = msg.msgid;
 
       // Dedup
-      const dedupeKey = msgId ? `wecom:${msgId}` : undefined;
-      if (dedupeKey && isDuplicate(dedupeKey)) return;
+      if (msgId && dedup.isDuplicate(`wecom:${msgId}`)) return;
 
       // Skip events (enter_chat etc.)
       if (msg.msgtype === "event") return;
@@ -241,10 +201,8 @@ export const wecomPlugin: ChannelPlugin = {
       void (async () => {
         try {
           // Write user message to transcript + push to web
-          if (transcriptAppend) {
-            await transcriptAppend(sessionKey, "user", text);
-          }
-          if (notifyWebClients) notifyWebClients(sessionKey, "user", text);
+          await ctx.transcript(sessionKey, "user", text);
+          ctx.notify(sessionKey, "user", text);
 
           // Generate stream ID for streaming reply
           const streamId = crypto.randomBytes(16).toString("hex");
@@ -257,13 +215,11 @@ export const wecomPlugin: ChannelPlugin = {
             // Placeholder failure is non-fatal
           }
 
-          const reply = await handler(inbound);
+          const reply = await ctx.handler(inbound);
           if (reply) {
             // Write assistant reply to transcript + push to web
-            if (transcriptAppend) {
-              await transcriptAppend(sessionKey, "assistant", reply);
-            }
-            if (notifyWebClients) notifyWebClients(sessionKey, "assistant", reply);
+            await ctx.transcript(sessionKey, "assistant", reply);
+            ctx.notify(sessionKey, "assistant", reply);
 
             // Send final reply via streaming finish
             try {
@@ -299,16 +255,17 @@ export const wecomPlugin: ChannelPlugin = {
     client.connect();
     console.log("[WeCom] WebSocket client connecting...");
 
-    // Block forever
+    // Block until abort signal
     return new Promise<void>((resolve) => {
       const shutdown = () => {
         console.log("[WeCom] Shutting down...");
         activeClient = undefined;
+        dedup.clear();
         try { client.disconnect(); } catch { /* ignore */ }
         resolve();
       };
-      process.once("SIGTERM", shutdown);
-      process.once("SIGINT", shutdown);
+      if (ctx.signal.aborted) { shutdown(); return; }
+      ctx.signal.addEventListener("abort", shutdown, { once: true });
     });
   },
 
@@ -321,5 +278,10 @@ export const wecomPlugin: ChannelPlugin = {
       msgtype: "markdown",
       markdown: { content: text },
     });
+  },
+
+  probe: async () => {
+    if (!cachedConfig) return { ok: false, error: "Not configured" };
+    return probeWecomCredentials(cachedConfig);
   },
 };
