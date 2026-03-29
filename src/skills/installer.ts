@@ -12,16 +12,18 @@ import { getSkillRegistry } from "./registry.js";
 // Types
 // ---------------------------------------------------------------------------
 
+export const INSTALL_KINDS = ["brew", "npm", "go", "uv"] as const;
+
 export interface InstallSpec {
   readonly id: string;
-  readonly kind: "brew" | "npm" | "go" | "uv";
+  readonly kind: (typeof INSTALL_KINDS)[number];
   readonly formula?: string;
   readonly package?: string;
   readonly module?: string;
   readonly label: string;
 }
 
-export interface InstallResult {
+interface InstallResult {
   readonly ok: boolean;
   readonly message: string;
   readonly stdout: string;

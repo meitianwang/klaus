@@ -70,21 +70,14 @@ async function start(): Promise<void> {
     `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
   );
 
+  // Migrate config.yaml skills section to SettingsStore (one-time)
+  const { decryptCred, encryptCred } = await import("./channels/channel-creds.js");
+  const { migrateSkillsConfigIfNeeded } = await import("./migration/skills-config.js");
+  migrateSkillsConfigIfNeeded(settingsStore, encryptCred);
+
   // Initialize skill registry with hot-reload watcher
   const skillRegistry = getSkillRegistry();
-  const { decryptCred } = await import("./channels/channel-creds.js");
-  skillRegistry.setApiKeyLookup((name) => {
-    const encrypted = settingsStore.get(`skill.${name}.apiKey`);
-    if (!encrypted) return undefined;
-    const decrypted = decryptCred(encrypted);
-    return decrypted || undefined;
-  });
-  skillRegistry.setEnabledLookup((name) => {
-    const val = settingsStore.get(`skill.${name}.enabled`);
-    if (val === "true") return true;
-    if (val === "false") return false;
-    return undefined; // no explicit setting
-  });
+  skillRegistry.init(settingsStore, decryptCred);
   skillRegistry.startWatching();
   const enabledSkills = skillRegistry.getSkills();
   console.log(`[Skills] ${enabledSkills.length} skill(s) loaded, watcher started`);

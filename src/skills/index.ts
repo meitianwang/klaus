@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { platform } from "node:os";
 import { Type, type Static } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "klaus-agent";
-import { loadConfig, CONFIG_DIR } from "../config.js";
+import { CONFIG_DIR } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +44,7 @@ export interface KlausSkillMetadata {
   }[];
 }
 
-interface SkillEntry {
+export interface SkillEntry {
   readonly name: string;
   readonly description: string;
   readonly filePath: string;
@@ -256,82 +256,63 @@ export function loadAllSkillEntries(pluginDirs: string[] = []): SkillEntry[] {
   return Array.from(byName.values());
 }
 
-/** Resolve per-skill config from config.yaml. */
-function resolveSkillConfig(skillName: string): SkillConfig | undefined {
-  const cfg = loadConfig();
-  const entries = (cfg.skills as Record<string, unknown>)?.entries as
-    | Record<string, SkillConfig>
-    | undefined;
-  return entries?.[skillName];
+// ---------------------------------------------------------------------------
+// Skill settings types (from SettingsStore bulk query)
+// ---------------------------------------------------------------------------
+
+/** Per-skill admin settings (enabled state + decrypted API key). */
+export interface SkillSettingEntry {
+  readonly enabled: boolean | undefined;
+  readonly apiKey: string | undefined;
 }
 
-/** Optional callback to look up stored API keys (from SettingsStore). */
-export type ApiKeyLookup = (skillName: string) => string | undefined;
+/** Options for loading skills. Replaces positional parameters. */
+interface LoadSkillsOptions {
+  readonly pluginDirs?: string[];
+  readonly preloaded?: readonly SkillEntry[];
+  /** Bulk-loaded skill settings from SettingsStore (via registry.loadSkillSettings()). */
+  readonly skillSettings?: ReadonlyMap<string, SkillSettingEntry>;
+  /** If true, skills without explicit settings are treated as enabled (migrated from `skills: "all"`). */
+  readonly defaultEnabled?: boolean;
+}
 
 /**
- * Resolve skill config, enriching env with stored API key if primaryEnv is set.
- * This allows `isEligible` to treat stored API keys as satisfying env requirements.
+ * Build effective SkillConfig for eligibility check.
+ * Injects stored API key into env map if primaryEnv is set.
+ *
+ * When no settings exist for this skill:
+ * - `defaultEnabled = true`  → return undefined (no config = no restriction, only deps checked)
+ * - `defaultEnabled = false` → return `{ enabled: false }` to block the skill
  */
-function resolveFullSkillConfig(
+function buildSkillConfig(
   entry: SkillEntry,
-  apiKeyLookup?: ApiKeyLookup,
+  skillSettings?: ReadonlyMap<string, SkillSettingEntry>,
+  defaultEnabled = false,
 ): SkillConfig | undefined {
-  const base = resolveSkillConfig(entry.name);
+  const settings = skillSettings?.get(entry.name);
+  if (!settings) return defaultEnabled ? undefined : { enabled: false };
+
   const primaryEnv = entry.metadata?.primaryEnv;
-  if (!primaryEnv || !apiKeyLookup) return base;
+  const env = primaryEnv && settings.apiKey ? { [primaryEnv]: settings.apiKey } : undefined;
 
-  const storedKey = apiKeyLookup(entry.name);
-  if (!storedKey) return base;
-
-  // Inject stored API key into env map so isEligible treats it as satisfied
-  const env = { ...base?.env, [primaryEnv]: storedKey };
-  return { ...base, env };
+  return {
+    enabled: settings.enabled,
+    env,
+  };
 }
 
-/** Load enabled (eligible) skills after gating. Pass preloaded entries to avoid re-scanning. */
-export function loadEnabledSkills(
-  pluginDirs: string[] = [],
-  preloaded?: readonly SkillEntry[],
-  apiKeyLookup?: ApiKeyLookup,
-): readonly SkillEntry[] {
-  const cfg = loadConfig();
-  const raw = cfg.skills;
+/**
+ * Load enabled (eligible) skills after gating.
+ * SettingsStore is the single source of truth for enabled/disabled state.
+ */
+export function loadEnabledSkills(options: LoadSkillsOptions = {}): readonly SkillEntry[] {
+  const { pluginDirs = [], preloaded, skillSettings, defaultEnabled = false } = options;
   const all = preloaded ?? loadAllSkillEntries(pluginDirs);
 
-  const resolve = (e: SkillEntry) => resolveFullSkillConfig(e, apiKeyLookup);
-
-  // always: true skills are loaded regardless of config
-  const alwaysOn = all.filter(
-    (e) => e.metadata?.always && isEligible(e, resolve(e)),
-  );
-
-  // No skills section → return only always-on skills
-  if (!raw) return alwaysOn;
-
-  let configured: SkillEntry[];
-
-  if (raw === "all") {
-    configured = all.filter((e) => isEligible(e, resolve(e)));
-  } else if (typeof raw === "object" && !Array.isArray(raw)) {
-    configured = all.filter((e) => {
-      const sc = resolve(e);
-      if (sc?.enabled === false) return false;
-      return isEligible(e, sc);
-    });
-  } else if (Array.isArray(raw)) {
-    const names = new Set(raw.map(String));
-    configured = all
-      .filter((e) => names.has(e.name))
-      .filter((e) => isEligible(e, resolve(e)));
-  } else {
-    configured = [];
-  }
-
-  // Merge: configured + always-on (deduplicate by name)
-  const byName = new Map<string, SkillEntry>();
-  for (const e of alwaysOn) byName.set(e.name, e);
-  for (const e of configured) byName.set(e.name, e);
-  return Array.from(byName.values());
+  return all.filter((entry) => {
+    const config = buildSkillConfig(entry, skillSettings, defaultEnabled);
+    return isEligible(entry, config);
+  });
 }
 
 /** List all available skill names (before gating). */
@@ -357,8 +338,8 @@ function stripFrontmatter(raw: string): string {
 }
 
 /** Load enabled skills with full SKILL.md content (after gating). */
-export function loadResolvedSkills(pluginDirs: string[] = [], apiKeyLookup?: ApiKeyLookup): ResolvedSkill[] {
-  const entries = loadEnabledSkills(pluginDirs, undefined, apiKeyLookup);
+export function loadResolvedSkills(options: LoadSkillsOptions = {}): ResolvedSkill[] {
+  const entries = loadEnabledSkills(options);
   const results: ResolvedSkill[] = [];
   for (const entry of entries) {
     const content = stripFrontmatter(entry.rawContent);

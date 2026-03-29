@@ -5,58 +5,102 @@
  * - Version-counter cache (invalidated on filesystem changes)
  * - Chokidar file watcher for hot reload
  * - Plugin directory registration for channel plugins
+ * - Bulk skill settings loading via SettingsStore
  */
 
 import chokidar, { type FSWatcher } from "chokidar";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import type { SettingsStore } from "../settings-store.js";
 import {
+  loadAllSkillEntries,
   loadResolvedSkills,
   clearBinCache,
   resolveBundledSkillsDir,
   USER_SKILLS_DIR,
+  type SkillEntry,
   type ResolvedSkill,
-  type ApiKeyLookup,
+  type SkillSettingEntry,
 } from "./index.js";
-const WATCH_DEBOUNCE_MS = 500;
 
-// Dirs to ignore in watcher
+const WATCH_DEBOUNCE_MS = 500;
 const IGNORED_DIRS = /(?:^|[\\/])(?:\.git|node_modules|dist|\.venv|__pycache__)(?:[\\/]|$)/;
 
 class SkillRegistry {
   private version = 0;
   private cache: ResolvedSkill[] | null = null;
+  private allEntriesCache: SkillEntry[] | null = null;
+  private skillSettingsCache: ReadonlyMap<string, SkillSettingEntry> | null = null;
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pluginDirs = new Map<string, string>();
-  private apiKeyLookup: ApiKeyLookup | undefined;
+  private store: SettingsStore | undefined;
+  private decryptFn: ((encrypted: string) => string) | undefined;
 
   /** Current version — bumped on every invalidation. */
   getVersion(): number {
     return this.version;
   }
 
-  /** Set the API key lookup callback (from SettingsStore). */
-  setApiKeyLookup(lookup: ApiKeyLookup): void {
-    this.apiKeyLookup = lookup;
+  /**
+   * Initialize with SettingsStore and decryption function.
+   * Called once at startup. Replaces setApiKeyLookup + setEnabledLookup.
+   */
+  init(store: SettingsStore, decrypt: (encrypted: string) => string): void {
+    this.store = store;
+    this.decryptFn = decrypt;
+    this.invalidate();
   }
 
-  /** Get the current API key lookup callback. */
-  getApiKeyLookup(): ApiKeyLookup | undefined {
-    return this.apiKeyLookup;
+  /**
+   * Cached bulk-load of all skill settings from SettingsStore, decrypting API keys.
+   * Single SQL query → Map<skillName, SkillSettingEntry>. Invalidated with cache.
+   */
+  loadSkillSettings(): ReadonlyMap<string, SkillSettingEntry> {
+    if (this.skillSettingsCache) return this.skillSettingsCache;
+    if (!this.store) return new Map();
+    const raw = this.store.getSkillSettings();
+    const result = new Map<string, SkillSettingEntry>();
+    for (const [name, { enabled, encryptedApiKey }] of raw) {
+      const apiKey = encryptedApiKey && this.decryptFn
+        ? this.decryptFn(encryptedApiKey) || undefined
+        : undefined;
+      result.set(name, { enabled, apiKey });
+    }
+    this.skillSettingsCache = result;
+    return result;
   }
 
-  /** Get cached skills, rebuilding if dirty. */
+  /** Cached filesystem scan of all discovered skill entries. Invalidated with cache. */
+  getAllEntries(): SkillEntry[] {
+    if (!this.allEntriesCache) {
+      this.allEntriesCache = loadAllSkillEntries(this.getPluginDirList());
+    }
+    return this.allEntriesCache;
+  }
+
+  /** Whether skills without explicit settings should be treated as enabled. */
+  getDefaultEnabled(): boolean {
+    return this.store?.getBool("skills.default_enabled", false) ?? false;
+  }
+
+  /** Get cached enabled skills, rebuilding if dirty. */
   getSkills(): ResolvedSkill[] {
     if (!this.cache) {
-      this.cache = loadResolvedSkills(this.getPluginDirList(), this.apiKeyLookup);
+      this.cache = loadResolvedSkills({
+        preloaded: this.getAllEntries(),
+        skillSettings: this.loadSkillSettings(),
+        defaultEnabled: this.getDefaultEnabled(),
+      });
     }
     return this.cache;
   }
 
-  /** Invalidate cache and bump version. Next getSkills() rebuilds. */
+  /** Invalidate all caches and bump version. Next access rebuilds. */
   invalidate(): void {
     this.cache = null;
+    this.allEntriesCache = null;
+    this.skillSettingsCache = null;
     this.version++;
   }
 
@@ -129,7 +173,7 @@ class SkillRegistry {
   }
 
   private scheduleInvalidate(): void {
-    if (this.debounceTimer) return; // already scheduled
+    if (this.debounceTimer) return;
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       this.invalidate();

@@ -1443,44 +1443,6 @@ async function handleUserSkills(
   jsonResponse(res, 405, { error: "method not allowed" });
 }
 
-// ---------------------------------------------------------------------------
-// Admin: Skills management
-// ---------------------------------------------------------------------------
-
-async function handleAdminSkills(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (!adminAuth(req, res)) return;
-
-  if (req.method === "GET") {
-    try {
-      jsonResponse(res, 200, await gateway.listAdminSkills());
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  if (req.method === "PATCH") {
-    try {
-      const parsed = await readJsonBody(req, 4096);
-      const name = typeof parsed.name === "string" ? parsed.name : "";
-      if (!name) { jsonResponse(res, 400, { error: "name required" }); return; }
-      jsonResponse(res, 200, await gateway.updateAdminSkill({
-        name,
-        enabled: "enabled" in parsed ? Boolean(parsed.enabled) : undefined,
-        apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : undefined,
-      }));
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  jsonResponse(res, 405, { error: "method not allowed" });
-}
-
 async function handleAdminSkillsInstall(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1495,15 +1457,15 @@ async function handleAdminSkillsInstall(
         jsonResponse(res, 400, { error: "spec required" });
         return;
       }
-      const ALLOWED_KINDS = ["brew", "npm", "go", "uv"];
-      if (!ALLOWED_KINDS.includes(String(spec.kind ?? ""))) {
+      const { INSTALL_KINDS, installSkillDep } = await import("../skills/installer.js");
+      if (!(INSTALL_KINDS as readonly string[]).includes(String(spec.kind ?? ""))) {
         jsonResponse(res, 400, { error: `invalid install kind: "${String(spec.kind)}"` });
         return;
       }
-      const result = await gateway.installAdminSkillDep({
-        spec: spec as unknown as import("../skills/installer.js").InstallSpec,
-        timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
-      });
+      const result = await installSkillDep(
+        spec as unknown as import("../skills/installer.js").InstallSpec,
+        typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
+      );
       jsonResponse(res, result.ok ? 200 : 500, { ...result });
     } catch (err) {
       gatewayErrorResponse(res, err);
@@ -2542,6 +2504,8 @@ async function handleRequest(
     // User skills preferences
     case "/api/skills":
       return handleUserSkills(req, res);
+    case "/api/skills/install":
+      return handleAdminSkillsInstall(req, res);
 
     // Admin routes
     case "/api/admin/invites":
@@ -2574,10 +2538,6 @@ async function handleRequest(
       return handleAdminRules(req, res);
     case "/api/admin/mcp":
       return handleAdminMcp(req, res);
-    case "/api/admin/skills":
-      return handleAdminSkills(req, res);
-    case "/api/admin/skills/install":
-      return handleAdminSkillsInstall(req, res);
     case "/api/admin/channels":
       return handleAdminChannels(req, res);
     case "/api/admin/channels/feishu":

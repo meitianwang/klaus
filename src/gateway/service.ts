@@ -569,38 +569,6 @@ class GatewayService {
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Skills
-  // -------------------------------------------------------------------------
-
-  async listAdminSkills(): Promise<{ skills: readonly import("../skills/status.js").SkillStatusEntry[] }> {
-    const { buildSkillStatus } = await import("../skills/status.js");
-    return { skills: buildSkillStatus() };
-  }
-
-  async updateAdminSkill(params: { name: string; enabled?: boolean; apiKey?: string }): Promise<{ ok: true }> {
-    const store = this.requireSettingsStore();
-    if (params.enabled !== undefined) {
-      store.set(`skill.${params.name}.enabled`, params.enabled ? "true" : "false");
-    }
-    if (params.apiKey !== undefined) {
-      const { encryptCred } = await import("../channels/channel-creds.js");
-      store.set(`skill.${params.name}.apiKey`, params.apiKey ? encryptCred(params.apiKey) : "");
-      // Invalidate skill cache so eligibility re-checks with new key
-      const { getSkillRegistry } = await import("../skills/registry.js");
-      getSkillRegistry().invalidate();
-    }
-    return { ok: true };
-  }
-
-  async installAdminSkillDep(params: {
-    spec: import("../skills/installer.js").InstallSpec;
-    timeoutMs?: number;
-  }): Promise<import("../skills/installer.js").InstallResult> {
-    const { installSkillDep } = await import("../skills/installer.js");
-    return installSkillDep(params.spec, params.timeoutMs);
-  }
-
   async listAdminProviders(params?: {
     refresh?: boolean;
   }): Promise<{

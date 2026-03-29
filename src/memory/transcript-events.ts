@@ -3,7 +3,7 @@
  * Observer pattern: memory manager subscribes, message-store emits.
  */
 
-export type SessionTranscriptUpdate = {
+type SessionTranscriptUpdate = {
   sessionFile: string;
   sessionKey?: string;
 };

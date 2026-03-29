@@ -357,11 +357,8 @@ export class AgentSessionManager {
     }
     const skillRegistry = getSkillRegistry();
     const allSkills = skillRegistry.getSkills();
-    // Per-user skill filter: exclude skills the user has explicitly turned off
-    const resolvedSkills = allSkills.filter((s) => {
-      const pref = this.store.get(`user.${userId}.skill.${s.name}`);
-      return pref !== "off";
-    });
+    const userPrefs = this.store.getUserSkillPreferences(userId); // 1 bulk SQL query
+    const resolvedSkills = allSkills.filter((s) => userPrefs.get(s.name) !== "off");
     if (resolvedSkills.length > 0) {
       const skillList = resolvedSkills
         .map((s) => `- ${s.name}: ${s.description}`)

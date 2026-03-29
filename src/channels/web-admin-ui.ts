@@ -260,9 +260,6 @@ tr.clickable:hover { background: var(--card-bg); }
       <button class="nav-item" data-tab="memory">
         <span data-i18n="tab_memory">Memory</span>
       </button>
-      <button class="nav-item" data-tab="skills">
-        <span data-i18n="tab_skills">Skills</span>
-      </button>
     </div>
     <div class="sidebar-footer">
       <a href="/">
@@ -608,14 +605,6 @@ tr.clickable:hover { background: var(--card-bg); }
       </div>
     </div>
 
-    <div id="tab-skills" class="tab-panel">
-      <h1 class="page-title" data-i18n="tab_skills">Skills</h1>
-      <div class="section">
-        <div class="section-header" data-i18n="skills_header">Installed Skills</div>
-        <div id="skills-list"></div>
-      </div>
-    </div>
-
   </div></main>
 </div>
 <div class="toast" id="toast"></div>
@@ -654,8 +643,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var I18N = {
     en: {
       admin_title: "Admin",
-      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_invites: "Invites", tab_memory: "Memory", tab_skills: "Skills",
-      skills_header: "Installed Skills",
+      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_invites: "Invites", tab_memory: "Memory",
       back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_agent: "Agent", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts", sec_cron: "Cron",
       lbl_persona: "System Prompt",
@@ -693,8 +681,7 @@ tr.clickable:hover { background: var(--card-bg); }
     },
     zh: {
       admin_title: "管理面板",
-      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_invites: "邀请码", tab_memory: "记忆", tab_skills: "技能",
-      skills_header: "已安装的技能",
+      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_invites: "邀请码", tab_memory: "记忆",
       back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_agent: "Agent", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录", sec_cron: "定时任务",
       lbl_persona: "系统提示词",
@@ -776,7 +763,6 @@ tr.clickable:hover { background: var(--card-bg); }
     if (id === "models") loadProviders().then(loadModels);
     if (id === "prompts") loadPrompts();
     if (id === "rules") loadRules();
-    if (id === "skills") loadSkills();
   }
   navItems.forEach(function(b) { b.addEventListener("click", function() { switchTab(b.dataset.tab); }); });
 
@@ -1601,98 +1587,6 @@ tr.clickable:hover { background: var(--card-bg); }
   };
   memSearchQuery.addEventListener("keydown", function(e) { if (e.key === "Enter") memSearchBtn.onclick(); });
   loadMemoryConfig();
-
-  // =====================================================
-  // SKILLS TAB
-  // =====================================================
-  var skillsList = document.getElementById("skills-list");
-  function loadSkills() {
-    api("skills", "GET").then(function(data) {
-      var skills = data.skills || [];
-      if (skills.length === 0) {
-        skillsList.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--fg-muted)">No skills discovered</div>';
-        return;
-      }
-      skillsList.innerHTML = skills.map(function(s) {
-        var emoji = s.emoji ? '<span style="font-size:20px;margin-right:8px">' + esc(s.emoji) + '</span>' : '';
-        var srcBadge = '<span class="badge badge-' + (s.source === "user" ? "green" : s.source === "plugin" ? "blue" : "gray") + '">' + esc(s.source) + '</span>';
-        var statusBadge = s.always ? '<span class="badge badge-green">always-on</span>'
-          : s.eligible && s.enabled ? '<span class="badge badge-green">active</span>'
-          : !s.eligible ? '<span class="badge badge-red">missing deps</span>'
-          : !s.enabled ? '<span class="badge badge-gray">disabled</span>'
-          : '<span class="badge badge-gray">off</span>';
-        var missingHtml = '';
-        if (s.missing.bins.length > 0) {
-          missingHtml += '<div style="margin-top:8px;font-size:12px;color:var(--fg-muted)">Missing binaries: <b>' + esc(s.missing.bins.join(', ')) + '</b></div>';
-        }
-        if (s.missing.env.length > 0) {
-          missingHtml += '<div style="margin-top:4px;font-size:12px;color:var(--fg-muted)">Missing env: <b>' + esc(s.missing.env.join(', ')) + '</b></div>';
-        }
-        var apiKeyHtml = '';
-        if (s.primaryEnv) {
-          apiKeyHtml = '<div style="margin-top:8px;display:flex;gap:6px;align-items:center">' +
-            '<input type="password" class="f-input f-input-sm skill-apikey" data-skill="' + esc(s.name) + '" data-changed="false" placeholder="' + esc(s.primaryEnv) + '" style="flex:1;max-width:320px" value="' + (s.hasApiKey ? '••••••••' : '') + '">' +
-            '<button class="btn btn-primary btn-sm skill-apikey-save" data-skill="' + esc(s.name) + '">Save</button>' +
-            (s.hasApiKey ? '<span class="badge badge-green" style="margin-left:4px">set</span>' : '') +
-          '</div>';
-        }
-        var installHtml = '';
-        if (s.install && s.install.length > 0 && s.missing.bins.length > 0) {
-          installHtml = '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + s.install.map(function(inst) {
-            return '<button class="btn btn-primary btn-sm skill-install-btn" data-skill="' + esc(s.name) + '" data-install-id="' + esc(inst.id) + '" data-spec="' + esc(encodeURIComponent(JSON.stringify(inst))) + '">' + esc(inst.label) + '</button>';
-          }).join('') + '</div>';
-        }
-        var toggleHtml = s.always ? '' : '<label class="toggle" style="flex-shrink:0"><input type="checkbox" class="skill-toggle" data-skill="' + esc(s.name) + '"' + (s.enabled ? ' checked' : '') + '><span class="slider"></span></label>';
-        return '<div class="card" style="margin-bottom:8px;padding:16px">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between">' +
-            '<div style="display:flex;align-items:center;gap:8px">' + emoji + '<b>' + esc(s.name) + '</b> ' + srcBadge + ' ' + statusBadge + '</div>' +
-            toggleHtml +
-          '</div>' +
-          '<div style="margin-top:6px;font-size:13px;color:var(--fg-muted)">' + esc(s.description || '') + '</div>' +
-          missingHtml + apiKeyHtml + installHtml +
-        '</div>';
-      }).join('');
-      // Bind toggle handlers
-      document.querySelectorAll(".skill-toggle").forEach(function(el) {
-        el.addEventListener("change", function() {
-          api("skills", "PATCH", { name: el.dataset.skill, enabled: el.checked }).then(function() {
-            showToast("Skill " + (el.checked ? "enabled" : "disabled"));
-            loadSkills();
-          });
-        });
-      });
-      // Track API key input changes
-      document.querySelectorAll(".skill-apikey").forEach(function(el) {
-        el.addEventListener("input", function() { el.dataset.changed = "true"; });
-      });
-      // Bind API key save handlers
-      document.querySelectorAll(".skill-apikey-save").forEach(function(btn) {
-        btn.addEventListener("click", function() {
-          var input = document.querySelector('.skill-apikey[data-skill="' + btn.dataset.skill + '"]');
-          if (!input || input.dataset.changed !== "true" || !input.value) return;
-          api("skills", "PATCH", { name: btn.dataset.skill, apiKey: input.value }).then(function() {
-            showToast("API key saved");
-            loadSkills();
-          });
-        });
-      });
-      // Bind install handlers
-      document.querySelectorAll(".skill-install-btn").forEach(function(el) {
-        el.addEventListener("click", function() {
-          var spec = JSON.parse(decodeURIComponent(el.dataset.spec));
-          el.disabled = true;
-          el.textContent = "Installing...";
-          api("skills/install", "POST", { spec: spec }).then(function(r) {
-            showToast(r.ok ? "Installed!" : "Failed: " + r.message);
-            loadSkills();
-          }).catch(function(e) {
-            showToast("Error: " + (e.message || e));
-            loadSkills();
-          });
-        });
-      });
-    });
-  }
 
   } // end initAdmin
 })();

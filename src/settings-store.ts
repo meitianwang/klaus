@@ -217,6 +217,47 @@ export class SettingsStore {
     return raw === "true" || raw === "1";
   }
 
+  /** Bulk-read all settings whose key starts with the given prefix (single SQL query). */
+  getByPrefix(prefix: string): Map<string, string> {
+    // Escape SQL LIKE wildcards in the prefix so % and _ are matched literally
+    const escaped = prefix.replace(/[%_]/g, (ch) => `\\${ch}`);
+    const rows = this.db
+      .prepare("SELECT key, value FROM settings WHERE key LIKE ? || '%' ESCAPE '\\'")
+      .all(escaped) as { key: string; value: string }[];
+    return new Map(rows.map((r) => [r.key, r.value]));
+  }
+
+  /** Bulk-load all admin skill settings (enabled state + encrypted API keys). */
+  getSkillSettings(): Map<string, { enabled: boolean | undefined; encryptedApiKey: string | undefined }> {
+    const raw = this.getByPrefix("skill.");
+    const result = new Map<string, { enabled: boolean | undefined; encryptedApiKey: string | undefined }>();
+    for (const [key, value] of raw) {
+      const match = key.match(/^skill\.(.+)\.(enabled|apiKey)$/);
+      if (!match) continue;
+      const [, skillName, field] = match;
+      if (!result.has(skillName)) result.set(skillName, { enabled: undefined, encryptedApiKey: undefined });
+      const entry = result.get(skillName)!;
+      if (field === "enabled") {
+        entry.enabled = value === "true" ? true : value === "false" ? false : undefined;
+      } else if (field === "apiKey") {
+        entry.encryptedApiKey = value || undefined;
+      }
+    }
+    return result;
+  }
+
+  /** Bulk-load per-user skill preferences (single SQL query). */
+  getUserSkillPreferences(userId: string): Map<string, "on" | "off"> {
+    const prefix = `user.${userId}.skill.`;
+    const raw = this.getByPrefix(prefix);
+    const result = new Map<string, "on" | "off">();
+    for (const [key, value] of raw) {
+      const skillName = key.slice(prefix.length);
+      if (value === "on" || value === "off") result.set(skillName, value);
+    }
+    return result;
+  }
+
   // -----------------------------------------------------------------------
   // Models CRUD
   // -----------------------------------------------------------------------

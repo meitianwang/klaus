@@ -669,22 +669,55 @@ export function getSettingsJs(): string {
     skGrid.innerHTML = filtered.map(function(s) {
       var emoji = s.emoji ? esc(s.emoji) : "🧩";
       var srcBadge = '<span class="s-badge s-badge-gray">' + esc(s.source) + '</span>';
+      var eligBadge = !s.eligible && !s.always ? ' <span class="s-badge s-badge-red">missing deps</span>' : '';
       var toggle = s.always ? '' : '<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="' + esc(s.name) + '"' + (s.userEnabled ? ' checked' : '') + '><span class="sk-slider"></span></label>';
+      var missingHtml = '';
+      if (s.missing && s.missing.bins && s.missing.bins.length > 0) {
+        missingHtml += '<div style="font-size:12px;color:var(--fg-tertiary);margin-top:4px">Missing: <b>' + esc(s.missing.bins.join(', ')) + '</b></div>';
+      }
+      if (s.missing && s.missing.env && s.missing.env.length > 0) {
+        missingHtml += '<div style="font-size:12px;color:var(--fg-tertiary);margin-top:2px">Missing env: <b>' + esc(s.missing.env.join(', ')) + '</b></div>';
+      }
+      var installHtml = '';
+      if (s.install && s.install.length > 0 && s.missing && s.missing.bins && s.missing.bins.length > 0) {
+        installHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' + s.install.map(function(inst) {
+          return '<button class="s-btn s-btn-primary sk-install-btn" data-skill="' + esc(s.name) + '" data-spec="' + esc(encodeURIComponent(JSON.stringify(inst))) + '">' + esc(inst.label) + '</button>';
+        }).join('') + '</div>';
+      }
       return '<div class="sk-card">' +
         '<div class="sk-card-head">' +
           '<div class="sk-card-info"><div class="sk-card-emoji">' + emoji + '</div><div class="sk-card-name">' + esc(s.name) + '</div></div>' +
           toggle +
         '</div>' +
         '<div class="sk-card-desc">' + esc(s.description || '') + '</div>' +
-        '<div class="sk-card-badges">' + srcBadge + (s.always ? ' <span class="s-badge s-badge-green">always-on</span>' : '') + '</div>' +
+        missingHtml + installHtml +
+        '<div class="sk-card-badges">' + srcBadge + (s.always ? ' <span class="s-badge s-badge-green">always-on</span>' : '') + eligBadge + '</div>' +
       '</div>';
     }).join("");
     // Bind toggles
     skGrid.querySelectorAll(".sk-toggle-input").forEach(function(el) {
       el.addEventListener("change", function() {
         var name = el.getAttribute("data-skill");
-        fetchJSON("/api/skills", { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name: name, enabled: el.checked }) }).then(function() {
+        fetch("/api/skills", { method: "PATCH", credentials: "same-origin", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ name: name, enabled: el.checked }) }).then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function() {
           showSettingsToast(tt(el.checked ? "settings_skills_on" : "settings_skills_off"));
+          loadSettingsSkills();
+        }).catch(function(e) {
+          showSettingsToast("Error: " + (e.message || e));
+          loadSettingsSkills();
+        });
+      });
+    });
+    // Bind install buttons
+    skGrid.querySelectorAll(".sk-install-btn").forEach(function(el) {
+      el.addEventListener("click", function() {
+        var spec = JSON.parse(decodeURIComponent(el.dataset.spec));
+        el.disabled = true;
+        el.textContent = "Installing...";
+        fetch("/api/skills/install", { method: "POST", credentials: "same-origin", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ spec: spec }) }).then(function(r) { if (!r.ok && r.status !== 500) throw new Error("HTTP " + r.status); return r.json(); }).then(function(r) {
+          showSettingsToast(r.ok ? "Installed!" : "Failed: " + r.message);
+          loadSettingsSkills();
+        }).catch(function(e) {
+          showSettingsToast("Error: " + (e.message || e));
           loadSettingsSkills();
         });
       });
@@ -692,7 +725,7 @@ export function getSettingsJs(): string {
   }
 
   function loadSettingsSkills() {
-    fetchJSON("/api/skills").then(function(data) {
+    fetch("/api/skills", { credentials: "same-origin" }).then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function(data) {
       skAllData = data.skills || [];
       // Update tab counts
       var allCount = skAllData.length;
@@ -704,7 +737,7 @@ export function getSettingsJs(): string {
         t.textContent = label.replace(/ \\d+$/, "") + " " + count;
       });
       renderSkillCards(skAllData);
-    });
+    }).catch(function(e) { console.error("Failed to load skills:", e); });
   }
 
   // Tab filter buttons

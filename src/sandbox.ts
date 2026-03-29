@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import type { SettingsStore } from "./settings-store.js";
 
-export interface SandboxConfig {
+interface SandboxConfig {
   enabled: boolean;
   image: string;
   timeout: number;      // seconds
