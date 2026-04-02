@@ -1,11 +1,10 @@
 import type {
-  LLMProvider,
   AgentTool,
   BeforeToolCallContext,
   BeforeToolCallResult,
   AfterToolCallContext,
   AfterToolCallResult,
-} from "klaus-agent";
+} from "../klaus-agent-compat.js";
 import type { ProviderAPI } from "../capabilities/types.js";
 
 export interface ModelPreset {
@@ -41,7 +40,6 @@ export interface ProviderDefinition {
   readonly protocol: string;
   readonly defaultBaseUrl: string;
   readonly models: readonly ModelPreset[];
-  readonly factory?: (config: { apiKey?: string; baseUrl?: string }) => LLMProvider;
   readonly tools?: (apiKey: string, baseUrl: string, model: string) => AgentTool[];
   readonly auth?: ProviderAuth;
   readonly catalog?: (apiKey?: string, baseUrl?: string) => Promise<ModelPreset[]>;

@@ -6,7 +6,7 @@
  * - pingPong: two tools alternating (A→B→A→B)
  */
 
-import type { BeforeToolCallContext, BeforeToolCallResult } from "klaus-agent";
+import type { BeforeToolCallContext, BeforeToolCallResult } from "./klaus-agent-compat.js";
 
 interface ToolCallRecord {
   toolName: string;

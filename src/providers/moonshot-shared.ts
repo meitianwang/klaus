@@ -1,6 +1,5 @@
 import type { ModelPreset, ProviderAuth } from "./types.js";
-import type { AgentTool, LLMProvider } from "klaus-agent";
-import { MoonshotProvider } from "./moonshot.js";
+import type { AgentTool } from "../klaus-agent-compat.js";
 import { createKimiWebSearchTool } from "../tools/kimi-web-search.js";
 import { createMoonshotVideoTool } from "../tools/moonshot-video.js";
 import { fetchOpenAICompatibleModels } from "./catalog-utils.js";
@@ -13,12 +12,6 @@ export const MOONSHOT_MODELS: readonly ModelPreset[] = [
 ];
 
 export const moonshotAuth: ProviderAuth = { method: { type: "api_key", label: "API Key" } };
-
-export const moonshotFactory: (config: {
-  apiKey?: string;
-  baseUrl?: string;
-}) => LLMProvider = (c) =>
-  new MoonshotProvider(c.apiKey, c.baseUrl);
 
 export function moonshotTools(apiKey: string, baseUrl: string, model: string): AgentTool[] {
   return [

@@ -1,114 +1,83 @@
 /**
- * Agent session pool — manages per-session Agent instances with LRU eviction.
- * Reads model, prompt, rules, and MCP servers from SettingsStore at agent creation time.
+ * Agent session pool — manages per-session conversations with LRU eviction.
+ * Uses the internal engine (adapted from claude-code) instead of klaus-agent SDK.
  */
 
-import {
-  createAgent,
-  registerProvider,
-  type Agent,
-  type AgentEvent,
-  type AgentMessage,
-  type AgentTool,
-  type AgentToolResult,
-  type Approval,
-  type AssistantMessage,
-  type ModelConfig,
-  type ThinkingLevel,
-  type MCPServerConfig,
-  type MCPClient,
-  type ToolExecutionContext,
-} from "klaus-agent";
+import { randomUUID } from "crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { join } from "node:path";
+import { LRUCache } from "lru-cache";
 import { CONFIG_DIR } from "./config.js";
 import type { SettingsStore } from "./settings-store.js";
 import { getProvider, capabilities } from "./providers/registry.js";
 import { refreshAccessToken } from "./auth/oauth.js";
 import type { OAuthProviderAuth } from "./auth/oauth.js";
-import type { MemoryManager } from "./memory/manager.js";
 import type { MemoryManagerPool } from "./memory/pool.js";
 import { createMemorySearchTool, createMemoryGetTool, buildMemoryPromptSection } from "./memory/tools.js";
 import { createMemorySaveTool, MEMORY_FLUSH_USER_PROMPT } from "./memory/memory-write.js";
 import { ToolLoopDetector } from "./tool-loop-detector.js";
 import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
-import { createCodingTools } from "./tools/coding.js";
+import { getAllBaseTools } from "./engine/tools.js";
+import { wrapLegacyTools, type LegacyAgentTool } from "./engine/utils/legacyToolAdapter.js";
 import { createSkillTool } from "./skills/index.js";
 import { getSkillRegistry } from "./skills/registry.js";
 import { extractUserId, getUserSessionsDir, getUserWorkspaceDir, ensureUserDirs } from "./user-dirs.js";
 
-type AgentEventCallback = (event: AgentEvent) => void;
+// Engine imports
+import {
+  query,
+  type QueryParams,
+  type Message,
+  type AssistantMessage,
+  type StreamEvent,
+  type ToolUseContext,
+  type CanUseToolFn,
+  type ThinkingConfig,
+  type AppState,
+  type ToolPermissionContext,
+  getEmptyToolPermissionContext,
+  buildToolSchemas,
+} from "./engine/index.js";
+import type { FileStateCache } from "./engine/utils/fileStateCache.js";
+import type { SystemPrompt } from "./engine/utils/systemPromptType.js";
 
-/** Auto-approve all tool calls (for direct invocation, not LLM). */
-const autoApproval: Approval = {
-  async request() { return true; },
-  async fetchRequest() { return { id: "", toolCallId: "", sender: "", action: "", description: "" }; },
-  resolve() {},
-  setYolo() {},
-  isYolo() { return true; },
-  autoApproveActions: new Set<string>(),
-  share() { return autoApproval; },
-  dispose() {},
-};
+// ============================================================================
+// Engine Event type (replaces AgentEvent from klaus-agent)
+// ============================================================================
+
+export type EngineEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "thinking_delta"; thinking: string }
+  | { type: "tool_start"; toolName: string; toolCallId: string; args: unknown }
+  | { type: "tool_end"; toolName: string; toolCallId: string; isError: boolean }
+  | { type: "compaction_start" }
+  | { type: "compaction_end" }
+  | { type: "message_complete"; message: AssistantMessage };
+
+type EngineEventCallback = (event: EngineEvent) => void;
+
 const refreshLocks = new Map<string, Promise<string | undefined>>();
 
-/** Sanitize session key for use as filename (replace colons with underscores). */
 function sanitizeSessionKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function createMcpClient(config: MCPServerConfig): MCPClient {
-  const t = config.transport;
-  let transport: StdioClientTransport | SSEClientTransport;
-
-  if (t.type === "stdio") {
-    transport = new StdioClientTransport({
-      command: t.command,
-      args: t.args,
-      env: t.env as Record<string, string> | undefined,
-    });
-  } else {
-    transport = new SSEClientTransport(new URL(t.url), {
-      requestInit: t.headers
-        ? { headers: t.headers as Record<string, string> }
-        : undefined,
-    });
-  }
-
-  const client = new Client({ name: `klaus-${config.name}`, version: "1.0.0" });
-
-  return {
-    async connect() {
-      await client.connect(transport);
-    },
-    async listTools() {
-      const result = await client.listTools();
-      return result.tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema as Record<string, unknown>,
-      }));
-    },
-    async callTool(name: string, args: Record<string, unknown>) {
-      const result = await client.callTool({ name, arguments: args });
-      return {
-        content: (result.content as { type: string; text?: string }[]) ?? [],
-        isError: result.isError as boolean | undefined,
-      };
-    },
-    async close() {
-      await client.close();
-    },
-  };
-}
+// ============================================================================
+// Session Entry — replaces Agent instance
+// ============================================================================
 
 interface SessionEntry {
-  agent: Agent;
+  messages: Message[];
   loopDetector: ToolLoopDetector;
   skillVersion: number;
+  isRunning: boolean;
 }
+
+// ============================================================================
+// AgentSessionManager
+// ============================================================================
 
 export class AgentSessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
@@ -128,81 +97,154 @@ export class AgentSessionManager {
   async chat(
     sessionKey: string,
     text: string,
-    onEvent?: AgentEventCallback,
+    onEvent?: EngineEventCallback,
   ): Promise<string | null> {
-    // Hot-reload: evict session if skills changed (session persistence keeps history)
+    // Hot-reload: evict session if skills changed
     const registry = getSkillRegistry();
     const existing = this.sessions.get(sessionKey);
     if (existing && registry.getVersion() > existing.skillVersion) {
       this.sessions.delete(sessionKey);
-      await existing.agent.dispose();
     }
 
-    const { agent } = await this.getOrCreate(sessionKey);
-
-    // Track compaction events for memory flush
-    let compacted = false;
-    const memoryUnsub = this.memoryPool
-      ? agent.subscribe((event) => { if (event.type === "compaction_end") compacted = true; })
-      : undefined;
-
-    let unsubscribe: (() => void) | undefined;
-    if (onEvent) {
-      unsubscribe = agent.subscribe(onEvent);
-    }
+    const session = await this.getOrCreate(sessionKey);
+    session.isRunning = true;
 
     try {
-      const messages = await agent.prompt(text);
-      const result = extractFinalText(messages);
+      // Build query params
+      const { systemPrompt, apiKey, baseUrl, model, maxContextTokens, thinkingConfig, tools, toolSchemas } =
+        await this.buildQueryConfig(sessionKey);
 
-      // Memory flush: after compaction, run a hidden prompt to save durable memories
-      // Awaited to prevent concurrent prompt() calls on the same agent
-      if (compacted && this.memoryPool) {
-        await this.runMemoryFlush(agent, sessionKey);
+      // Add user message
+      const userMessage: Message = {
+        type: "user",
+        message: { role: "user", content: text },
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+      } as Message;
+      session.messages.push(userMessage);
+
+      // Build ToolUseContext
+      const toolUseContext = this.buildToolUseContext(session, tools, model, thinkingConfig);
+
+      // Auto-approve all tools (Klaus uses yolo mode)
+      const canUseTool: CanUseToolFn = async (_tool, input) => {
+        // Loop detection
+        const loopResult = session.loopDetector.check({
+          toolName: _tool.name,
+          args: input,
+          toolCallId: randomUUID(),
+        });
+        if (loopResult?.block) {
+          return { behavior: "deny" as const, message: loopResult.reason ?? "Loop detected", decisionReason: { type: "other" as const, reason: loopResult.reason ?? "Loop detected" } };
+        }
+        return { behavior: "allow" as const, updatedInput: input };
+      };
+
+      const queryParams: QueryParams = {
+        messages: session.messages,
+        systemPrompt: systemPrompt as unknown as SystemPrompt,
+        canUseTool,
+        toolUseContext,
+        querySource: "repl_main_thread",
+        maxOutputTokensOverride: undefined,
+        maxTurns: 100,
+        apiKey,
+        baseURL: baseUrl,
+        maxContextTokens,
+        toolSchemas,
+      };
+
+      // Track compaction for memory flush
+      let compacted = false;
+
+      // Consume the query generator
+      const gen = query(queryParams);
+      let lastAssistantMessage: AssistantMessage | undefined;
+
+      for await (const event of gen) {
+        // Forward events to callback
+        if (onEvent) {
+          if (event.type === "assistant") {
+            const msg = event as AssistantMessage;
+            lastAssistantMessage = msg;
+
+            // Extract text deltas from content blocks
+            for (const block of msg.message.content) {
+              if (block.type === "text") {
+                onEvent({ type: "text_delta", text: (block as { text: string }).text });
+              } else if (block.type === "thinking") {
+                onEvent({ type: "thinking_delta", thinking: (block as { thinking: string }).thinking });
+              }
+            }
+
+            onEvent({ type: "message_complete", message: msg });
+          } else if (event.type === "user") {
+            // Tool result messages — check for tool_start/tool_end patterns
+            const userMsg = event as Message;
+            if (userMsg.type === "user" && Array.isArray(userMsg.message.content)) {
+              for (const block of userMsg.message.content as any[]) {
+                if (block.type === "tool_result") {
+                  onEvent({
+                    type: "tool_end",
+                    toolName: "",
+                    toolCallId: block.tool_use_id ?? "",
+                    isError: block.is_error ?? false,
+                  });
+                }
+              }
+            }
+          }
+        }
       }
 
-      return result;
+      // Memory flush after compaction
+      if (compacted && this.memoryPool) {
+        await this.runMemoryFlush(session, sessionKey);
+      }
+
+      return extractFinalText(session.messages);
     } finally {
-      unsubscribe?.();
-      memoryUnsub?.();
+      session.isRunning = false;
     }
   }
 
-  /**
-   * Run a hidden memory flush turn — aligned with OpenClaw's pre-compaction memory flush.
-   * Prompts the agent to save durable memories using memory_save tool.
-   */
-  private async runMemoryFlush(agent: Agent, sessionKey: string): Promise<void> {
-    try {
-      await agent.prompt(MEMORY_FLUSH_USER_PROMPT);
-      console.log(`[Memory] Flush completed for ${sessionKey}`);
-      // Trigger sync so new memory files are indexed
-      const userId = extractUserId(sessionKey);
-      const mgr = await this.memoryPool?.getOrCreate(userId);
-      await mgr?.sync().catch(() => {});
-    } catch (err) {
-      console.warn(`[Memory] Flush prompt failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  private async runMemoryFlush(session: SessionEntry, sessionKey: string): Promise<void> {
+    // TODO: implement memory flush using engine query
+    // For now, skip — will be implemented when memory tools are adapted
+    console.log(`[Memory] Flush skipped for ${sessionKey} (pending engine adaptation)`);
   }
 
-  /** Build the current tool list. Used by both getOrCreate() and invokeTool(). */
-  async buildTools(userId: string, apiKeyOverride?: string): Promise<AgentTool[]> {
+  /** Build the current tool list. */
+  async buildTools(userId: string, apiKeyOverride?: string): Promise<any[]> {
     const modelRecord = this.store.getDefaultModel();
     const providerDef = modelRecord?.provider ? getProvider(modelRecord.provider) : undefined;
     const apiKey = apiKeyOverride ?? modelRecord?.apiKey;
 
-    const tools: AgentTool[] = [];
+    // Start with engine's built-in tools (BashTool, FileRead/Edit/Write, Glob, Grep, etc.)
+    const tools: any[] = [...getAllBaseTools()];
+
+    // Add provider-specific legacy tools (moonshot video, etc.) wrapped as engine tools
     if (providerDef?.tools && apiKey && modelRecord) {
       const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
-      tools.push(...providerDef.tools(apiKey, baseUrl, modelRecord.model));
+      const legacyProviderTools = providerDef.tools(apiKey, baseUrl, modelRecord.model);
+      tools.push(...wrapLegacyTools(legacyProviderTools as LegacyAgentTool[]));
     }
-    tools.push(...capabilities.buildTools());
-    tools.push(...createCodingTools(getUserWorkspaceDir(userId), this.store));
+
+    // Add capability-registered legacy tools wrapped as engine tools
+    const legacyCapTools = capabilities.buildTools();
+    if (legacyCapTools.length > 0) {
+      tools.push(...wrapLegacyTools(legacyCapTools as LegacyAgentTool[]));
+    }
+
+    // Add memory tools wrapped as engine tools
     if (this.memoryPool) {
       const mgr = await this.memoryPool.getOrCreate(userId);
-      tools.push(createMemorySearchTool(mgr));
-      tools.push(createMemoryGetTool(mgr));
-      tools.push(createMemorySaveTool(mgr.memoryDir));
+      const memTools = [
+        createMemorySearchTool(mgr),
+        createMemoryGetTool(mgr),
+        createMemorySaveTool(mgr.memoryDir),
+      ];
+      tools.push(...wrapLegacyTools(memTools as LegacyAgentTool[]));
     }
     return tools;
   }
@@ -212,29 +254,31 @@ export class AgentSessionManager {
     toolName: string,
     args: Record<string, unknown>,
     userId: string = "admin",
-  ): Promise<{ ok: true; result: AgentToolResult } | { ok: false; error: string }> {
-    // "sandbox_exec" is a virtual tool — not in the registry, handled separately
+  ): Promise<{ ok: true; result: { content: { type: string; text: string }[] } } | { ok: false; error: string }> {
     if (toolName === "sandbox_exec") {
       return this.runSandboxExec(args);
     }
 
     const tools = await this.buildTools(userId);
-    const tool = tools.find((t) => t.name === toolName);
+    const tool = tools.find((t: any) => t.name === toolName);
     if (!tool) {
-      return { ok: false, error: `Tool "${toolName}" not found. Available: ${tools.map((t) => t.name).join(", ")}` };
+      return { ok: false, error: `Tool "${toolName}" not found. Available: ${tools.map((t: any) => t.name).join(", ")}` };
     }
 
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 60_000);
     try {
-      const ctx: ToolExecutionContext = {
-        signal: ac.signal,
-        onUpdate: () => {},
-        approval: autoApproval,
-        agentName: "klaus-direct",
-      };
-      const result = await tool.execute(`direct-${Date.now()}`, args, ctx);
-      return { ok: true, result };
+      if (typeof tool.execute === "function") {
+        // Legacy klaus-agent style tool
+        const result = await tool.execute(`direct-${Date.now()}`, args, { signal: ac.signal, onUpdate: () => {}, approval: { isYolo: () => true }, agentName: "klaus-direct" });
+        return { ok: true, result };
+      } else if (typeof tool.call === "function") {
+        // Engine-style tool
+        const result = await tool.call(args, { abortController: ac } as any, async () => ({ behavior: "allow" as const, updatedInput: args }), {} as any);
+        const mapped = tool.mapToolResultToToolResultBlockParam(result.data, `direct-${Date.now()}`);
+        return { ok: true, result: { content: [{ type: "text", text: typeof mapped.content === "string" ? mapped.content : JSON.stringify(mapped.content) }] } };
+      }
+      return { ok: false, error: `Tool "${toolName}" has no execute or call method.` };
     } catch (err) {
       if (ac.signal.aborted) {
         return { ok: false, error: `Tool "${toolName}" timed out after 60s.` };
@@ -245,10 +289,9 @@ export class AgentSessionManager {
     }
   }
 
-  /** Execute a command in Docker sandbox (virtual tool, not in registry). */
   private async runSandboxExec(
     args: Record<string, unknown>,
-  ): Promise<{ ok: true; result: AgentToolResult } | { ok: false; error: string }> {
+  ): Promise<{ ok: true; result: { content: { type: string; text: string }[] } } | { ok: false; error: string }> {
     const config = loadSandboxConfig(this.store);
     if (!config.enabled) {
       return { ok: false, error: "Sandbox is not enabled. Set sandbox.enabled=true in settings." };
@@ -271,18 +314,19 @@ export class AgentSessionManager {
     const entry = this.sessions.get(sessionKey);
     if (entry) {
       if (this.memoryPool) {
-        await this.runMemoryFlush(entry.agent, sessionKey);
+        await this.runMemoryFlush(entry, sessionKey);
       }
       this.sessions.delete(sessionKey);
-      await entry.agent.dispose();
     }
   }
 
   async disposeAll(): Promise<void> {
-    const entries = [...this.sessions.values()];
     this.sessions.clear();
-    await Promise.allSettled(entries.map((e) => e.agent.dispose()));
   }
+
+  // ============================================================================
+  // Private: session management
+  // ============================================================================
 
   private async getOrCreate(sessionKey: string): Promise<SessionEntry> {
     const existing = this.sessions.get(sessionKey);
@@ -298,7 +342,42 @@ export class AgentSessionManager {
     const userId = extractUserId(sessionKey);
     await ensureUserDirs(userId);
 
-    // Read config from store at creation time
+    const entry: SessionEntry = {
+      messages: [],
+      loopDetector: new ToolLoopDetector(),
+      skillVersion: getSkillRegistry().getVersion(),
+      isRunning: false,
+    };
+    this.sessions.set(sessionKey, entry);
+    return entry;
+  }
+
+  private evictIfNeeded(): void {
+    if (this.sessions.size < this.maxSessions) return;
+
+    for (const [key, entry] of this.sessions) {
+      if (!entry.isRunning) {
+        this.sessions.delete(key);
+        return;
+      }
+    }
+  }
+
+  // ============================================================================
+  // Private: build query configuration from SettingsStore
+  // ============================================================================
+
+  private async buildQueryConfig(sessionKey: string): Promise<{
+    systemPrompt: string;
+    apiKey: string;
+    baseUrl: string | undefined;
+    model: string;
+    maxContextTokens: number;
+    thinkingConfig: ThinkingConfig;
+    tools: any[];
+    toolSchemas: any[];
+  }> {
+    const userId = extractUserId(sessionKey);
     const modelRecord = this.store.getDefaultModel();
     if (!modelRecord || !modelRecord.model || !modelRecord.provider) {
       throw new Error("No valid model configured. Add a model in the admin panel.");
@@ -331,20 +410,13 @@ export class AgentSessionManager {
       }
     }
 
-    const model: ModelConfig = {
-      provider: providerDef?.protocol ?? modelRecord.provider,
-      model: modelRecord.model,
-      ...(apiKey ? { apiKey } : {}),
-      ...(modelRecord.baseUrl
-        ? { baseUrl: modelRecord.baseUrl }
-        : providerDef?.defaultBaseUrl
-          ? { baseUrl: providerDef.defaultBaseUrl }
-          : {}),
-      maxContextTokens: modelRecord.maxContextTokens,
-      ...(modelRecord.cost ? { cost: modelRecord.cost } : {}),
-    };
+    if (!apiKey) {
+      throw new Error("No API key configured for the default model.");
+    }
 
-    // Build system prompt: default prompt + enabled rules + memory section
+    const baseUrl = modelRecord.baseUrl || providerDef?.defaultBaseUrl;
+
+    // Build system prompt
     const promptRecord = this.store.getDefaultPrompt();
     const rules = this.store.getEnabledRules();
     const parts: string[] = [];
@@ -357,91 +429,84 @@ export class AgentSessionManager {
     }
     const skillRegistry = getSkillRegistry();
     const allSkills = skillRegistry.getSkills();
-    const userPrefs = this.store.getUserSkillPreferences(userId); // 1 bulk SQL query
+    const userPrefs = this.store.getUserSkillPreferences(userId);
     const resolvedSkills = allSkills.filter((s) => userPrefs.get(s.name) !== "off");
     if (resolvedSkills.length > 0) {
       const skillList = resolvedSkills
         .map((s) => `- ${s.name}: ${s.description}`)
         .join("\n");
-      parts.push(
-        `Available skills (use invoke_skill tool to invoke):\n${skillList}`,
-      );
+      parts.push(`Available skills (use invoke_skill tool to invoke):\n${skillList}`);
     }
     const systemPrompt = parts.join("\n\n") || "You are a helpful assistant.";
 
-    const yolo = this.store.getBool("yolo", true);
-
-    // Build MCP server configs from enabled servers
-    const mcpServers = this.store.getEnabledMcpServers();
-    const mcpConfigs: MCPServerConfig[] = mcpServers.map((s) => ({
-      name: s.name,
-      transport: s.transport as MCPServerConfig["transport"],
-    }));
-
+    // Build tools
     const tools = await this.buildTools(userId, apiKey);
     if (resolvedSkills.length > 0) {
       tools.push(createSkillTool(resolvedSkills));
     }
 
-    const loopDetector = new ToolLoopDetector();
-    const providerHooks = providerDef?.hooks;
-    const agent = createAgent({
-      model,
-      systemPrompt,
-      tools,
-      approval: { yolo },
-      hooks: {
-        async beforeToolCall(ctx) {
-          const loopResult = loopDetector.check(ctx);
-          if (loopResult?.block) return loopResult;
-          return providerHooks?.beforeToolCall?.(ctx);
-        },
-        afterToolCall: providerHooks?.afterToolCall,
-      },
-      thinkingLevel: (modelRecord.thinking || "off") as ThinkingLevel,
-      session: {
-        persist: true,
-        directory: getUserSessionsDir(userId),
-        sessionId: sanitizeSessionKey(sessionKey),
-      },
-      // Compaction: auto-compress when context gets large
-      compaction: {
-        enabled: true,
-        reserveTokens: Math.floor(modelRecord.maxContextTokens * 0.2),
-        keepRecentTokens: Math.floor(modelRecord.maxContextTokens * 0.3),
-      },
-      // MCP: connect to configured servers
-      ...(mcpConfigs.length > 0
-        ? {
-            mcp: {
-              servers: mcpConfigs,
-              clientFactory: createMcpClient,
-            },
-          }
-        : {}),
-    });
+    // Thinking config
+    const thinkingLevel = modelRecord.thinking || "off";
+    const thinkingConfig: ThinkingConfig = thinkingLevel === "off"
+      ? { type: "disabled" }
+      : { type: "enabled", budgetTokens: Math.floor(modelRecord.maxContextTokens * 0.8) };
 
-    const entry: SessionEntry = { agent, loopDetector, skillVersion: skillRegistry.getVersion() };
-    this.sessions.set(sessionKey, entry);
-    return entry;
+    return {
+      systemPrompt,
+      apiKey,
+      baseUrl,
+      model: modelRecord.model,
+      maxContextTokens: modelRecord.maxContextTokens,
+      thinkingConfig,
+      tools,
+      toolSchemas: [], // Will be built by query() if empty
+    };
   }
 
-  private evictIfNeeded(): void {
-    if (this.sessions.size < this.maxSessions) return;
+  // ============================================================================
+  // Private: build ToolUseContext for the engine
+  // ============================================================================
 
-    for (const [key, entry] of this.sessions) {
-      if (!entry.agent.state.isRunning) {
-        this.sessions.delete(key);
-        entry.agent.dispose().catch((err) => {
-          console.error(`[AgentManager] Dispose failed for ${key}:`, err);
-        });
-        return;
-      }
-    }
+  private buildToolUseContext(
+    session: SessionEntry,
+    tools: any[],
+    model: string,
+    thinkingConfig: ThinkingConfig,
+  ): ToolUseContext {
+    const appState: AppState = {
+      toolPermissionContext: getEmptyToolPermissionContext(),
+    };
+
+    return {
+      options: {
+        commands: [],
+        debug: false,
+        mainLoopModel: model,
+        tools: tools as any,
+        verbose: false,
+        thinkingConfig,
+        mcpClients: [],
+        mcpResources: {},
+        isNonInteractiveSession: true,
+        agentDefinitions: { agents: [], errors: [] },
+      },
+      abortController: new AbortController(),
+      readFileState: new Map() as any, // Simplified file state cache
+      getAppState: () => appState,
+      setAppState: (f) => { Object.assign(appState, f(appState)); },
+      setInProgressToolUseIDs: () => {},
+      setResponseLength: () => {},
+      updateFileHistoryState: () => {},
+      updateAttributionState: () => {},
+      messages: session.messages,
+    };
   }
 }
 
-/** Strip XML-style tool call tags (e.g. <bash>pwd</bash>) from agent text output. */
+// ============================================================================
+// Helpers
+// ============================================================================
+
 const TOOL_TAG_NAMES = [
   "bash", "shell", "execute", "read_file", "write_file", "edit_file",
   "search", "grep", "glob", "find", "file",
@@ -454,13 +519,14 @@ function stripToolTags(text: string): string {
   return text.replace(TOOL_BLOCK_RE, "").replace(TOOL_OPEN_RE, "").trim();
 }
 
-function extractFinalText(messages: AgentMessage[]): string | null {
+function extractFinalText(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (isAssistantMessage(msg)) {
-      const texts = msg.content
-        .filter((b): b is { type: "text"; text: string } => b.type === "text")
-        .map((b) => b.text);
+    if (msg?.type === "assistant") {
+      const assistantMsg = msg as AssistantMessage;
+      const texts = (assistantMsg.message.content as any[])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text as string);
       if (texts.length > 0) {
         const raw = texts.join("\n");
         const cleaned = stripToolTags(raw);
@@ -469,8 +535,4 @@ function extractFinalText(messages: AgentMessage[]): string | null {
     }
   }
   return null;
-}
-
-function isAssistantMessage(msg: AgentMessage): msg is AssistantMessage {
-  return (msg as AssistantMessage).role === "assistant";
 }

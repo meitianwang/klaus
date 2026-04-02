@@ -1,4 +1,4 @@
-import type { AgentEvent } from "klaus-agent";
+import type { EngineEvent } from "../../agent-manager.js";
 import { formatDisplayText, type InboundMessage, type MediaFile } from "../../message.js";
 import type { Handler } from "../../types.js";
 import { buildWebSessionKey, type WsEvent } from "../protocol.js";
@@ -59,25 +59,25 @@ export function createGatewayAgentEventForwarder(params: {
     toolCallId: string;
     isError: boolean;
   }) => void;
-}): (event: AgentEvent) => void {
-  return (event: AgentEvent) => {
-    if (event.type === "message_update" && event.event.type === "text") {
-      params.onTextChunk?.(event.event.text);
+}): (event: EngineEvent) => void {
+  return (event: EngineEvent) => {
+    if (event.type === "text_delta") {
+      params.onTextChunk?.(event.text);
       params.sendEvent(params.userId, {
         type: "stream",
-        chunk: event.event.text,
+        chunk: event.text,
         sessionId: params.sessionId,
       });
     }
-    if (event.type === "message_update" && event.event.type === "thinking") {
-      params.onThinkingChunk?.(event.event.thinking);
+    if (event.type === "thinking_delta") {
+      params.onThinkingChunk?.(event.thinking);
       params.sendEvent(params.userId, {
         type: "thinking",
-        chunk: event.event.thinking,
+        chunk: event.thinking,
         sessionId: params.sessionId,
       });
     }
-    if (event.type === "tool_execution_start") {
+    if (event.type === "tool_start") {
       params.onToolStart?.({
         toolName: event.toolName,
         toolCallId: event.toolCallId,
@@ -94,7 +94,7 @@ export function createGatewayAgentEventForwarder(params: {
         sessionId: params.sessionId,
       });
     }
-    if (event.type === "tool_execution_end") {
+    if (event.type === "tool_end") {
       params.onToolEnd?.({
         toolName: event.toolName,
         toolCallId: event.toolCallId,

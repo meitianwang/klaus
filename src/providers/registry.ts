@@ -1,5 +1,4 @@
 import type { ProviderDefinition } from "./types.js";
-import { registerProvider } from "klaus-agent";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -97,14 +96,6 @@ export async function loadExternalProviders(): Promise<void> {
   }
 }
 
-export function registerAllFactories(): void {
-  for (const def of providers) {
-    if (def.factory) {
-      registerProvider(def.id, def.factory);
-    }
-  }
-}
-
 export function registerAllCapabilities(): void {
   for (const def of providers) {
     if (def.register) {
@@ -132,10 +123,9 @@ export async function reloadExternalProviders(): Promise<{ added: string[]; remo
   // Re-scan and load
   await loadExternalProviders();
 
-  // Re-register factories and capabilities for new externals
+  // Re-register capabilities for new externals
   for (const def of providers) {
     if (!BUILTIN_IDS.has(def.id)) {
-      if (def.factory) registerProvider(def.id, def.factory);
       if (def.register) def.register(capabilities.createAPI(def.id));
     }
   }

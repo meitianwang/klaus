@@ -4,7 +4,7 @@
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import type { AgentTool, AgentToolResult, ToolExecutionContext } from "klaus-agent";
+import type { AgentTool, AgentToolResult, ToolExecutionContext } from "../klaus-agent-compat.js";
 import { fetchMoonshotApi } from "./moonshot-fetch.js";
 
 const KIMI_WEB_SEARCH_TOOL = {

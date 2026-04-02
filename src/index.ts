@@ -23,7 +23,7 @@ import { getSkillRegistry } from "./skills/registry.js";
 import { generateLocalToken } from "./local-token.js";
 import { AgentSessionManager } from "./agent-manager.js";
 import { SettingsStore } from "./settings-store.js";
-import { loadExternalProviders, registerAllFactories, registerAllCapabilities, capabilities } from "./providers/registry.js";
+import { loadExternalProviders, registerAllCapabilities, capabilities } from "./providers/registry.js";
 import { getGatewayService } from "./gateway/service.js";
 import { parseWebSessionKey } from "./gateway/protocol.js";
 
@@ -44,7 +44,6 @@ async function start(): Promise<void> {
 
   // Load external providers and register all factories + capabilities
   await loadExternalProviders();
-  registerAllFactories();
   registerAllCapabilities();
   await capabilities.startServices();
 

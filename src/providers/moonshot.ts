@@ -4,18 +4,18 @@
  * Moonshot uses `thinking: { type: "enabled" | "disabled" }` instead of
  * OpenAI's `reasoning_effort`. When thinking is enabled, incompatible
  * `tool_choice` values are normalized to avoid API errors.
+ *
+ * Uses native fetch instead of the openai SDK.
  */
 
-import OpenAI from "openai";
 import type {
-  LLMProvider,
   LLMRequestOptions,
   AssistantMessageEvent,
   AssistantMessage,
   TokenUsage,
   ThinkingLevel,
   Message,
-} from "klaus-agent";
+} from "../klaus-agent-compat.js";
 
 type AssistantContentBlock = AssistantMessage["content"][number];
 
@@ -26,14 +26,13 @@ function mapThinkingType(level?: ThinkingLevel): MoonshotThinkingType | undefine
   return "enabled";
 }
 
-export class MoonshotProvider implements LLMProvider {
-  private client: OpenAI;
+export class MoonshotProvider {
+  private apiKey: string;
+  private baseUrl: string;
 
   constructor(apiKey?: string, baseUrl?: string) {
-    this.client = new OpenAI({
-      apiKey: apiKey || process.env.MOONSHOT_API_KEY,
-      ...(baseUrl ? { baseURL: baseUrl } : { baseURL: "https://api.moonshot.ai/v1" }),
-    });
+    this.apiKey = apiKey || process.env.MOONSHOT_API_KEY || "";
+    this.baseUrl = baseUrl || "https://api.moonshot.ai/v1";
   }
 
   async *stream(options: LLMRequestOptions): AsyncIterable<AssistantMessageEvent> {
@@ -55,7 +54,7 @@ export class MoonshotProvider implements LLMProvider {
       toolChoice = "auto";
     }
 
-    const params: Record<string, unknown> = {
+    const body: Record<string, unknown> = {
       model,
       messages: [
         { role: "system", content: systemPrompt },
@@ -74,71 +73,114 @@ export class MoonshotProvider implements LLMProvider {
       ...(thinkingType ? { thinking: { type: thinkingType } } : {}),
     };
 
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Moonshot API error ${response.status}: ${text}`);
+    }
+
+    if (!response.body) {
+      throw new Error("Moonshot API returned no body");
+    }
+
     const contentBlocks: AssistantContentBlock[] = [];
     const toolCalls = new Map<number, { id: string; name: string; args: string }>();
     let usage: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
-    const stream = await this.client.chat.completions.create(
-      params as unknown as OpenAI.ChatCompletionCreateParamsStreaming,
-      { signal },
-    );
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    for await (const chunk of stream) {
-      const choice = (chunk as any).choices?.[0];
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      if (choice?.delta) {
-        const delta = choice.delta;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!;
 
-        if (delta.content) {
-          if (contentBlocks.length === 0 || contentBlocks[contentBlocks.length - 1].type !== "text") {
-            contentBlocks.push({ type: "text", text: "" });
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") continue;
+
+          let chunk: any;
+          try {
+            chunk = JSON.parse(data);
+          } catch {
+            continue;
           }
-          const block = contentBlocks[contentBlocks.length - 1];
-          if (block.type === "text") {
-            block.text += delta.content;
-          }
-          yield { type: "text", text: delta.content };
-        }
 
-        // Moonshot thinking content
-        if (delta.reasoning_content) {
-          if (contentBlocks.length === 0 || contentBlocks[contentBlocks.length - 1].type !== "thinking") {
-            contentBlocks.push({ type: "thinking", thinking: "" });
-          }
-          const block = contentBlocks[contentBlocks.length - 1];
-          if (block.type === "thinking") {
-            block.thinking += delta.reasoning_content;
-          }
-          yield { type: "thinking", thinking: delta.reasoning_content };
-        }
+          const choice = chunk.choices?.[0];
 
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index;
-            if (!toolCalls.has(idx)) {
-              const id = tc.id ?? `call_${idx}`;
-              const name = tc.function?.name ?? "";
-              toolCalls.set(idx, { id, name, args: "" });
-              contentBlocks.push({ type: "tool_call", id, name, input: {} });
-              yield { type: "tool_call_start", id, name };
+          if (choice?.delta) {
+            const delta = choice.delta;
+
+            if (delta.content) {
+              if (contentBlocks.length === 0 || contentBlocks[contentBlocks.length - 1].type !== "text") {
+                contentBlocks.push({ type: "text", text: "" });
+              }
+              const block = contentBlocks[contentBlocks.length - 1];
+              if (block.type === "text") {
+                block.text += delta.content;
+              }
+              yield { type: "text", text: delta.content };
             }
-            if (tc.function?.arguments) {
-              const entry = toolCalls.get(idx)!;
-              entry.args += tc.function.arguments;
-              yield { type: "tool_call_delta", id: entry.id, input: tc.function.arguments };
+
+            // Moonshot thinking content
+            if (delta.reasoning_content) {
+              if (contentBlocks.length === 0 || contentBlocks[contentBlocks.length - 1].type !== "thinking") {
+                contentBlocks.push({ type: "thinking", thinking: "" });
+              }
+              const block = contentBlocks[contentBlocks.length - 1];
+              if (block.type === "thinking") {
+                block.thinking += delta.reasoning_content;
+              }
+              yield { type: "thinking", thinking: delta.reasoning_content };
             }
+
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index;
+                if (!toolCalls.has(idx)) {
+                  const id = tc.id ?? `call_${idx}`;
+                  const name = tc.function?.name ?? "";
+                  toolCalls.set(idx, { id, name, args: "" });
+                  contentBlocks.push({ type: "tool_call", id, name, input: {} });
+                  yield { type: "tool_call_start", id, name };
+                }
+                if (tc.function?.arguments) {
+                  const entry = toolCalls.get(idx)!;
+                  entry.args += tc.function.arguments;
+                  yield { type: "tool_call_delta", id: entry.id, input: tc.function.arguments };
+                }
+              }
+            }
+          }
+
+          if (chunk.usage) {
+            const u = chunk.usage;
+            usage = {
+              inputTokens: u.prompt_tokens,
+              outputTokens: u.completion_tokens,
+              totalTokens: u.total_tokens,
+            };
           }
         }
       }
-
-      if ((chunk as any).usage) {
-        const u = (chunk as any).usage;
-        usage = {
-          inputTokens: u.prompt_tokens,
-          outputTokens: u.completion_tokens,
-          totalTokens: u.total_tokens,
-        };
-      }
+    } finally {
+      reader.releaseLock();
     }
 
     for (const [, entry] of toolCalls) {
@@ -162,7 +204,7 @@ function mapMessage(m: Message): Record<string, unknown> {
     if (typeof m.content === "string") {
       return { role: "user", content: m.content };
     }
-    const parts = m.content.map((block) => {
+    const parts = m.content.map((block: any) => {
       if (block.type === "text") return { type: "text", text: block.text };
       if (block.type === "image") {
         if (block.source.type === "url") {
@@ -204,6 +246,6 @@ function mapMessage(m: Message): Record<string, unknown> {
     tool_call_id: m.toolCallId,
     content: typeof m.content === "string"
       ? m.content
-      : m.content.map((b) => b.type === "text" ? b.text : JSON.stringify(b)).join("\n"),
+      : m.content.map((b: any) => b.type === "text" ? b.text : JSON.stringify(b)).join("\n"),
   };
 }

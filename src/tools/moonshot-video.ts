@@ -6,7 +6,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, isAbsolute } from "node:path";
-import type { AgentTool, AgentToolResult, ToolExecutionContext } from "klaus-agent";
+import type { AgentTool, AgentToolResult, ToolExecutionContext } from "../klaus-agent-compat.js";
 import { fetchMoonshotApi } from "./moonshot-fetch.js";
 
 const DEFAULT_MODEL = "kimi-k2.5";

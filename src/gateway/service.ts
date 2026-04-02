@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { AgentEvent } from "klaus-agent";
+import type { EngineEvent } from "../agent-manager.js";
 import type { MediaFile } from "../message.js";
 import type { CronTask } from "../types.js";
 import type { Handler } from "../types.js";
@@ -296,7 +296,7 @@ class GatewayService {
   createAgentEventForwarder(params: {
     userId: string;
     sessionId: string;
-  }): (event: AgentEvent) => void {
+  }): (event: EngineEvent) => void {
     const sessionKey = buildWebSessionKey(params.userId, params.sessionId);
     return createGatewayAgentEventForwarder({
       userId: params.userId,

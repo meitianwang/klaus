@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Type, type Static } from "@sinclair/typebox";
-import type { AgentTool, AgentToolResult, ToolExecutionContext } from "klaus-agent";
+import type { AgentTool, AgentToolResult, ToolExecutionContext } from "../klaus-agent-compat.js";
 
 // ---------------------------------------------------------------------------
 // Date helper

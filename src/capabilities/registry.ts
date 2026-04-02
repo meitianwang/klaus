@@ -1,4 +1,4 @@
-import type { AgentTool } from "klaus-agent";
+import type { AgentTool } from "../klaus-agent-compat.js";
 import { join } from "node:path";
 import { CONFIG_DIR } from "../config.js";
 import type {

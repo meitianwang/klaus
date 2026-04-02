@@ -18,7 +18,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { platform } from "node:os";
 import { Type, type Static } from "@sinclair/typebox";
-import type { AgentTool, AgentToolResult } from "klaus-agent";
+import type { AgentTool, AgentToolResult } from "../klaus-agent-compat.js";
 import { CONFIG_DIR } from "../config.js";
 
 // ---------------------------------------------------------------------------

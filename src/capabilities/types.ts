@@ -6,7 +6,7 @@ import type {
   BeforeToolCallResult,
   AfterToolCallContext,
   AfterToolCallResult,
-} from "klaus-agent";
+} from "../klaus-agent-compat.js";
 
 // --- Tools (aligned with openclaw registerTool) ---
 
