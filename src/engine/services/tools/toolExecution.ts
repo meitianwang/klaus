@@ -24,6 +24,10 @@ import type {
   UserMessage,
 } from '../../types/message.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
+import {
+  executePreToolHooks,
+  executePostToolHooks,
+} from '../../../hooks.js'
 
 // ============================================================================
 // Constants
@@ -320,7 +324,40 @@ async function checkPermissionsAndCallTool(
   }
 
   // 4. Use updatedInput if permission system modified it
-  const finalInput = (permissionResult as any).updatedInput ?? parsedInput.data
+  let finalInput = (permissionResult as any).updatedInput ?? parsedInput.data
+
+  // 4.5 PreToolUse hooks
+  const hooksConfig = toolUseContext.options.hooksConfig
+  if (hooksConfig) {
+    const preResult = await executePreToolHooks(
+      hooksConfig,
+      tool.name,
+      finalInput,
+      toolUseID,
+      toolUseContext.abortController.signal,
+    )
+    if (preResult.blocked) {
+      return [
+        {
+          message: createUserMessage({
+            content: [
+              {
+                type: 'tool_result',
+                content: `<tool_use_error>Hook blocked: ${preResult.reason}</tool_use_error>`,
+                is_error: true,
+                tool_use_id: toolUseID,
+              },
+            ],
+            toolUseResult: `Hook blocked: ${preResult.reason}`,
+            sourceToolAssistantUUID: assistantMessage.uuid,
+          }),
+        },
+      ]
+    }
+    if (preResult.updatedInput) {
+      finalInput = preResult.updatedInput
+    }
+  }
 
   // 5. Call the tool
   const progressMessages: ProgressMessage[] = []
@@ -345,6 +382,18 @@ async function checkPermissionsAndCallTool(
   const durationMs = Date.now() - startTime
 
   console.log(`[ToolExecution] ${tool.name} completed in ${durationMs}ms`)
+
+  // 5.5 PostToolUse hooks
+  if (hooksConfig) {
+    await executePostToolHooks(
+      hooksConfig,
+      tool.name,
+      finalInput,
+      result.data,
+      toolUseID,
+      toolUseContext.abortController.signal,
+    )
+  }
 
   // 6. Build result messages
   const resultMessages: MessageUpdateLazy[] = []

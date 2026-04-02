@@ -265,6 +265,7 @@ export type ToolUseContext = {
     appendSystemPrompt?: string
     querySource?: QuerySource
     refreshTools?: () => Tools
+    hooksConfig?: import('../hooks.js').HooksConfig
   }
   abortController: AbortController
   readFileState: FileStateCache

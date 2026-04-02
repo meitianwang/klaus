@@ -271,6 +271,9 @@ function setAgentManager(manager: import("../agent-manager.js").AgentSessionMana
   agentManagerRef = manager;
 }
 
+// MCP manager reference (for reconnect after admin CRUD)
+let mcpManagerRef: import("../mcp-manager.js").MCPManager | null = null;
+
 // ---------------------------------------------------------------------------
 // Hot-start: delegate to ChannelManager for proper lifecycle management
 // ---------------------------------------------------------------------------
@@ -1357,7 +1360,9 @@ async function handleAdminMcp(
   if (req.method === "POST") {
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 201, gateway.createAdminMcpServer(parsed));
+      const result = gateway.createAdminMcpServer(parsed);
+      mcpManagerRef?.reconnect().catch((e) => console.error("[MCP] Reconnect failed:", e));
+      jsonResponse(res, 201, result);
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1371,7 +1376,9 @@ async function handleAdminMcp(
 
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 200, gateway.updateAdminMcpServer({ id, patch: parsed }));
+      const result = gateway.updateAdminMcpServer({ id, patch: parsed });
+      mcpManagerRef?.reconnect().catch((e) => console.error("[MCP] Reconnect failed:", e));
+      jsonResponse(res, 200, result);
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1385,6 +1392,7 @@ async function handleAdminMcp(
     try {
       const deleted = gateway.deleteAdminMcpServer(id);
       if (!deleted) { jsonResponse(res, 404, { error: "server not found" }); return; }
+      mcpManagerRef?.reconnect().catch((e) => console.error("[MCP] Reconnect failed:", e));
       jsonResponse(res, 200, { ok: true });
     } catch (err) {
       gatewayErrorResponse(res, err);
@@ -2804,6 +2812,7 @@ export const webPlugin: ChannelPlugin = {
       if (ctx.services.handler && !handlerRef) setHandler(ctx.services.handler as Handler);
       if (ctx.services.cronScheduler && !cronSchedulerRef) setCronScheduler(ctx.services.cronScheduler as NonNullable<typeof cronSchedulerRef>);
       if (ctx.services.channelManager) channelManagerRef = ctx.services.channelManager as import("./manager.js").ChannelManager;
+      if (ctx.services.mcpManager && !mcpManagerRef) mcpManagerRef = ctx.services.mcpManager as import("../mcp-manager.js").MCPManager;
     }
 
     const server = createServer((req, res) => {

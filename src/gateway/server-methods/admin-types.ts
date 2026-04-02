@@ -23,6 +23,7 @@ export type GatewaySettingsSnapshot = {
     readonly enabled: boolean;
     readonly max_concurrent_runs: number | null;
   };
+  readonly hooks: import("../../hooks.js").HooksConfig;
 };
 
 export type GatewayAdminRpcContext = {

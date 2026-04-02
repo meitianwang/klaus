@@ -34,6 +34,7 @@ function buildSettingsSnapshot(settingsStore: SettingsStore): GatewaySettingsSna
       enabled: settingsStore.getBool("cron.enabled", false),
       max_concurrent_runs: settingsStore.getNumber("cron.max_concurrent_runs", 0) || null,
     },
+    hooks: settingsStore.getHooks(),
   };
 }
 
@@ -217,6 +218,12 @@ export function updateGatewayAdminSettings(params: {
         value ? String(Math.floor(Number(value))) : "0",
       );
     }
+  }
+
+  if ("hooks" in params.input && typeof params.input.hooks === "object") {
+    params.settingsStore.setHooks(
+      (params.input.hooks ?? {}) as import("../../hooks.js").HooksConfig,
+    );
   }
 
   return buildSettingsSnapshot(params.settingsStore);

@@ -4,26 +4,22 @@
  */
 
 import { randomUUID } from "crypto";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { join } from "node:path";
-import { LRUCache } from "lru-cache";
-import { CONFIG_DIR } from "./config.js";
+import { initState } from "./engine/bootstrap/state.js";
 import type { SettingsStore } from "./settings-store.js";
 import { getProvider, capabilities } from "./providers/registry.js";
 import { refreshAccessToken } from "./auth/oauth.js";
 import type { OAuthProviderAuth } from "./auth/oauth.js";
 import type { MemoryManagerPool } from "./memory/pool.js";
 import { createMemorySearchTool, createMemoryGetTool, buildMemoryPromptSection } from "./memory/tools.js";
-import { createMemorySaveTool, MEMORY_FLUSH_USER_PROMPT } from "./memory/memory-write.js";
+import { createMemorySaveTool } from "./memory/memory-write.js";
 import { ToolLoopDetector } from "./tool-loop-detector.js";
 import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
-import { getAllBaseTools } from "./engine/tools.js";
+import { getAllBaseTools, assembleToolPool } from "./engine/tools.js";
 import { wrapLegacyTools, type LegacyAgentTool } from "./engine/utils/legacyToolAdapter.js";
-import { createSkillTool } from "./skills/index.js";
+import type { MCPManager } from "./mcp-manager.js";
 import { getSkillRegistry } from "./skills/registry.js";
-import { extractUserId, getUserSessionsDir, getUserWorkspaceDir, ensureUserDirs } from "./user-dirs.js";
+import type { SkillDefinition } from "./engine/tools/SkillTool/SkillTool.js";
+import { extractUserId, ensureUserDirs } from "./user-dirs.js";
 
 // Engine imports
 import {
@@ -31,16 +27,13 @@ import {
   type QueryParams,
   type Message,
   type AssistantMessage,
-  type StreamEvent,
   type ToolUseContext,
   type CanUseToolFn,
   type ThinkingConfig,
   type AppState,
   type ToolPermissionContext,
   getEmptyToolPermissionContext,
-  buildToolSchemas,
 } from "./engine/index.js";
-import type { FileStateCache } from "./engine/utils/fileStateCache.js";
 import type { SystemPrompt } from "./engine/utils/systemPromptType.js";
 
 // ============================================================================
@@ -84,14 +77,21 @@ export class AgentSessionManager {
   private readonly store: SettingsStore;
   private readonly maxSessions: number;
   private memoryPool: MemoryManagerPool | null = null;
+  private mcpManager: MCPManager | null = null;
 
   constructor(store: SettingsStore) {
     this.store = store;
     this.maxSessions = store.getNumber("max_sessions", 20);
+    // Initialize engine bootstrap state (cwd, sessionId) — required by tools
+    initState(process.cwd());
   }
 
   setMemoryPool(pool: MemoryManagerPool | null): void {
     this.memoryPool = pool;
+  }
+
+  setMCPManager(mgr: MCPManager | null): void {
+    this.mcpManager = mgr;
   }
 
   async chat(
@@ -111,7 +111,7 @@ export class AgentSessionManager {
 
     try {
       // Build query params
-      const { systemPrompt, apiKey, baseUrl, model, maxContextTokens, thinkingConfig, tools, toolSchemas } =
+      const { systemPrompt, apiKey, baseUrl, model, maxContextTokens, thinkingConfig, tools, toolSchemas, skillDefinitions } =
         await this.buildQueryConfig(sessionKey);
 
       // Add user message
@@ -124,7 +124,7 @@ export class AgentSessionManager {
       session.messages.push(userMessage);
 
       // Build ToolUseContext
-      const toolUseContext = this.buildToolUseContext(session, tools, model, thinkingConfig);
+      const toolUseContext = this.buildToolUseContext(session, tools, model, thinkingConfig, skillDefinitions, apiKey, baseUrl);
 
       // Auto-approve all tools (Klaus uses yolo mode)
       const canUseTool: CanUseToolFn = async (_tool, input) => {
@@ -154,43 +154,50 @@ export class AgentSessionManager {
         toolSchemas,
       };
 
-      // Track compaction for memory flush
+      // Track compaction for memory flush via callback
       let compacted = false;
+      (toolUseContext as any).onCompactProgress = (ev: { type: string }) => {
+        if (ev.type === "compact_end") {
+          compacted = true;
+          onEvent?.({ type: "compaction_end" });
+        } else {
+          onEvent?.({ type: "compaction_start" });
+        }
+      };
 
       // Consume the query generator
       const gen = query(queryParams);
-      let lastAssistantMessage: AssistantMessage | undefined;
 
       for await (const event of gen) {
-        // Forward events to callback
-        if (onEvent) {
-          if (event.type === "assistant") {
-            const msg = event as AssistantMessage;
-            lastAssistantMessage = msg;
+        if (!onEvent) continue;
 
-            // Extract text deltas from content blocks
-            for (const block of msg.message.content) {
-              if (block.type === "text") {
-                onEvent({ type: "text_delta", text: (block as { text: string }).text });
-              } else if (block.type === "thinking") {
-                onEvent({ type: "thinking_delta", thinking: (block as { thinking: string }).thinking });
-              }
+        if (event.type === "assistant") {
+          const msg = event as AssistantMessage;
+
+          // Extract text/thinking deltas and tool_start from content blocks
+          for (const block of msg.message.content as any[]) {
+            if (block.type === "text") {
+              onEvent({ type: "text_delta", text: block.text });
+            } else if (block.type === "thinking") {
+              onEvent({ type: "thinking_delta", thinking: block.thinking });
+            } else if (block.type === "tool_use") {
+              onEvent({ type: "tool_start", toolName: block.name, toolCallId: block.id, args: block.input });
             }
+          }
 
-            onEvent({ type: "message_complete", message: msg });
-          } else if (event.type === "user") {
-            // Tool result messages — check for tool_start/tool_end patterns
-            const userMsg = event as Message;
-            if (userMsg.type === "user" && Array.isArray(userMsg.message.content)) {
-              for (const block of userMsg.message.content as any[]) {
-                if (block.type === "tool_result") {
-                  onEvent({
-                    type: "tool_end",
-                    toolName: "",
-                    toolCallId: block.tool_use_id ?? "",
-                    isError: block.is_error ?? false,
-                  });
-                }
+          onEvent({ type: "message_complete", message: msg });
+        } else if (event.type === "user") {
+          // Tool result messages → tool_end events
+          const userMsg = event as any;
+          if (Array.isArray(userMsg.message?.content)) {
+            for (const block of userMsg.message.content as any[]) {
+              if (block.type === "tool_result") {
+                onEvent({
+                  type: "tool_end",
+                  toolName: block.toolName ?? "",
+                  toolCallId: block.tool_use_id ?? "",
+                  isError: block.is_error ?? false,
+                });
               }
             }
           }
@@ -223,13 +230,6 @@ export class AgentSessionManager {
     // Start with engine's built-in tools (BashTool, FileRead/Edit/Write, Glob, Grep, etc.)
     const tools: any[] = [...getAllBaseTools()];
 
-    // Add provider-specific legacy tools (moonshot video, etc.) wrapped as engine tools
-    if (providerDef?.tools && apiKey && modelRecord) {
-      const baseUrl = modelRecord.baseUrl || providerDef.defaultBaseUrl;
-      const legacyProviderTools = providerDef.tools(apiKey, baseUrl, modelRecord.model);
-      tools.push(...wrapLegacyTools(legacyProviderTools as LegacyAgentTool[]));
-    }
-
     // Add capability-registered legacy tools wrapped as engine tools
     const legacyCapTools = capabilities.buildTools();
     if (legacyCapTools.length > 0) {
@@ -246,6 +246,12 @@ export class AgentSessionManager {
       ];
       tools.push(...wrapLegacyTools(memTools as LegacyAgentTool[]));
     }
+
+    // Add MCP tools (mcp__server__tool wrappers)
+    if (this.mcpManager) {
+      tools.push(...this.mcpManager.mcpTools);
+    }
+
     return tools;
   }
 
@@ -322,6 +328,7 @@ export class AgentSessionManager {
 
   async disposeAll(): Promise<void> {
     this.sessions.clear();
+    await this.mcpManager?.close();
   }
 
   // ============================================================================
@@ -376,6 +383,7 @@ export class AgentSessionManager {
     thinkingConfig: ThinkingConfig;
     tools: any[];
     toolSchemas: any[];
+    skillDefinitions: SkillDefinition[];
   }> {
     const userId = extractUserId(sessionKey);
     const modelRecord = this.store.getDefaultModel();
@@ -435,15 +443,19 @@ export class AgentSessionManager {
       const skillList = resolvedSkills
         .map((s) => `- ${s.name}: ${s.description}`)
         .join("\n");
-      parts.push(`Available skills (use invoke_skill tool to invoke):\n${skillList}`);
+      parts.push(`<system-reminder>\nThe following skills are available for use with the Skill tool:\n\n${skillList}\n</system-reminder>`);
     }
     const systemPrompt = parts.join("\n\n") || "You are a helpful assistant.";
 
+    // Build skill definitions for engine SkillTool
+    const skillDefinitions: SkillDefinition[] = resolvedSkills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      content: s.content,
+    }));
+
     // Build tools
     const tools = await this.buildTools(userId, apiKey);
-    if (resolvedSkills.length > 0) {
-      tools.push(createSkillTool(resolvedSkills));
-    }
 
     // Thinking config
     const thinkingLevel = modelRecord.thinking || "off";
@@ -460,6 +472,7 @@ export class AgentSessionManager {
       thinkingConfig,
       tools,
       toolSchemas: [], // Will be built by query() if empty
+      skillDefinitions,
     };
   }
 
@@ -472,9 +485,13 @@ export class AgentSessionManager {
     tools: any[],
     model: string,
     thinkingConfig: ThinkingConfig,
+    skillDefinitions: SkillDefinition[] = [],
+    apiKey?: string,
+    baseURL?: string,
   ): ToolUseContext {
     const appState: AppState = {
       toolPermissionContext: getEmptyToolPermissionContext(),
+      skills: skillDefinitions,
     };
 
     return {
@@ -485,13 +502,14 @@ export class AgentSessionManager {
         tools: tools as any,
         verbose: false,
         thinkingConfig,
-        mcpClients: [],
-        mcpResources: {},
+        mcpClients: this.mcpManager?.mcpClients ?? [],
+        mcpResources: this.mcpManager?.mcpResources ?? {},
         isNonInteractiveSession: true,
         agentDefinitions: { agents: [], errors: [] },
+        hooksConfig: this.store.getHooks(),
       },
       abortController: new AbortController(),
-      readFileState: new Map() as any, // Simplified file state cache
+      readFileState: new Map() as any,
       getAppState: () => appState,
       setAppState: (f) => { Object.assign(appState, f(appState)); },
       setInProgressToolUseIDs: () => {},
@@ -499,7 +517,10 @@ export class AgentSessionManager {
       updateFileHistoryState: () => {},
       updateAttributionState: () => {},
       messages: session.messages,
-    };
+      // API credentials for SubAgent (AgentTool)
+      apiKey,
+      baseURL,
+    } as ToolUseContext;
   }
 }
 

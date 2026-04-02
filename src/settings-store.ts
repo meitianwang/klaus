@@ -211,6 +211,20 @@ export class SettingsStore {
     return Number.isFinite(n) ? n : fallback;
   }
 
+  getHooks(): import("./hooks.js").HooksConfig {
+    const raw = this.get("hooks");
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as import("./hooks.js").HooksConfig;
+    } catch {
+      return {};
+    }
+  }
+
+  setHooks(config: import("./hooks.js").HooksConfig): void {
+    this.set("hooks", JSON.stringify(config));
+  }
+
   getBool(key: string, fallback: boolean): boolean {
     const raw = this.get(key);
     if (raw == null) return fallback;

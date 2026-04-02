@@ -64,6 +64,13 @@ async function start(): Promise<void> {
   if (memoryPool) {
     agentManager.setMemoryPool(memoryPool);
   }
+
+  // Initialize MCP connections
+  const { MCPManager } = await import("./mcp-manager.js");
+  const mcpManager = new MCPManager(settingsStore);
+  await mcpManager.connect();
+  agentManager.setMCPManager(mcpManager);
+
   const defaultModel = settingsStore.getDefaultModel();
   console.log(
     `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
@@ -169,6 +176,7 @@ async function start(): Promise<void> {
     webServices.handler = handler;
     webServices.agentManager = agentManager;
     if (memoryPool) webServices.memoryPool = memoryPool;
+    webServices.mcpManager = mcpManager;
   }
 
   // ---------------------------------------------------------------------------
