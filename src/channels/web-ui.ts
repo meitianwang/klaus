@@ -60,6 +60,12 @@ ${getChatI18n()}
     localStorage.setItem("klaus_lang", lang);
     applyI18n();
     notifyIframes({ type: "klaus-settings", lang: lang });
+    // Persist to backend so LLM uses the preferred language
+    fetch("/api/user/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language: lang === "zh" ? "中文" : lang === "en" ? "English" : lang }),
+    }).catch(function() {});
   }
   function applyI18n() {
     document.querySelectorAll("[data-i18n]").forEach(function(el) {

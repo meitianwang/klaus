@@ -57,8 +57,21 @@ export async function createMCPConnection(
 
   await client.connect(transport)
 
+  // Capture server instructions (returned during initialize handshake)
+  const MAX_INSTRUCTIONS_LENGTH = 2048
+  let instructions: string | undefined
+  try {
+    const raw = client.getInstructions?.()
+    if (raw) {
+      instructions = raw.length > MAX_INSTRUCTIONS_LENGTH
+        ? raw.slice(0, MAX_INSTRUCTIONS_LENGTH) + '... [truncated]'
+        : raw
+    }
+  } catch {}
+
   const connection: MCPServerConnection = {
     name: config.name,
+    instructions,
 
     async listTools() {
       const result = await client.request(

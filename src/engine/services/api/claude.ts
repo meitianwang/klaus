@@ -159,9 +159,20 @@ export async function buildToolSchemas(
 
 export function buildSystemPromptBlocks(
   systemPrompt: SystemPrompt,
+  enablePromptCaching = true,
 ): TextBlockParam[] {
-  if (!systemPrompt) return []
-  return [{ type: 'text', text: systemPrompt as unknown as string }]
+  if (!systemPrompt || systemPrompt.length === 0) return []
+
+  const { splitSysPromptPrefix } = require('../../utils/api.js') as typeof import('../../utils/api.js')
+  const blocks = splitSysPromptPrefix(systemPrompt)
+
+  return blocks.map((block) => ({
+    type: 'text' as const,
+    text: block.text,
+    ...(enablePromptCaching && block.cacheScope !== null
+      ? { cache_control: { type: 'ephemeral' as const } }
+      : {}),
+  }))
 }
 
 // ============================================================================

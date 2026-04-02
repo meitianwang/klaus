@@ -273,6 +273,26 @@ export class SettingsStore {
   }
 
   // -----------------------------------------------------------------------
+  // Per-user settings (language, output_style)
+  // -----------------------------------------------------------------------
+
+  getUserLanguage(userId: string): string | undefined {
+    return this.get(`user.${userId}.language`) || undefined;
+  }
+
+  setUserLanguage(userId: string, language: string): void {
+    this.set(`user.${userId}.language`, language);
+  }
+
+  getUserOutputStyle(userId: string): string | undefined {
+    return this.get(`user.${userId}.output_style`) || undefined;
+  }
+
+  setUserOutputStyle(userId: string, style: string): void {
+    this.set(`user.${userId}.output_style`, style);
+  }
+
+  // -----------------------------------------------------------------------
   // Models CRUD
   // -----------------------------------------------------------------------
 

@@ -119,16 +119,41 @@ export function appendSystemContext(
 }
 
 /**
- * Simplified system prompt prefix splitting.
- * Returns system prompt blocks with org-level caching.
+ * Split system prompt at boundary marker into cacheable/non-cacheable blocks.
+ * Matches claude-code's splitSysPromptPrefix():
+ * - Content before SYSTEM_PROMPT_DYNAMIC_BOUNDARY → cacheScope: 'org'
+ * - Content after → cacheScope: null (dynamic, not cached)
+ * - If no boundary marker → all content cacheScope: 'org'
  */
+export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
+
 export function splitSysPromptPrefix(
   systemPrompt: SystemPrompt,
 ): SystemPromptBlock[] {
-  const result: SystemPromptBlock[] = []
-  for (const block of systemPrompt) {
-    if (!block) continue
-    result.push({ text: block, cacheScope: 'org' })
+  const parts = [...systemPrompt].filter(Boolean)
+  const boundaryIdx = parts.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+
+  if (boundaryIdx === -1) {
+    // No boundary — everything gets org-level caching
+    const text = parts.join('\n\n')
+    if (!text) return []
+    return [{ text, cacheScope: 'org' }]
   }
+
+  const staticParts = parts.slice(0, boundaryIdx)
+  const dynamicParts = parts.slice(boundaryIdx + 1)
+
+  const result: SystemPromptBlock[] = []
+
+  const staticText = staticParts.join('\n\n')
+  if (staticText) {
+    result.push({ text: staticText, cacheScope: 'org' })
+  }
+
+  const dynamicText = dynamicParts.join('\n\n')
+  if (dynamicText) {
+    result.push({ text: dynamicText, cacheScope: null })
+  }
+
   return result
 }

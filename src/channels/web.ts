@@ -1451,6 +1451,53 @@ async function handleUserSkills(
   jsonResponse(res, 405, { error: "method not allowed" });
 }
 
+// ---------------------------------------------------------------------------
+// User: Settings (language, output_style)
+// ---------------------------------------------------------------------------
+
+async function handleUserSettings(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const auth = authenticateRequest(req);
+  if (auth.kind === "invalid") {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+  if (!settingsStoreRef) { jsonResponse(res, 503, { error: "not ready" }); return; }
+
+  const userId = auth.user.id;
+
+  if (req.method === "GET") {
+    jsonResponse(res, 200, {
+      language: settingsStoreRef.getUserLanguage(userId),
+      output_style: settingsStoreRef.getUserOutputStyle(userId),
+    });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    try {
+      const parsed = await readJsonBody(req, 2048);
+      if (typeof parsed.language === "string") {
+        settingsStoreRef.setUserLanguage(userId, parsed.language);
+      }
+      if (typeof parsed.output_style === "string") {
+        settingsStoreRef.setUserOutputStyle(userId, parsed.output_style);
+      }
+      jsonResponse(res, 200, {
+        language: settingsStoreRef.getUserLanguage(userId),
+        output_style: settingsStoreRef.getUserOutputStyle(userId),
+      });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
 async function handleAdminSkillsInstall(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2508,6 +2555,10 @@ async function handleRequest(
         return;
       }
       return handleGoogleCallback(req, res, cfg, userStoreRef, inviteStoreRef);
+
+    // User settings (language, output_style)
+    case "/api/user/settings":
+      return handleUserSettings(req, res);
 
     // User skills preferences
     case "/api/skills":

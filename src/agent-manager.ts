@@ -11,6 +11,7 @@ import { refreshAccessToken } from "./auth/oauth.js";
 import type { OAuthProviderAuth } from "./auth/oauth.js";
 import type { MemoryManagerPool } from "./memory/pool.js";
 import { createMemorySearchTool, createMemoryGetTool, buildMemoryPromptSection } from "./memory/tools.js";
+import { buildSystemPrompt, ensureScratchpadDir, clearSystemPromptSections } from "./engine/constants/prompts.js";
 import { createMemorySaveTool } from "./memory/memory-write.js";
 import { ToolLoopDetector } from "./tool-loop-detector.js";
 import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
@@ -34,7 +35,7 @@ import {
   type ToolPermissionContext,
   getEmptyToolPermissionContext,
 } from "./engine/index.js";
-import type { SystemPrompt } from "./engine/utils/systemPromptType.js";
+import { asSystemPrompt, type SystemPrompt } from "./engine/utils/systemPromptType.js";
 
 // ============================================================================
 // Engine Event type (replaces AgentEvent from klaus-agent)
@@ -84,6 +85,8 @@ export class AgentSessionManager {
     this.maxSessions = store.getNumber("max_sessions", 20);
     // Initialize engine bootstrap state (cwd, sessionId) — required by tools
     initState(process.cwd());
+    // Create scratchpad directory for this session
+    ensureScratchpadDir();
   }
 
   setMemoryPool(pool: MemoryManagerPool | null): void {
@@ -111,8 +114,23 @@ export class AgentSessionManager {
 
     try {
       // Build query params
-      const { systemPrompt, apiKey, baseUrl, model, maxContextTokens, thinkingConfig, tools, toolSchemas, skillDefinitions } =
+      const { systemPrompt, userContext, apiKey, baseUrl, model, maxContextTokens, thinkingConfig, tools, toolSchemas, skillDefinitions } =
         await this.buildQueryConfig(sessionKey);
+
+      // Inject user context as first message (matches claude-code's prependUserContext)
+      if (userContext && session.messages.length === 0) {
+        const contextMessage: Message = {
+          type: "user",
+          message: {
+            role: "user",
+            content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# claudeMd\n${userContext}\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n`,
+          },
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+          isMeta: true,
+        } as Message;
+        session.messages.push(contextMessage);
+      }
 
       // Add user message
       const userMessage: Message = {
@@ -142,7 +160,7 @@ export class AgentSessionManager {
 
       const queryParams: QueryParams = {
         messages: session.messages,
-        systemPrompt: systemPrompt as unknown as SystemPrompt,
+        systemPrompt,
         canUseTool,
         toolUseContext,
         querySource: "repl_main_thread",
@@ -324,6 +342,7 @@ export class AgentSessionManager {
       }
       this.sessions.delete(sessionKey);
     }
+    clearSystemPromptSections();
   }
 
   async disposeAll(): Promise<void> {
@@ -375,7 +394,8 @@ export class AgentSessionManager {
   // ============================================================================
 
   private async buildQueryConfig(sessionKey: string): Promise<{
-    systemPrompt: string;
+    systemPrompt: SystemPrompt;
+    userContext: string | null;
     apiKey: string;
     baseUrl: string | undefined;
     model: string;
@@ -424,28 +444,47 @@ export class AgentSessionManager {
 
     const baseUrl = modelRecord.baseUrl || providerDef?.defaultBaseUrl;
 
-    // Build system prompt
+    // Build system prompt (claude-code mechanism)
     const promptRecord = this.store.getDefaultPrompt();
     const rules = this.store.getEnabledRules();
-    const parts: string[] = [];
-    if (promptRecord?.content) parts.push(promptRecord.content);
-    for (const rule of rules) {
-      parts.push(rule.content);
-    }
-    if (this.memoryPool) {
-      parts.push(buildMemoryPromptSection(this.memoryPool.citationsMode));
-    }
     const skillRegistry = getSkillRegistry();
     const allSkills = skillRegistry.getSkills();
     const userPrefs = this.store.getUserSkillPreferences(userId);
     const resolvedSkills = allSkills.filter((s) => userPrefs.get(s.name) !== "off");
-    if (resolvedSkills.length > 0) {
-      const skillList = resolvedSkills
-        .map((s) => `- ${s.name}: ${s.description}`)
-        .join("\n");
-      parts.push(`<system-reminder>\nThe following skills are available for use with the Skill tool:\n\n${skillList}\n</system-reminder>`);
+
+    // Assemble claudeMd from: default prompt + rules + memory prompt
+    const claudeMdParts: string[] = [];
+    if (promptRecord?.content) {
+      claudeMdParts.push(`# Codebase and user instructions\n${promptRecord.content}`);
     }
-    const systemPrompt = parts.join("\n\n") || "You are a helpful assistant.";
+    for (const rule of rules) {
+      claudeMdParts.push(rule.content);
+    }
+    if (this.memoryPool) {
+      claudeMdParts.push(buildMemoryPromptSection(this.memoryPool.citationsMode));
+    }
+
+    // Build tools
+    const tools = await this.buildTools(userId, apiKey);
+
+    // Git status snapshot (matches claude-code's getGitStatus in context.ts)
+    const gitStatus = await getGitStatusSnapshot(process.cwd());
+
+    const systemPromptParts = await buildSystemPrompt({
+      model: modelRecord.model,
+      cwd: process.cwd(),
+      tools,
+      skills: resolvedSkills.map((s) => ({ name: s.name, description: s.description })),
+      mcpClients: this.mcpManager?.mcpClients,
+      currentDate: new Date().toISOString().split("T")[0],
+      gitStatus,
+      language: this.store.getUserLanguage(userId),
+      outputStyle: this.store.getUserOutputStyle(userId),
+    });
+    const systemPrompt = asSystemPrompt(systemPromptParts);
+
+    // claudeMd injected as user context (matches claude-code's prependUserContext)
+    const userContext = claudeMdParts.length > 0 ? claudeMdParts.join("\n\n") : null;
 
     // Build skill definitions for engine SkillTool
     const skillDefinitions: SkillDefinition[] = resolvedSkills.map((s) => ({
@@ -453,9 +492,6 @@ export class AgentSessionManager {
       description: s.description,
       content: s.content,
     }));
-
-    // Build tools
-    const tools = await this.buildTools(userId, apiKey);
 
     // Thinking config
     const thinkingLevel = modelRecord.thinking || "off";
@@ -465,6 +501,7 @@ export class AgentSessionManager {
 
     return {
       systemPrompt,
+      userContext,
       apiKey,
       baseUrl,
       model: modelRecord.model,
@@ -538,6 +575,47 @@ const TOOL_OPEN_RE = new RegExp(`<\\/?(${TOOL_TAG_NAMES})(\\s[^>]*)?>`, "gi");
 
 function stripToolTags(text: string): string {
   return text.replace(TOOL_BLOCK_RE, "").replace(TOOL_OPEN_RE, "").trim();
+}
+
+/**
+ * Git status snapshot — matches claude-code's getGitStatus() in context.ts.
+ * Returns branch, main branch, user, status, recent commits.
+ */
+async function getGitStatusSnapshot(cwd: string): Promise<string | null> {
+  const { execSync } = await import("node:child_process");
+  try {
+    execSync("git rev-parse --is-inside-work-tree", { cwd, stdio: "pipe" });
+  } catch {
+    return null;
+  }
+
+  const run = (args: string) => {
+    try {
+      return execSync(`git ${args}`, { cwd, stdio: "pipe", timeout: 5000 }).toString().trim();
+    } catch {
+      return "";
+    }
+  };
+
+  const branch = run("branch --show-current") || run("rev-parse --short HEAD");
+  const mainBranch = run("config init.defaultBranch") || "main";
+  const userName = run("config user.name");
+  const status = run("--no-optional-locks status --short");
+  const log = run("--no-optional-locks log --oneline -n 5");
+
+  const MAX_STATUS_CHARS = 2000;
+  const truncatedStatus = status.length > MAX_STATUS_CHARS
+    ? status.substring(0, MAX_STATUS_CHARS) + '\n... (truncated, run "git status" for full output)'
+    : status;
+
+  return [
+    "This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.",
+    `Current branch: ${branch}`,
+    `Main branch (you will usually use this for PRs): ${mainBranch}`,
+    ...(userName ? [`Git user: ${userName}`] : []),
+    `Status:\n${truncatedStatus || "(clean)"}`,
+    `Recent commits:\n${log}`,
+  ].join("\n\n");
 }
 
 function extractFinalText(messages: Message[]): string | null {

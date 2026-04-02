@@ -94,6 +94,7 @@ export type CanUseToolFn = (
 
 export interface MCPServerConnection {
   name: string
+  instructions?: string
   listTools(): Promise<{ name: string; description?: string; inputSchema?: unknown }[]>
   callTool(name: string, args: Record<string, unknown>): Promise<unknown>
   close(): Promise<void>

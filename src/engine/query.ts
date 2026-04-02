@@ -33,10 +33,12 @@ import {
   type AutoCompactTrackingState,
 } from './services/compact/autoCompact.js'
 import { buildPostCompactMessages } from './services/compact/compact.js'
+import { microcompactMessages } from './services/compact/microCompact.js'
 import { tokenCountWithEstimation } from './utils/tokens.js'
 import { ESCALATED_MAX_TOKENS } from './utils/context.js'
 import { randomUUID } from 'crypto'
 import type { BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
 
 // ============================================================================
 // Types
@@ -58,6 +60,8 @@ export type QueryParams = {
   maxContextTokens?: number
   /** Pre-built tool schemas (optional, built from tools if not provided) */
   toolSchemas?: BetaToolUnion[]
+  /** Token budget — auto-continue until this many output tokens reached */
+  tokenBudget?: number | null
 }
 
 type State = {
@@ -103,7 +107,10 @@ async function* queryLoop(
     apiKey,
     baseURL,
     maxContextTokens,
+    tokenBudget,
   } = params
+
+  const budgetTracker = tokenBudget ? createBudgetTracker() : null
 
   let state: State = {
     messages: params.messages,
@@ -128,7 +135,17 @@ async function* queryLoop(
   }
 
   while (true) {
-    const { messages, toolUseContext } = state
+    const { toolUseContext } = state
+
+    // ---- Microcompact: clear old tool results before autocompact ----
+    const mcResult = microcompactMessages(state.messages)
+    if (mcResult.messages !== state.messages) {
+      // microcompact returned new array — update in-place
+      state.messages.length = 0
+      state.messages.push(...mcResult.messages)
+    }
+
+    const { messages } = state
 
     // ---- Auto-compact check ----
     const compactResult = await autoCompactIfNeeded(
@@ -272,6 +289,42 @@ async function* queryLoop(
     // No tool calls → conversation turn is complete
     if (toolUseBlocks.length === 0) {
       state.messages.push(assistantMessage)
+
+      // ---- Token budget check: auto-continue if budget not reached ----
+      if (budgetTracker && tokenBudget) {
+        // Sum output tokens from all assistant messages
+        let totalOutputTokens = 0
+        for (const msg of state.messages) {
+          if (msg.type === 'assistant') {
+            const usage = (msg as any).message?.usage
+            if (usage?.output_tokens) {
+              totalOutputTokens += usage.output_tokens
+            }
+          }
+        }
+
+        const decision = checkTokenBudget(
+          budgetTracker,
+          toolUseContext.agentId,
+          tokenBudget,
+          totalOutputTokens,
+        )
+
+        if (decision.action === 'continue') {
+          console.log(
+            `[Query] Token budget continuation #${decision.continuationCount}: ${decision.pct}% (${decision.turnTokens.toLocaleString()} / ${decision.budget.toLocaleString()})`,
+          )
+          state.messages.push({
+            type: 'user',
+            message: { role: 'user', content: decision.nudgeMessage },
+            uuid: randomUUID(),
+            timestamp: new Date().toISOString(),
+          } as UserMessage)
+          state.turnCount++
+          continue
+        }
+      }
+
       return { reason: 'end_turn', turnCount: state.turnCount }
     }
 
