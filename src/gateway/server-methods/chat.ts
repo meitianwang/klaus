@@ -287,12 +287,9 @@ export async function processGatewayInboundMessage(params: {
       }
 
       params.onAssistantMessage?.(sessionKey, reply);
-      params.sendEvent(params.userId, {
-        type: "message",
-        text: reply,
-        id: Date.now().toString(36),
-        sessionId: params.sessionId,
-      });
+      // NOTE: Don't send { type: "message" } here — the reply was already
+      // streamed to the frontend via stream chunks + finalized by "done" signal.
+      // Sending "message" again would cause duplicate display.
     }
 
     // Always send done signal so the UI unblocks even when reply is null

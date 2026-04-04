@@ -163,7 +163,7 @@ export function getMessagesJs(): string {
     sendBtn.disabled = busy || uploading || (!text && !hasFiles);
   }
 
-  var thinkingText = "";
+  var thinkingScrollTimer = null;
 
   function showThinking(chunk) {
     var el = document.getElementById("thinking-container");
@@ -171,25 +171,28 @@ export function getMessagesJs(): string {
       el = document.createElement("div");
       el.className = "thinking-indicator";
       el.id = "thinking-container";
-      el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div><span class="thinking-label">' + tt("thinking") + '</span><div class="thinking-content" style="display:none"></div>';
+      el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div><span class="thinking-label">' + tt("thinking") + '</span><div class="thinking-content"></div>';
       msgs.appendChild(el);
-      thinkingText = "";
+      scrollBottom();
     }
     if (chunk) {
-      thinkingText += chunk;
       var contentEl = el.querySelector(".thinking-content");
       if (contentEl) {
         contentEl.style.display = "block";
-        contentEl.textContent = thinkingText;
+        // Append text node instead of replacing textContent to avoid full reflow
+        contentEl.appendChild(document.createTextNode(chunk));
+        // Throttle scrollBottom to avoid layout thrashing
+        if (!thinkingScrollTimer) {
+          thinkingScrollTimer = setTimeout(function() { thinkingScrollTimer = null; scrollBottom(); }, 150);
+        }
       }
     }
-    scrollBottom();
   }
 
   function removeThinking() {
     var el = document.getElementById("thinking-container");
     if (el) el.remove();
-    thinkingText = "";
+    if (thinkingScrollTimer) { clearTimeout(thinkingScrollTimer); thinkingScrollTimer = null; }
   }
 
   var activeTools = new Map();

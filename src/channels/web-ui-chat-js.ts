@@ -380,8 +380,11 @@ export function getChatMainJs(): string {
       if (data.type === "thinking") { showThinking(data.chunk); return; }
       if (!isStreaming) { removeThinking(); clearToolContainer(); }
       if (data.type === "message") {
+        // If streaming was already finalized by "done" signal, skip to avoid duplicate
         if (isStreaming) { finalizeStreamingMessage(data.text); }
-        else { appendMsg("assistant", data.text); }
+        else if (!document.querySelector('.msg-row.assistant:last-child .msg')?.textContent) {
+          appendMsg("assistant", data.text);
+        }
         busy = false; updateBtn();
       }
       else if (data.type === "merged") { if (isStreaming) { finalizeStreamingMessage(""); } busy = false; updateBtn(); }
