@@ -4,7 +4,7 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "lib": ["ES2022"],
+    "lib": ["ES2023"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -18,7 +18,23 @@
     "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
-      "bun:bundle": ["./src/engine/shims/bun-bundle.ts"]
+      "bun:bundle": ["./src/engine/shims/bun-bundle.ts"],
+      "bun:ffi": ["./src/engine/shims/pkg-bun-ffi.ts"],
+      "@anthropic-ai/mcpb": ["./src/engine/shims/pkg-mcpb.ts"],
+      "@ant/computer-use-mcp": ["./src/engine/shims/pkg-computer-use-mcp.ts"],
+      "@ant/computer-use-mcp/*": ["./src/engine/shims/pkg-computer-use-mcp.ts"],
+      "@ant/claude-for-chrome-mcp": ["./src/engine/shims/pkg-claude-for-chrome-mcp.ts"],
+      "@anthropic-ai/sandbox-runtime": ["./src/engine/shims/pkg-sandbox-runtime.ts"],
+      "@ant/computer-use-input": ["./src/engine/shims/pkg-computer-use-input.ts"],
+      "@ant/computer-use-swift": ["./src/engine/shims/pkg-computer-use-swift.ts"],
+      "image-processor-napi": ["./src/engine/shims/pkg-image-processor-napi.ts"],
+      "audio-capture-napi": ["./src/engine/shims/pkg-audio-capture-napi.ts"],
+      "url-handler-napi": ["./src/engine/shims/pkg-url-handler-napi.ts"],
+      "src/components/MessageSelector.js": ["./src/engine/components/MessageSelector.ts"],
+      "src/components/IdeOnboardingDialog.js": ["./src/engine/components/IdeOnboardingDialog.ts"],
+      "src/components/*": ["./src/engine/shims/empty-module.ts"],
+      "src/constants/*": ["./src/engine/constants/*"],
+      "src/utils/*": ["./src/engine/utils/*"]
     }
   },
   "include": ["src/**/*"],

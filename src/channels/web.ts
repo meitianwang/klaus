@@ -1720,7 +1720,7 @@ async function handleAdminAnalytics(
       // List raw events
       const result = analyticsSinkRef.queryEvents({ eventName, limit, offset, since });
       jsonResponse(res, 200, {
-        events: result.events.map((e: { id: string; event_name: string; metadata: string; created_at: string }) => ({
+        events: (result.events as { id: string; event_name: string; metadata: string; created_at: string }[]).map((e) => ({
           ...e,
           metadata: JSON.parse(e.metadata),
         })),

@@ -44,6 +44,7 @@ import {
   getEmptyToolPermissionContext,
 } from "./engine/index.js";
 import { asSystemPrompt, type SystemPrompt } from "./engine/utils/systemPromptType.js";
+import { enableConfigs } from "./engine/utils/config.js";
 
 // ============================================================================
 // Engine Event type (replaces AgentEvent from klaus-agent)
@@ -57,7 +58,9 @@ export type EngineEvent =
   | { type: "compaction_start" }
   | { type: "compaction_end" }
   | { type: "context_collapse_stats"; collapsedSpans: number; stagedSpans: number; totalErrors: number }
-  | { type: "message_complete"; message: AssistantMessage };
+  | { type: "message_complete"; message: AssistantMessage }
+  | { type: "stream_mode"; mode: "requesting" | "thinking" | "responding" | "tool-input" | "tool-use" }
+  | { type: "api_error"; error: string; retryAttempt?: number; maxRetries?: number };
 
 type EngineEventCallback = (event: EngineEvent) => void;
 
@@ -97,11 +100,13 @@ export class AgentSessionManager {
   constructor(store: SettingsStore) {
     this.store = store;
     this.maxSessions = store.getNumber("max_sessions", 20);
-    // Initialize engine bootstrap state (cwd, sessionId) — required by tools
+    // Initialize engine state
     const cwd = process.cwd();
     setOriginalCwd(cwd);
     setCwdState(cwd);
     setProjectRoot(cwd);
+    // Enable engine config reading (must be called before any getGlobalConfig)
+    enableConfigs();
   }
 
   setMemoryPool(pool: MemoryManagerPool | null): void {
@@ -160,6 +165,12 @@ export class AgentSessionManager {
       } as Message;
       session.messages.push(userMessage);
 
+      // Set API credentials for the engine's getAnthropicClient()
+      process.env.ANTHROPIC_API_KEY = apiKey;
+      if (baseUrl) {
+        process.env.ANTHROPIC_BASE_URL = baseUrl;
+      }
+
       // Build ToolUseContext
       const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, skillDefinitions, apiKey, baseUrl);
 
@@ -207,43 +218,109 @@ export class AgentSessionManager {
       };
 
       // Consume the query generator
+      console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
       const gen = query(queryParams);
 
       for await (const event of gen) {
         if (!onEvent) continue;
+        const ev = event as any;
 
-        if (event.type === "assistant") {
-          const msg = event as AssistantMessage;
+        switch (ev.type) {
+          case "stream_request_start":
+            onEvent({ type: "stream_mode", mode: "requesting" });
+            break;
 
-          // Extract text/thinking deltas and tool_start from content blocks
-          for (const block of msg.message.content as any[]) {
-            if (block.type === "text") {
-              onEvent({ type: "text_delta", text: block.text });
-            } else if (block.type === "thinking") {
-              onEvent({ type: "thinking_delta", thinking: block.thinking });
-            } else if (block.type === "tool_use") {
-              onEvent({ type: "tool_start", toolName: block.name, toolCallId: block.id, args: block.input });
+          case "stream_event": {
+            // Real-time streaming events from the API (aligned with handleMessageFromStream)
+            const streamEvent = ev.event;
+            if (!streamEvent) break;
+
+            switch (streamEvent.type) {
+              case "message_start":
+                // API response started
+                break;
+
+              case "message_stop":
+                // Streaming finished, entering tool-use phase
+                onEvent({ type: "stream_mode", mode: "tool-use" });
+                break;
+
+              case "content_block_start": {
+                const block = streamEvent.content_block;
+                if (block?.type === "thinking" || block?.type === "redacted_thinking") {
+                  onEvent({ type: "stream_mode", mode: "thinking" });
+                } else if (block?.type === "text") {
+                  onEvent({ type: "stream_mode", mode: "responding" });
+                } else if (block?.type === "tool_use") {
+                  onEvent({ type: "stream_mode", mode: "tool-input" });
+                  onEvent({ type: "tool_start", toolName: block.name, toolCallId: block.id, args: {} });
+                }
+                break;
+              }
+
+              case "content_block_delta": {
+                const delta = streamEvent.delta;
+                if (delta?.type === "text_delta" && delta.text) {
+                  onEvent({ type: "text_delta", text: delta.text });
+                } else if (delta?.type === "thinking_delta" && delta.thinking) {
+                  onEvent({ type: "thinking_delta", thinking: delta.thinking });
+                }
+                // input_json_delta — tool input streaming, not forwarded to UI
+                break;
+              }
+
+              case "content_block_stop":
+                // Block finished, no action needed
+                break;
+
+              case "message_delta":
+                // Usage updates, stop_reason — not forwarded to UI
+                break;
             }
+            break;
           }
 
-          onEvent({ type: "message_complete", message: msg });
-        } else if (event.type === "user") {
-          // Tool result messages → tool_end events
-          const userMsg = event as any;
-          if (Array.isArray(userMsg.message?.content)) {
-            for (const block of userMsg.message.content as any[]) {
-              if (block.type === "tool_result") {
-                onEvent({
-                  type: "tool_end",
-                  toolName: block.toolName ?? "",
-                  toolCallId: block.tool_use_id ?? "",
-                  isError: block.is_error ?? false,
-                });
+          case "assistant": {
+            // Complete assistant message — push to session for transcript + extractFinalText
+            const msg = ev as AssistantMessage;
+            session.messages.push(msg);
+            onEvent({ type: "message_complete", message: msg });
+            break;
+          }
+
+          case "user": {
+            // Tool result messages — push to session and forward tool_end events
+            session.messages.push(ev as Message);
+            if (Array.isArray(ev.message?.content)) {
+              for (const block of ev.message.content) {
+                if (block.type === "tool_result") {
+                  onEvent({
+                    type: "tool_end",
+                    toolName: block.toolName ?? "",
+                    toolCallId: block.tool_use_id ?? "",
+                    isError: block.is_error ?? false,
+                  });
+                }
               }
             }
+            break;
           }
+
+          case "system": {
+            // System messages — compact boundary, API errors
+            if (ev.subtype === "compact_boundary") {
+              onEvent({ type: "compaction_end" });
+            } else if (ev.subtype === "api_error") {
+              onEvent({ type: "api_error", error: ev.error?.message ?? "API error", retryAttempt: ev.retryAttempt, maxRetries: ev.maxRetries });
+            }
+            break;
+          }
+
+          // tombstone, tool_use_summary, progress — not forwarded to Klaus UI
         }
       }
+
+      console.log(`[Query] Generator finished. Messages: ${session.messages.length}`);
 
       // Memory flush after compaction
       if (compacted && this.memoryPool) {
@@ -602,6 +679,16 @@ export class AgentSessionManager {
     const appState = {
       toolPermissionContext: getEmptyToolPermissionContext(),
       skills: skillDefinitions,
+      mcp: {
+        tools: this.mcpManager?.mcpTools ?? [],
+        clients: this.mcpManager?.mcpClients ?? [],
+        commands: [],
+      },
+      tasks: {},
+      fastMode: undefined,
+      effortValue: undefined,
+      advisorModel: undefined,
+      settings: {},
     } as any as AppState;
 
     return {
@@ -615,7 +702,7 @@ export class AgentSessionManager {
         mcpClients: this.mcpManager?.mcpClients ?? [],
         mcpResources: this.mcpManager?.mcpResources ?? {},
         isNonInteractiveSession: true,
-        agentDefinitions: { agents: [], errors: [] },
+        agentDefinitions: { agents: [], errors: [], activeAgents: [], allowedAgentTypes: undefined },
         hooksConfig: this.store.getHooks(),
       },
       abortController: new AbortController(),
