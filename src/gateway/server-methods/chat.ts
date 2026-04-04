@@ -119,6 +119,72 @@ export function createGatewayAgentEventForwarder(params: {
         sessionId: params.sessionId,
       });
     }
+    if (event.type === "requesting") {
+      params.sendEvent(params.userId, {
+        type: "session_lifecycle",
+        event: "requesting",
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "tool_input_delta") {
+      params.sendEvent(params.userId, {
+        type: "tool",
+        data: {
+          type: "tool_input",
+          toolUseId: event.toolCallId,
+          delta: event.delta,
+        },
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "progress") {
+      params.sendEvent(params.userId, {
+        type: "tool",
+        data: {
+          type: "tool_progress",
+          toolUseId: event.toolCallId,
+          content: event.content,
+        },
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "api_retry") {
+      params.sendEvent(params.userId, {
+        type: "session_event",
+        event: {
+          type: "api_retry",
+          attempt: event.attempt,
+          maxRetries: event.maxRetries,
+          error: event.error,
+          delayMs: event.delayMs,
+        },
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "compact_boundary") {
+      params.sendEvent(params.userId, {
+        type: "session_lifecycle",
+        event: "compact",
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "tombstone") {
+      params.sendEvent(params.userId, {
+        type: "session_event",
+        event: {
+          type: "tombstone",
+          uuid: event.messageUuid,
+        },
+        sessionId: params.sessionId,
+      });
+    }
+    if (event.type === "done") {
+      params.sendEvent(params.userId, {
+        type: "session_lifecycle",
+        event: "done",
+        sessionId: params.sessionId,
+      });
+    }
   };
 }
 
@@ -206,31 +272,39 @@ export async function processGatewayInboundMessage(params: {
     }
 
     const reply = await params.handler(message);
-    if (reply === null) {
-      params.onAttemptComplete?.(sessionKey);
-      return null;
-    }
 
-    if (params.appendTranscript) {
-      try {
-        await appendGatewayAssistantTranscript({
-          sessionKey,
-          reply,
-          append: params.appendTranscript,
-        });
-      } catch (err) {
-        console.error("[Gateway] Failed to append assistant transcript:", err);
+    if (reply !== null) {
+      if (params.appendTranscript) {
+        try {
+          await appendGatewayAssistantTranscript({
+            sessionKey,
+            reply,
+            append: params.appendTranscript,
+          });
+        } catch (err) {
+          console.error("[Gateway] Failed to append assistant transcript:", err);
+        }
       }
+
+      params.onAssistantMessage?.(sessionKey, reply);
+      params.sendEvent(params.userId, {
+        type: "message",
+        text: reply,
+        id: Date.now().toString(36),
+        sessionId: params.sessionId,
+      });
     }
 
-    params.onAssistantMessage?.(sessionKey, reply);
-    params.onAttemptComplete?.(sessionKey);
+    // Always send done signal so the UI unblocks even when reply is null
+    // (The "done" EngineEvent from agent-manager should also fire via the forwarder,
+    // but this serves as a fallback for non-engine handlers.)
     params.sendEvent(params.userId, {
-      type: "message",
-      text: reply,
-      id: Date.now().toString(36),
+      type: "session_lifecycle",
+      event: "done",
       sessionId: params.sessionId,
     });
+
+    params.onAttemptComplete?.(sessionKey);
     return reply;
   } catch (err) {
     params.onAttemptError?.(sessionKey, err);

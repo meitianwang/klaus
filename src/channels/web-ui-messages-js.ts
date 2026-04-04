@@ -163,18 +163,33 @@ export function getMessagesJs(): string {
     sendBtn.disabled = busy || uploading || (!text && !hasFiles);
   }
 
-  function showThinking() {
-    if (document.getElementById("thinking-container")) return;
-    var el = document.createElement("div");
-    el.className = "thinking-indicator";
-    el.id = "thinking-container";
-    el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div><span>' + tt("thinking") + '</span>';
-    msgs.appendChild(el); scrollBottom();
+  var thinkingText = "";
+
+  function showThinking(chunk) {
+    var el = document.getElementById("thinking-container");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "thinking-indicator";
+      el.id = "thinking-container";
+      el.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div><span class="thinking-label">' + tt("thinking") + '</span><div class="thinking-content" style="display:none"></div>';
+      msgs.appendChild(el);
+      thinkingText = "";
+    }
+    if (chunk) {
+      thinkingText += chunk;
+      var contentEl = el.querySelector(".thinking-content");
+      if (contentEl) {
+        contentEl.style.display = "block";
+        contentEl.textContent = thinkingText;
+      }
+    }
+    scrollBottom();
   }
 
   function removeThinking() {
     var el = document.getElementById("thinking-container");
     if (el) el.remove();
+    thinkingText = "";
   }
 
   var activeTools = new Map();
@@ -301,6 +316,49 @@ export function getMessagesJs(): string {
       else { createToolItem(te, parentContainer); }
     }
     if (te.type === "tool_result") { handleToolResult(te); }
+    if (te.type === "tool_input") {
+      // Streaming tool input JSON delta — update the tool's value display
+      var tracked = activeTools.get(te.toolUseId);
+      if (tracked && tracked.element) {
+        var valEl = tracked.element.querySelector(".tool-value");
+        if (valEl) {
+          var cur = valEl.getAttribute("data-raw-input") || "";
+          cur += te.delta || "";
+          valEl.setAttribute("data-raw-input", cur);
+          // Show truncated preview of the accumulating input
+          var preview = cur.length > 120 ? cur.slice(0, 120) + "..." : cur;
+          valEl.textContent = preview;
+        }
+      }
+    }
+    if (te.type === "tool_progress") {
+      // Bash/tool progress output — show below the tool item
+      var tracked2 = activeTools.get(te.toolUseId);
+      if (tracked2 && tracked2.element) {
+        var progEl = tracked2.element.querySelector(".tool-progress");
+        if (!progEl) {
+          progEl = document.createElement("div");
+          progEl.className = "tool-progress";
+          tracked2.element.appendChild(progEl);
+        }
+        // Keep last 500 chars of progress
+        var existing = progEl.textContent || "";
+        var combined = existing + (te.content || "");
+        if (combined.length > 500) combined = combined.slice(-500);
+        progEl.textContent = combined;
+        scrollBottom();
+      }
+    }
+  }
+
+  function appendSystemNotice(text) {
+    var el = document.createElement("div");
+    el.className = "system-notice";
+    el.textContent = text;
+    msgs.appendChild(el);
+    scrollBottom();
+    // Auto-remove after 8 seconds
+    setTimeout(function() { if (el.parentNode) el.remove(); }, 8000);
   }
 
   var streamBuffer = "";

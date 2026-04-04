@@ -342,11 +342,42 @@ export function getChatMainJs(): string {
         return;
       }
       if (data.type === "context_collapse") { updateCollapseStats(data); return; }
+      if (data.type === "session_lifecycle") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        if (data.event === "requesting") {
+          showThinking();
+          return;
+        }
+        if (data.event === "done") {
+          if (isStreaming) { finalizeStreamingMessage(""); }
+          removeThinking(); clearToolContainer();
+          busy = false; updateBtn();
+          return;
+        }
+        if (data.event === "compact") {
+          appendSystemNotice(tt("compacted") || "Context compacted");
+          return;
+        }
+        return;
+      }
+      if (data.type === "session_event") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        if (data.event && data.event.type === "api_retry") {
+          var retryMsg = "API retry " + data.event.attempt + "/" + data.event.maxRetries + ": " + (data.event.error || "");
+          appendSystemNotice(retryMsg);
+          return;
+        }
+        if (data.event && data.event.type === "tombstone") {
+          // Remove message by uuid (future: implement message-level uuid tracking)
+          return;
+        }
+        return;
+      }
       if (data.sessionId && data.sessionId !== currentSessionId) return;
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }
       if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
-      if (data.type === "thinking") { showThinking(); return; }
+      if (data.type === "thinking") { showThinking(data.chunk); return; }
       if (!isStreaming) { removeThinking(); clearToolContainer(); }
       if (data.type === "message") {
         if (isStreaming) { finalizeStreamingMessage(data.text); }

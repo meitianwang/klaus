@@ -306,6 +306,13 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .thinking-dots span:nth-child(2){animation-delay:0.16s}
 .thinking-dots span:nth-child(3){animation-delay:0.32s}
 @keyframes thinking-bounce{0%,80%,100%{opacity:0.3;transform:scale(0.8)}40%{opacity:1;transform:scale(1)}}
+.thinking-content{
+  margin-top:6px;padding:8px 12px;border-radius:8px;
+  background:var(--bg-secondary);color:var(--fg-secondary);
+  font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+  max-height:200px;overflow-y:auto;opacity:0.8;
+}
+.thinking-indicator{flex-wrap:wrap}
 
 
 /* ─── Streaming cursor ─── */
@@ -438,6 +445,23 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   display:inline-block;background:var(--bg-surface);color:var(--fg-tertiary);
   font-size:13px;font-family:var(--font-mono);border:1px solid var(--border);
   border-radius:20px;padding:5px 14px;
+}
+
+/* ─── System notices (api_retry, compact, etc.) ─── */
+.system-notice{
+  max-width:720px;width:100%;margin:4px auto;
+  text-align:center;font-size:12px;color:var(--fg-quaternary);
+  font-family:var(--font-mono);padding:4px 12px;
+  background:var(--bg-surface);border-radius:12px;
+  animation:fadeNotice 8s ease-out forwards;
+}
+@keyframes fadeNotice{0%,80%{opacity:1}100%{opacity:0}}
+/* ─── Tool progress output ─── */
+.tool-progress{
+  font-size:11px;font-family:var(--font-mono);color:var(--fg-quaternary);
+  white-space:pre-wrap;word-break:break-all;max-height:80px;overflow:hidden;
+  margin-top:4px;padding:4px 8px;background:var(--bg-surface);border-radius:4px;
+  line-height:1.4;
 }
 
 /* ─── Config notification ─── */

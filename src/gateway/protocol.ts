@@ -41,12 +41,12 @@ export type WsEvent =
     }
   | {
       readonly type: "session_lifecycle";
-      readonly event: GatewayAttemptLifecycleEvent;
+      readonly event: GatewayAttemptLifecycleEvent | string;
       readonly sessionId?: string;
     }
   | {
       readonly type: "session_event";
-      readonly event: GatewaySessionEvent;
+      readonly event: GatewaySessionEvent | Record<string, unknown>;
       readonly sessionId?: string;
     }
   | {

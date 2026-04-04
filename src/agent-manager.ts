@@ -60,7 +60,14 @@ export type EngineEvent =
   | { type: "context_collapse_stats"; collapsedSpans: number; stagedSpans: number; totalErrors: number }
   | { type: "message_complete"; message: AssistantMessage }
   | { type: "stream_mode"; mode: "requesting" | "thinking" | "responding" | "tool-input" | "tool-use" }
-  | { type: "api_error"; error: string; retryAttempt?: number; maxRetries?: number };
+  | { type: "api_error"; error: string; retryAttempt?: number; maxRetries?: number }
+  | { type: "requesting" }
+  | { type: "tool_input_delta"; toolCallId: string; delta: string }
+  | { type: "progress"; toolName: string; toolCallId: string; content: string }
+  | { type: "api_retry"; attempt: number; maxRetries: number; error: string; delayMs: number }
+  | { type: "tombstone"; messageUuid: string }
+  | { type: "compact_boundary" }
+  | { type: "done" };
 
 type EngineEventCallback = (event: EngineEvent) => void;
 
@@ -221,6 +228,8 @@ export class AgentSessionManager {
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
       const gen = query(queryParams);
 
+      let currentToolCallId = ""; // Track current tool_use block ID for input_json_delta
+
       for await (const event of gen) {
         if (!onEvent) continue;
         const ev = event as any;
@@ -228,6 +237,7 @@ export class AgentSessionManager {
         switch (ev.type) {
           case "stream_request_start":
             onEvent({ type: "stream_mode", mode: "requesting" });
+            onEvent({ type: "requesting" });
             break;
 
           case "stream_event": {
@@ -252,6 +262,7 @@ export class AgentSessionManager {
                 } else if (block?.type === "text") {
                   onEvent({ type: "stream_mode", mode: "responding" });
                 } else if (block?.type === "tool_use") {
+                  currentToolCallId = block.id;
                   onEvent({ type: "stream_mode", mode: "tool-input" });
                   onEvent({ type: "tool_start", toolName: block.name, toolCallId: block.id, args: {} });
                 }
@@ -264,8 +275,11 @@ export class AgentSessionManager {
                   onEvent({ type: "text_delta", text: delta.text });
                 } else if (delta?.type === "thinking_delta" && delta.thinking) {
                   onEvent({ type: "thinking_delta", thinking: delta.thinking });
+                } else if (delta?.type === "input_json_delta" && delta.partial_json) {
+                  // Tool input JSON streaming — forward to UI for live tool input display
+                  // Find the current tool_use block's ID from the most recent content_block_start
+                  onEvent({ type: "tool_input_delta", toolCallId: currentToolCallId, delta: delta.partial_json });
                 }
-                // input_json_delta — tool input streaming, not forwarded to UI
                 break;
               }
 
@@ -310,15 +324,40 @@ export class AgentSessionManager {
             // System messages — compact boundary, API errors
             if (ev.subtype === "compact_boundary") {
               onEvent({ type: "compaction_end" });
+              onEvent({ type: "compact_boundary" });
             } else if (ev.subtype === "api_error") {
               onEvent({ type: "api_error", error: ev.error?.message ?? "API error", retryAttempt: ev.retryAttempt, maxRetries: ev.maxRetries });
+              // Also emit structured api_retry event
+              onEvent({
+                type: "api_retry",
+                attempt: ev.retryAttempt ?? 0,
+                maxRetries: ev.maxRetries ?? 0,
+                error: ev.error?.message ?? "API error",
+                delayMs: ev.delayMs ?? 0,
+              });
             }
             break;
           }
 
-          // tombstone, tool_use_summary, progress — not forwarded to Klaus UI
+          case "tombstone": {
+            onEvent({ type: "tombstone", messageUuid: ev.messageUuid ?? ev.uuid ?? "" });
+            break;
+          }
+
+          case "progress": {
+            onEvent({
+              type: "progress",
+              toolName: ev.toolName ?? "",
+              toolCallId: ev.toolCallId ?? ev.tool_use_id ?? "",
+              content: ev.content ?? "",
+            });
+            break;
+          }
         }
       }
+
+      // Emit reliable "done" signal — the frontend uses this to unblock the UI
+      onEvent?.({ type: "done" });
 
       console.log(`[Query] Generator finished. Messages: ${session.messages.length}`);
 
