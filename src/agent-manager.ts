@@ -661,9 +661,11 @@ export class AgentSessionManager {
       userContextParts.push(rulesContent);
     }
     const claudeMd = userContextParts.length > 0 ? userContextParts.join("\n\n") : null;
+    const userSkillDir = join(homedir(), '.klaus', 'users', userId, '.claude', 'skills');
     const userContext: { [k: string]: string } = {
       ...(claudeMd && { claudeMd }),
       currentDate: `Today's date is ${new Date().toISOString().split("T")[0]}.`,
+      skillDirectory: `When creating or saving skills (SKILL.md files), always write to the user's skill directory: ${userSkillDir}/ — never to .claude/skills/ or any other location. Create the directory if it doesn't exist.`,
     };
     const systemContext: { [k: string]: string } = {
       ...(gitStatus && { gitStatus }),
