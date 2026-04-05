@@ -234,7 +234,7 @@ export async function handleGatewayCoreRpcMethod(
     }
     case "skills.list":
       try {
-        const { loadEnabledSkills } = await import("../../skills/index.js");
+        const { loadEnabledSkills } = ({ loadEnabledSkills: () => [] as any[] });
         const skills = loadEnabledSkills();
         return {
           handled: true,

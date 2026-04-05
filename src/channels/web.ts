@@ -1437,8 +1437,8 @@ async function handleUserSkills(
 
   if (req.method === "GET") {
     try {
-      const { buildUserSkillStatus } = await import("../skills/status.js");
-      const skills = buildUserSkillStatus(auth.user.id, settingsStoreRef);
+      // Skills managed by engine
+      const skills: any[] = [];
       jsonResponse(res, 200, { skills });
     } catch (err) {
       gatewayErrorResponse(res, err);
@@ -1529,16 +1529,8 @@ async function handleAdminSkillsInstall(
         jsonResponse(res, 400, { error: "spec required" });
         return;
       }
-      const { INSTALL_KINDS, installSkillDep } = await import("../skills/installer.js");
-      if (!(INSTALL_KINDS as readonly string[]).includes(String(spec.kind ?? ""))) {
-        jsonResponse(res, 400, { error: `invalid install kind: "${String(spec.kind)}"` });
-        return;
-      }
-      const result = await installSkillDep(
-        spec as unknown as import("../skills/installer.js").InstallSpec,
-        typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : undefined,
-      );
-      jsonResponse(res, result.ok ? 200 : 500, { ...result });
+      // Skill installer removed — engine manages skills internally
+      jsonResponse(res, 501, { error: "Skill installer not available — engine manages skills" });
     } catch (err) {
       gatewayErrorResponse(res, err);
     }

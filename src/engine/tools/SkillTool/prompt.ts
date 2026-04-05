@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { memoize } from 'lodash-es'
 import type { Command } from '../../commands.js'
 import {

@@ -14,7 +14,6 @@ import type { Handler } from "../types.js";
 import type { SettingsStore } from "../settings-store.js";
 import type { MessageStore } from "../message-store.js";
 import { sleep } from "../retry.js";
-import { getSkillRegistry } from "../skills/registry.js";
 import type {
   ChannelPlugin,
   ChannelContext,
@@ -134,7 +133,6 @@ export class ChannelManager {
   /** Stop a specific channel (all accounts) or a specific account. */
   async stop(channelId: string, accountId?: string): Promise<void> {
     // Unregister plugin skill directories
-    getSkillRegistry().unregisterPluginDir(channelId);
 
     if (accountId) {
       const key = runtimeKey(channelId, accountId);
@@ -236,13 +234,7 @@ export class ChannelManager {
   // -------------------------------------------------------------------------
 
   private async startAccount(plugin: ChannelPlugin, accountId: string): Promise<void> {
-    // Register plugin skill directories with the skill registry
-    if (plugin.skillDirs && plugin.skillDirs.length > 0) {
-      const registry = getSkillRegistry();
-      for (const dir of plugin.skillDirs) {
-        registry.registerPluginDir(plugin.meta.id, dir);
-      }
-    }
+    // Plugin skill dirs — engine handles skill loading via loadSkillsDir
 
     const key = runtimeKey(plugin.meta.id, accountId);
     const controller = new AbortController();

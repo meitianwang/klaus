@@ -18,9 +18,7 @@ import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
 import { getAllBaseTools, assembleToolPool } from "./engine/tools.js";
 import { wrapLegacyTools, type LegacyAgentTool } from "./engine/utils/legacyToolAdapter.js";
 import type { MCPManager } from "./mcp-manager.js";
-import { getSkillRegistry } from "./skills/registry.js";
 // SkillTool removed from engine — define type locally
-type SkillDefinition = { name: string; description: string; command: string };
 import { extractUserId, ensureUserDirs } from "./user-dirs.js";
 import { initContextCollapse, resetContextCollapse } from "./engine/services/contextCollapse/index.js";
 import type { ContextCollapseStats } from "./engine/services/contextCollapse/index.js";
@@ -83,7 +81,6 @@ function sanitizeSessionKey(key: string): string {
 interface SessionEntry {
   messages: Message[];
   loopDetector: ToolLoopDetector;
-  skillVersion: number;
   isRunning: boolean;
   /** Per-session message queue for the attachment pipeline. */
   messageQueue: import("./engine/services/messageQueue.js").MessageQueueManager;
@@ -154,19 +151,12 @@ export class AgentSessionManager {
     text: string,
     onEvent?: EngineEventCallback,
   ): Promise<string | null> {
-    // Hot-reload: evict session if skills changed
-    const registry = getSkillRegistry();
-    const existing = this.sessions.get(sessionKey);
-    if (existing && registry.getVersion() > existing.skillVersion) {
-      this.sessions.delete(sessionKey);
-    }
-
     const session = await this.getOrCreate(sessionKey);
     session.isRunning = true;
 
     try {
       // Build query params
-      const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas, skillDefinitions } =
+      const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
         await this.buildQueryConfig(sessionKey);
 
       // Inject user context as first message (matches claude-code's prependUserContext)
@@ -200,7 +190,7 @@ export class AgentSessionManager {
       }
 
       // Build ToolUseContext
-      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, skillDefinitions, apiKey, baseUrl);
+      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
 
       // Auto-approve all tools (Klaus uses yolo mode)
       const canUseTool: CanUseToolFn = async (_tool, input) => {
@@ -544,7 +534,6 @@ export class AgentSessionManager {
     const entry: SessionEntry = {
       messages,
       loopDetector: new ToolLoopDetector(),
-      skillVersion: getSkillRegistry().getVersion(),
       isRunning: false,
       messageQueue: new MessageQueueManager(),
       contentReplacementState: createContentReplacementState(),
@@ -580,7 +569,6 @@ export class AgentSessionManager {
     thinkingConfig: ThinkingConfig;
     tools: any[];
     toolSchemas: any[];
-    skillDefinitions: SkillDefinition[];
   }> {
     const userId = extractUserId(sessionKey);
     const modelRecord = this.store.getDefaultModel();
@@ -630,10 +618,6 @@ export class AgentSessionManager {
     }
 
     const rules = this.store.getEnabledRules();
-    const skillRegistry = getSkillRegistry();
-    const allSkills = skillRegistry.getSkills();
-    const userPrefs = this.store.getUserSkillPreferences(userId);
-    const resolvedSkills = allSkills.filter((s) => userPrefs.get(s.name) !== "off");
 
     // Build tools
     const tools = await this.buildTools(userId, apiKey);
@@ -666,13 +650,8 @@ export class AgentSessionManager {
       ...(gitStatus && { gitStatus }),
     };
 
-    // Build skill definitions for engine SkillTool
-    const skillDefinitions = resolvedSkills.map((s) => ({
-      name: s.name,
-      description: s.description,
-      content: s.content,
-      command: s.name,
-    })) as SkillDefinition[];
+    // Skills are now managed by the engine's own skill system (loadSkillsDir + bundledSkills)
+    // No manual skillDefinitions needed — SkillTool reads from getCommands() internally
 
     // Thinking config
     const thinkingLevel = modelRecord.thinking || "off";
@@ -698,7 +677,6 @@ export class AgentSessionManager {
       thinkingConfig,
       tools,
       toolSchemas: [], // Will be built by query() if empty
-      skillDefinitions,
     };
   }
 
@@ -712,13 +690,12 @@ export class AgentSessionManager {
     tools: any[],
     model: string,
     thinkingConfig: ThinkingConfig,
-    skillDefinitions: SkillDefinition[] = [],
     apiKey?: string,
     baseURL?: string,
   ): ToolUseContext {
     const appState = {
       toolPermissionContext: getEmptyToolPermissionContext(),
-      skills: skillDefinitions,
+      skills: [], // Engine manages skills via getCommands() internally
       mcp: {
         tools: this.mcpManager?.mcpTools ?? [],
         clients: this.mcpManager?.mcpClients ?? [],

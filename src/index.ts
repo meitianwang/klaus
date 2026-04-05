@@ -19,11 +19,6 @@ import { SQLiteAnalyticsSink } from "./engine/services/analytics/sink.js";
 import { t } from "./i18n.js";
 import type { InboundMessage } from "./message.js";
 import { formatDisplayText } from "./message.js";
-import {
-  loadEnabledSkills,
-  listSkillNames,
-} from "./skills/index.js";
-import { getSkillRegistry } from "./skills/registry.js";
 import { generateLocalToken } from "./local-token.js";
 import { AgentSessionManager } from "./agent-manager.js";
 import { SettingsStore } from "./settings-store.js";
@@ -89,12 +84,8 @@ async function start(): Promise<void> {
   const { migrateSkillsConfigIfNeeded } = await import("./migration/skills-config.js");
   migrateSkillsConfigIfNeeded(settingsStore, encryptCred);
 
-  // Initialize skill registry with hot-reload watcher
-  const skillRegistry = getSkillRegistry();
-  skillRegistry.init(settingsStore, decryptCred);
-  skillRegistry.startWatching();
-  const enabledSkills = skillRegistry.getSkills();
-  console.log(`[Skills] ${enabledSkills.length} skill(s) loaded, watcher started`);
+  // Skills are managed by the engine's built-in skill system (loadSkillsDir + bundledSkills)
+  // No separate Klaus skill registry needed
 
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");
@@ -125,22 +116,7 @@ async function start(): Promise<void> {
       return t("cmd_reset");
     }
 
-    if (trimmed === "/skills") {
-      const enabled = loadEnabledSkills();
-      if (enabled.length === 0) {
-        return t("cmd_skills_none", {
-          available: listSkillNames().join(", "),
-        });
-      }
-      const list = enabled
-        .map((s) => {
-          const emoji = s.metadata?.emoji ? `${s.metadata.emoji} ` : "";
-          const src = s.source === "user" ? " (user)" : "";
-          return `  ${emoji}${s.name} — ${s.description}${src}`;
-        })
-        .join("\n");
-      return t("cmd_skills_list", { list, count: String(enabled.length) });
-    }
+    // /skills command — engine handles skill listing via SkillTool
 
     const webSession = parseWebSessionKey(msg.sessionKey);
     const onEvent = webSession
