@@ -23,11 +23,10 @@ import { registerVerifySkill } from './verify.js'
  * 3. Import and call that function here
  */
 export function initBundledSkills(): void {
-  registerUpdateConfigSkill()
-  registerKeybindingsSkill()
+  // Removed for Klaus: updateConfig (uses settings.json not SettingsStore),
+  // keybindings (CLI-only), loremIpsum (testing), claudeApi (feature-gated below)
   registerVerifySkill()
   registerDebugSkill()
-  registerLoremIpsumSkill()
   registerSkillifySkill()
   registerRememberSkill()
   registerSimplifySkill()
@@ -62,12 +61,7 @@ export function initBundledSkills(): void {
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerScheduleRemoteAgentsSkill()
   }
-  if (feature('BUILDING_CLAUDE_APPS')) {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { registerClaudeApiSkill } = require('./claudeApi.js')
-    /* eslint-enable @typescript-eslint/no-require-imports */
-    registerClaudeApiSkill()
-  }
+  // claude-api skill removed for Klaus
   if (shouldAutoEnableClaudeInChrome()) {
     registerClaudeInChromeSkill()
   }
