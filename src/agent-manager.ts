@@ -155,13 +155,7 @@ export class AgentSessionManager {
     session.isRunning = true;
 
     try {
-      // Set per-user skill filter before building query
       const userId = extractUserId(sessionKey);
-      const { setCommandFilter } = await import("./engine/commands.js");
-      setCommandFilter((cmd: any) => {
-        const pref = this.store.get(`user.${userId}.skill.${cmd.name}`);
-        return pref !== "off";
-      });
 
       // Build query params
       const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
@@ -687,6 +681,18 @@ export class AgentSessionManager {
     };
   }
 
+  private getDisabledSkills(userId: string): Set<string> {
+    const disabled = new Set<string>();
+    const prefix = `user.${userId}.skill.`;
+    const prefs = this.store.getByPrefix(prefix);
+    for (const [key, value] of prefs) {
+      if (value === "off") {
+        disabled.add(key.slice(prefix.length)); // strip prefix to get skill name
+      }
+    }
+    return disabled;
+  }
+
   // ============================================================================
   // Private: build ToolUseContext for the engine
   // ============================================================================
@@ -745,6 +751,8 @@ export class AgentSessionManager {
       messageQueue: session.messageQueue,
       // User ID for per-user features
       userId: extractUserId(sessionKey),
+      // Per-user disabled skills (read from SettingsStore, checked by SkillTool)
+      disabledSkills: this.getDisabledSkills(extractUserId(sessionKey)),
       // Per-session content replacement state for tool result budget
       contentReplacementState: session.contentReplacementState,
       // Persist collapse entries to JSONL transcript (fire-and-forget)

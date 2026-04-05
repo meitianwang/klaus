@@ -585,12 +585,12 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     parentMessage,
     onProgress?,
   ): Promise<ToolResult<Output>> {
-    // At this point, validateInput has already confirmed:
-    // - Skill format is valid
-    // - Skill exists
-    // - Skill can be loaded
-    // - Skill doesn't have disableModelInvocation
-    // - Skill is a prompt-based skill
+    // Check per-user disabled skills (Klaus: set via ToolUseContext.disabledSkills)
+    const disabledSkills = (context as any).disabledSkills as Set<string> | undefined
+    const skillName = skill.trim().startsWith('/') ? skill.trim().substring(1) : skill.trim()
+    if (disabledSkills?.has(skillName)) {
+      return { data: `Skill "${skillName}" is disabled for this user.` as any }
+    }
 
     // Skills are just names, with optional arguments
     const trimmed = skill.trim()

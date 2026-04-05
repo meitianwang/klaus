@@ -26,4 +26,23 @@ process.env.CLAUDE_CODE_FEATURES = [
   IS_CI: false,
 }
 
+// Patch CJS require to handle ESM-only packages (unicorn-magic, etc.)
+// Some packages only export ESM ("import" in exports, no "require").
+// When createRequire's require() tries to load them via CJS, it fails.
+// This patch catches ERR_PACKAGE_PATH_NOT_EXPORTED and falls back to dynamic import.
+import Module from 'node:module'
+const origResolve = (Module as any)._resolveFilename
+;(Module as any)._resolveFilename = function(request: string, parent: any, isMain: boolean, options: any) {
+  try {
+    return origResolve.call(this, request, parent, isMain, options)
+  } catch (err: any) {
+    if (err?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      // ESM-only package being loaded via CJS require.
+      // Return the empty-module shim so require() returns {} silently.
+      return new URL('./empty-module.cjs', import.meta.url).pathname
+    }
+    throw err
+  }
+}
+
 register(new URL('./bun-bundle-loader.ts', import.meta.url))
