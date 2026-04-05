@@ -203,8 +203,22 @@ async function executeForkedSkill(
     }),
   })
 
-  const { modifiedGetAppState, baseAgent, promptMessages, skillContent } =
+  let { modifiedGetAppState, baseAgent, promptMessages, skillContent } =
     await prepareForkedCommandContext(command, args || '', context)
+
+  // Replace {{USER_SKILL_DIR}} placeholder in forked skill content
+  const _userSkillDir = (context as any).userId
+    ? require('path').join(require('os').homedir(), '.klaus', 'users', (context as any).userId, '.claude', 'skills')
+    : null
+  if (_userSkillDir && skillContent) {
+    skillContent = skillContent.replace(/\{\{USER_SKILL_DIR\}\}/g, _userSkillDir)
+    for (const msg of promptMessages) {
+      const m = msg as any
+      if (m?.message?.content && typeof m.message.content === 'string') {
+        m.message.content = m.message.content.replace(/\{\{USER_SKILL_DIR\}\}/g, _userSkillDir)
+      }
+    }
+  }
 
   // Merge skill's effort into the agent definition so runAgent applies it
   const agentDefinition =
@@ -731,6 +745,24 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       parentMessage,
       SKILL_TOOL_NAME,
     )
+
+    // Replace {{USER_SKILL_DIR}} placeholder with actual per-user skill directory
+    const userSkillDir = (context as any).userId
+      ? require('path').join(require('os').homedir(), '.klaus', 'users', (context as any).userId, '.claude', 'skills')
+      : null
+    if (userSkillDir) {
+      for (const msg of processedCommand.messages) {
+        if (msg?.message?.content && typeof msg.message.content === 'string') {
+          msg.message.content = msg.message.content.replace(/\{\{USER_SKILL_DIR\}\}/g, userSkillDir)
+        } else if (msg?.message?.content && Array.isArray(msg.message.content)) {
+          for (const block of msg.message.content) {
+            if (block.type === 'text' && typeof block.text === 'string') {
+              block.text = block.text.replace(/\{\{USER_SKILL_DIR\}\}/g, userSkillDir)
+            }
+          }
+        }
+      }
+    }
 
     // Tag user messages with sourceToolUseID so they stay transient until this tool resolves
     const newMessages = tagMessagesWithToolUseID(
