@@ -84,8 +84,7 @@ async function start(): Promise<void> {
   const { migrateSkillsConfigIfNeeded } = await import("./migration/skills-config.js");
   migrateSkillsConfigIfNeeded(settingsStore, encryptCred);
 
-  // Skills are managed by the engine's built-in skill system (loadSkillsDir + bundledSkills)
-  // No separate Klaus skill registry needed
+  // Skill filter is set per-user in agent-manager.chat() before each query
 
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");

@@ -155,6 +155,14 @@ export class AgentSessionManager {
     session.isRunning = true;
 
     try {
+      // Set per-user skill filter before building query
+      const userId = extractUserId(sessionKey);
+      const { setCommandFilter } = await import("./engine/commands.js");
+      setCommandFilter((cmd: any) => {
+        const pref = this.store.get(`user.${userId}.skill.${cmd.name}`);
+        return pref !== "off";
+      });
+
       // Build query params
       const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
         await this.buildQueryConfig(sessionKey);
@@ -236,7 +244,6 @@ export class AgentSessionManager {
       };
 
       // Set per-user memory path for the engine's three-layer memory system
-      const userId = extractUserId(sessionKey);
       process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = join(homedir(), '.klaus', 'users', userId, 'memory');
 
       // Consume the query generator

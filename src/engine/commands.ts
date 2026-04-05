@@ -475,6 +475,13 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
  * memoized, but availability and isEnabled checks run fresh every call so
  * auth changes (e.g. /login) take effect immediately.
  */
+
+// Klaus extension: external command filter (e.g., SettingsStore enable/disable)
+let _commandFilter: ((cmd: Command) => boolean) | null = null
+export function setCommandFilter(filter: ((cmd: Command) => boolean) | null): void {
+  _commandFilter = filter
+}
+
 export async function getCommands(cwd: string): Promise<Command[]> {
   const allCommands = await loadAllCommands(cwd)
 
@@ -483,7 +490,7 @@ export async function getCommands(cwd: string): Promise<Command[]> {
 
   // Build base commands without dynamic skills
   const baseCommands = allCommands.filter(
-    _ => meetsAvailabilityRequirement(_) && isCommandEnabled(_),
+    _ => meetsAvailabilityRequirement(_) && isCommandEnabled(_) && (!_commandFilter || _commandFilter(_)),
   )
 
   if (dynamicSkills.length === 0) {
