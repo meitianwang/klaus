@@ -1437,8 +1437,19 @@ async function handleUserSkills(
 
   if (req.method === "GET") {
     try {
-      // Skills managed by engine
-      const skills: any[] = [];
+      // Read skills from engine's command system
+      const { getCommands } = await import("../engine/commands.js");
+      const cwd = process.cwd();
+      const allCommands = await getCommands(cwd);
+      const skills = allCommands
+        .filter((cmd: any) => cmd.type === "prompt" && !cmd.disableModelInvocation)
+        .map((cmd: any) => ({
+          name: cmd.name,
+          description: cmd.description ?? "",
+          source: cmd.source ?? cmd.loadedFrom ?? "unknown",
+          enabled: true,
+          userInvocable: cmd.userInvocable !== false,
+        }));
       jsonResponse(res, 200, { skills });
     } catch (err) {
       gatewayErrorResponse(res, err);
