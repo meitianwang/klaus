@@ -4,16 +4,15 @@
  */
 
 import { randomUUID } from "crypto";
+import { homedir } from "os";
+import { join } from "path";
 import { setOriginalCwd, setCwdState, setProjectRoot } from "./engine/bootstrap/state.js";
 import type { SettingsStore } from "./settings-store.js";
 import { getProvider, capabilities } from "./providers/registry.js";
 import { refreshAccessToken } from "./auth/oauth.js";
 import type { OAuthProviderAuth } from "./auth/oauth.js";
-import type { MemoryManagerPool } from "./memory/pool.js";
-import { createMemorySearchTool, createMemoryGetTool, buildMemoryPromptSection } from "./memory/tools.js";
 import { getSystemPrompt, getSimpleIntroSection, getSimpleSystemSection, getSimpleDoingTasksSection, getActionsSection, getSimpleToneAndStyleSection, getOutputEfficiencySection } from "./engine/constants/prompts.js";
 import { clearSystemPromptSections } from "./engine/constants/systemPromptSections.js";
-import { createMemorySaveTool } from "./memory/memory-write.js";
 import { ToolLoopDetector } from "./tool-loop-detector.js";
 import { loadSandboxConfig, sandboxExec } from "./sandbox.js";
 import { getAllBaseTools, assembleToolPool } from "./engine/tools.js";
@@ -100,7 +99,6 @@ export class AgentSessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly store: SettingsStore;
   private readonly maxSessions: number;
-  private memoryPool: MemoryManagerPool | null = null;
   private mcpManager: MCPManager | null = null;
   private messageStore: MessageStore | null = null;
 
@@ -141,10 +139,6 @@ export class AgentSessionManager {
         });
       }
     }
-  }
-
-  setMemoryPool(pool: MemoryManagerPool | null): void {
-    this.memoryPool = pool;
   }
 
   setMessageStore(store: MessageStore | null): void {
@@ -250,6 +244,10 @@ export class AgentSessionManager {
       (toolUseContext as any).onCollapseStats = (stats: { collapsedSpans: number; stagedSpans: number; totalErrors: number }) => {
         onEvent?.({ type: "context_collapse_stats", ...stats });
       };
+
+      // Set per-user memory path for the engine's three-layer memory system
+      const userId = extractUserId(sessionKey);
+      process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = join(homedir(), '.klaus', 'users', userId, 'memory');
 
       // Consume the query generator
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
@@ -388,21 +386,10 @@ export class AgentSessionManager {
 
       console.log(`[Query] Generator finished. Messages: ${session.messages.length}`);
 
-      // Memory flush after compaction
-      if (compacted && this.memoryPool) {
-        await this.runMemoryFlush(session, sessionKey);
-      }
-
       return extractFinalText(session.messages);
     } finally {
       session.isRunning = false;
     }
-  }
-
-  private async runMemoryFlush(session: SessionEntry, sessionKey: string): Promise<void> {
-    // TODO: implement memory flush using engine query
-    // For now, skip — will be implemented when memory tools are adapted
-    console.log(`[Memory] Flush skipped for ${sessionKey} (pending engine adaptation)`);
   }
 
   /** Build the current tool list. */
@@ -418,17 +405,6 @@ export class AgentSessionManager {
     const legacyCapTools = capabilities.buildTools();
     if (legacyCapTools.length > 0) {
       tools.push(...wrapLegacyTools(legacyCapTools as LegacyAgentTool[]));
-    }
-
-    // Add memory tools wrapped as engine tools
-    if (this.memoryPool) {
-      const mgr = await this.memoryPool.getOrCreate(userId);
-      const memTools = [
-        createMemorySearchTool(mgr),
-        createMemoryGetTool(mgr),
-        createMemorySaveTool(mgr.memoryDir),
-      ];
-      tools.push(...wrapLegacyTools(memTools as LegacyAgentTool[]));
     }
 
     // Add MCP tools (mcp__server__tool wrappers)
@@ -503,9 +479,6 @@ export class AgentSessionManager {
   async reset(sessionKey: string): Promise<void> {
     const entry = this.sessions.get(sessionKey);
     if (entry) {
-      if (this.memoryPool) {
-        await this.runMemoryFlush(entry, sessionKey);
-      }
       this.sessions.delete(sessionKey);
     }
     clearSystemPromptSections();
@@ -684,9 +657,6 @@ export class AgentSessionManager {
     if (rulesContent) {
       userContextParts.push(rulesContent);
     }
-    if (this.memoryPool) {
-      userContextParts.push(buildMemoryPromptSection(this.memoryPool.citationsMode));
-    }
     const claudeMd = userContextParts.length > 0 ? userContextParts.join("\n\n") : null;
     const userContext: { [k: string]: string } = {
       ...(claudeMd && { claudeMd }),
@@ -789,16 +759,8 @@ export class AgentSessionManager {
       baseURL,
       // Per-session message queue for the attachment pipeline
       messageQueue: session.messageQueue,
-      // User ID for memory prefetch and per-user features
+      // User ID for per-user features
       userId: extractUserId(sessionKey),
-      // Memory pool adapter for memory prefetch — wraps MemoryManagerPool.getOrCreate().search()
-      memoryPool: this.memoryPool ? {
-        search: async (uid: string, query: string) => {
-          const mgr = await this.memoryPool!.getOrCreate(uid);
-          const results = await mgr.search(query);
-          return results.map(r => ({ path: r.path, content: r.snippet, score: r.score }));
-        },
-      } : null,
       // Per-session content replacement state for tool result budget
       contentReplacementState: session.contentReplacementState,
       // Persist collapse entries to JSONL transcript (fire-and-forget)

@@ -6,6 +6,14 @@
  */
 import { register } from 'node:module'
 
+// Enable engine feature gates (normally set via CLAUDE_CODE_FEATURES env var)
+process.env.CLAUDE_CODE_FEATURES = [
+  process.env.CLAUDE_CODE_FEATURES,
+  'EXTRACT_MEMORIES',
+  'CONTEXT_COLLAPSE',
+  'BUILTIN_EXPLORE_PLAN_AGENTS',
+].filter(Boolean).join(',')
+
 // Inject build-time MACRO constants (normally injected by Bun.build define)
 ;(globalThis as any).MACRO = {
   VERSION: '2.1.88',

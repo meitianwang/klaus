@@ -262,13 +262,6 @@ function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
   gateway.setCronScheduler(scheduler);
 }
 
-// Memory manager reference (optional — set from index.ts when memory is enabled)
-let memoryPoolRef: import("../memory/pool.js").MemoryManagerPool | null = null;
-
-function setMemoryPool(pool: import("../memory/pool.js").MemoryManagerPool): void {
-  memoryPoolRef = pool;
-}
-
 // Agent manager reference (for direct tool invocation API)
 let agentManagerRef: import("../agent-manager.js").AgentSessionManager | null = null;
 
@@ -1760,132 +1753,6 @@ async function handleAdminAnalytics(
 }
 
 // ---------------------------------------------------------------------------
-// Memory admin handlers
-// ---------------------------------------------------------------------------
-
-async function handleAdminMemory(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const user = adminAuth(req, res);
-  if (!user) return;
-  if (!settingsStoreRef) {
-    jsonResponse(res, 503, { error: "settings store unavailable" });
-    return;
-  }
-
-  if (req.method === "GET") {
-    const config = settingsStoreRef.getMemoryConfig();
-    const adminMgr = memoryPoolRef ? await memoryPoolRef.getOrCreate(user.id) : null;
-    const status = adminMgr?.status() ?? null;
-    jsonResponse(res, 200, { config, status });
-    return;
-  }
-
-  if (req.method === "PATCH") {
-    try {
-      const body = await readJsonBody(req, 8192);
-      const fields: Record<string, string> = {
-        "memory.enabled": "enabled",
-        "memory.provider": "provider",
-        "memory.fallback": "fallback",
-        "memory.model": "model",
-        "memory.citations": "citations",
-        "memory.sources": "sources",
-        "memory.chunk_tokens": "chunk_tokens",
-        "memory.chunk_overlap": "chunk_overlap",
-        "memory.max_results": "max_results",
-        "memory.min_score": "min_score",
-        "memory.hybrid_enabled": "hybrid_enabled",
-        "memory.hybrid_vector_weight": "hybrid_vector_weight",
-        "memory.hybrid_text_weight": "hybrid_text_weight",
-        "memory.sync_interval_minutes": "sync_interval_minutes",
-      };
-      const b = body as Record<string, unknown>;
-      for (const [storeKey, bodyKey] of Object.entries(fields)) {
-        const value = b[bodyKey];
-        if (value !== undefined) {
-          if (bodyKey === "sources" && Array.isArray(value)) {
-            settingsStoreRef.set(storeKey, JSON.stringify(value));
-          } else {
-            settingsStoreRef.set(storeKey, String(value));
-          }
-        }
-      }
-      // Per-provider API keys and base URLs (whitelist provider IDs)
-      const VALID_PROVIDER_IDS = new Set(["openai", "local", "gemini", "voyage", "mistral", "ollama"]);
-      const providersCfg = b.providers as Record<string, Record<string, string>> | undefined;
-      if (providersCfg && typeof providersCfg === "object") {
-        for (const [pid, cfg] of Object.entries(providersCfg)) {
-          if (!VALID_PROVIDER_IDS.has(pid)) continue;
-          if (cfg.api_key !== undefined) settingsStoreRef.set(`memory.providers.${pid}.api_key`, cfg.api_key);
-          if (cfg.base_url !== undefined) settingsStoreRef.set(`memory.providers.${pid}.base_url`, cfg.base_url);
-        }
-      }
-      const config = settingsStoreRef.getMemoryConfig();
-      jsonResponse(res, 200, { ok: true, config });
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  jsonResponse(res, 405, { error: "method not allowed" });
-}
-
-async function handleAdminMemorySync(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const user = adminAuth(req, res);
-  if (!user) return;
-  if (req.method !== "POST") {
-    jsonResponse(res, 405, { error: "method not allowed" });
-    return;
-  }
-  if (!memoryPoolRef) {
-    jsonResponse(res, 503, { error: "memory system not enabled" });
-    return;
-  }
-  try {
-    const mgr = await memoryPoolRef.getOrCreate(user.id);
-    await mgr.sync({ force: true });
-    jsonResponse(res, 200, { ok: true, status: mgr.status() });
-  } catch (err) {
-    gatewayErrorResponse(res, err);
-  }
-}
-
-async function handleAdminMemorySearch(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const user = adminAuth(req, res);
-  if (!user) return;
-  if (req.method !== "GET") {
-    jsonResponse(res, 405, { error: "method not allowed" });
-    return;
-  }
-  if (!memoryPoolRef) {
-    jsonResponse(res, 503, { error: "memory system not enabled" });
-    return;
-  }
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const query = url.searchParams.get("q") ?? "";
-  if (!query.trim()) {
-    jsonResponse(res, 400, { error: "query parameter 'q' is required" });
-    return;
-  }
-  try {
-    const mgr = await memoryPoolRef.getOrCreate(user.id);
-    const results = await mgr.search(query);
-    jsonResponse(res, 200, { results });
-  } catch (err) {
-    gatewayErrorResponse(res, err);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Tool invocation API (admin only)
 // ---------------------------------------------------------------------------
 
@@ -2711,13 +2578,6 @@ async function handleRequest(
       return handleAdminChannelWhatsapp(req, res);
     case "/api/admin/analytics":
       return handleAdminAnalytics(req, res);
-    case "/api/admin/memory":
-      return handleAdminMemory(req, res);
-    case "/api/admin/memory/sync":
-      return handleAdminMemorySync(req, res);
-    case "/api/admin/memory/search":
-      return handleAdminMemorySearch(req, res);
-
     // Tool invocation API
     case "/api/tools":
       return handleToolsList(req, res);
@@ -2951,7 +2811,6 @@ export const webPlugin: ChannelPlugin = {
       if (ctx.services.inviteStore && !inviteStoreRef) setInviteStore(ctx.services.inviteStore as InviteStore);
       if (ctx.services.userStore && !userStoreRef) setUserStore(ctx.services.userStore as UserStore);
       if (ctx.services.settingsStore && !settingsStoreRef) setSettingsStore(ctx.services.settingsStore as import("../settings-store.js").SettingsStore);
-      if (ctx.services.memoryPool && !memoryPoolRef) setMemoryPool(ctx.services.memoryPool as import("../memory/pool.js").MemoryManagerPool);
       if (ctx.services.agentManager && !agentManagerRef) setAgentManager(ctx.services.agentManager as import("../agent-manager.js").AgentSessionManager);
       if (ctx.services.handler && !handlerRef) setHandler(ctx.services.handler as Handler);
       if (ctx.services.cronScheduler && !cronSchedulerRef) setCronScheduler(ctx.services.cronScheduler as NonNullable<typeof cronSchedulerRef>);

@@ -30,7 +30,19 @@ export function clearGrowthBookConfigOverrides(): void {}
 export function getApiBaseUrlHost(): string | undefined { return undefined }
 export const initializeGrowthBook = async () => {}
 export async function getFeatureValue_DEPRECATED<T>(_key: string, defaultValue: T): Promise<T> { return defaultValue }
-export function getFeatureValue_CACHED_MAY_BE_STALE<T>(_key: string, defaultValue: T): T { return defaultValue }
+// Memory gates enabled for Klaus three-layer memory system
+const ENABLED_GATES: Record<string, unknown> = {
+  'tengu_passport_quail': true,   // L1: extractMemories (turn-level)
+  'tengu_slate_thimble': true,    // L1: allow in nonInteractive sessions
+  'tengu_session_memory': true,   // L2: SessionMemory (session-level)
+  'tengu_onyx_plover': { enabled: true }, // L3: autoDream (cross-session)
+  'tengu_moth_copse': true,       // Smart memory selection (skip MEMORY.md index load)
+}
+
+export function getFeatureValue_CACHED_MAY_BE_STALE<T>(key: string, defaultValue: T): T {
+  if (key in ENABLED_GATES) return ENABLED_GATES[key] as T
+  return defaultValue
+}
 export function getFeatureValue_CACHED_WITH_REFRESH<T>(_key: string, defaultValue: T, _refreshMs?: number): T { return defaultValue }
 export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(_gate: string): boolean { return false }
 export async function checkSecurityRestrictionGate(_gate: string): Promise<boolean> { return false }

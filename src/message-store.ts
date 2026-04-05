@@ -21,12 +21,11 @@ import {
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
-import { emitSessionTranscriptUpdate } from "./memory/transcript-events.js";
 import { extractUserId, getUserTranscriptsDir } from "./user-dirs.js";
 import type { TranscriptsConfig } from "./types.js";
 
-function emitTranscriptEvent(sessionFile: string, sessionKey: string): void {
-  try { emitSessionTranscriptUpdate({ sessionFile, sessionKey }); } catch {}
+function emitTranscriptEvent(_sessionFile: string, _sessionKey: string): void {
+  // Old memory system transcript events removed — engine handles memory via three-layer system
 }
 
 // ---------------------------------------------------------------------------

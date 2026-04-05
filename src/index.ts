@@ -57,23 +57,8 @@ async function start(): Promise<void> {
   registerAllCapabilities();
   await capabilities.startServices();
 
-  // Initialize per-user memory pool if enabled
-  let memoryPool: import("./memory/pool.js").MemoryManagerPool | null = null;
-  const memoryConfig = settingsStore.getMemoryConfig();
-  if (memoryConfig.enabled) {
-    const { MemoryManagerPool } = await import("./memory/pool.js");
-    memoryPool = new MemoryManagerPool(memoryConfig);
-    memoryPool.startPeriodicSync();
-    console.log(
-      `[Memory] Pool initialized (sources=${memoryConfig.sources.join(",")}, per-user isolation enabled)`,
-    );
-  }
-
   // Initialize agent session manager
   const agentManager = new AgentSessionManager(settingsStore);
-  if (memoryPool) {
-    agentManager.setMemoryPool(memoryPool);
-  }
 
   // Initialize MCP connections
   const { MCPManager } = await import("./mcp-manager.js");
@@ -199,7 +184,6 @@ async function start(): Promise<void> {
     webServices.settingsStore = settingsStore;
     webServices.handler = handler;
     webServices.agentManager = agentManager;
-    if (memoryPool) webServices.memoryPool = memoryPool;
     webServices.mcpManager = mcpManager;
     webServices.analyticsSink = analyticsSink;
   }
@@ -268,7 +252,6 @@ async function start(): Promise<void> {
     cronScheduler?.stop();
     await capabilities.stopServices();
     await agentManager.disposeAll();
-    await memoryPool?.closeAll();
     inviteStoreInstance?.close();
     userStoreInstance?.close();
     settingsStore.close();
