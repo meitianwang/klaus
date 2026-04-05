@@ -164,6 +164,15 @@ export class AgentSessionManager {
     try {
       const userId = extractUserId(sessionKey);
 
+      // Set per-user skill directory so engine scans user's skills
+      const { setAdditionalDirectoriesForClaudeMd } = await import("./engine/bootstrap/state.js");
+      setAdditionalDirectoriesForClaudeMd([
+        join(homedir(), '.klaus', 'users', userId),
+      ]);
+      // Clear skill cache since user changed
+      const { clearCommandsCache } = await import("./engine/commands.js");
+      clearCommandsCache();
+
       // Build query params
       const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
         await this.buildQueryConfig(sessionKey);

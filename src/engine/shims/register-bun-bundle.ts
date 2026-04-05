@@ -14,6 +14,12 @@ process.env.CLAUDE_CODE_FEATURES = [
   'BUILTIN_EXPLORE_PLAN_AGENTS',
 ].filter(Boolean).join(',')
 
+// Redirect engine config dir from ~/.claude to ~/.klaus
+// This controls skill scanning (getClaudeConfigHomeDir()/skills), config files, etc.
+import { homedir } from 'os'
+import { join } from 'path'
+process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.klaus')
+
 // Inject build-time MACRO constants (normally injected by Bun.build define)
 ;(globalThis as any).MACRO = {
   VERSION: '2.1.88',

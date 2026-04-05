@@ -1439,8 +1439,10 @@ async function handleUserSkills(
     try {
       // Read skills from engine's command system
       const { getCommands } = await import("../engine/commands.js");
-      const cwd = process.cwd();
-      const allCommands = await getCommands(cwd);
+      const { homedir } = await import("os");
+      const { join } = await import("path");
+      // Use ~/.klaus as cwd to avoid scanning Klaus project's .claude/skills/
+      const allCommands = await getCommands(join(homedir(), '.klaus'));
       const skills = allCommands
         .filter((cmd: any) => cmd.type === "prompt")
         .map((cmd: any) => ({
