@@ -109,6 +109,13 @@ export class AgentSessionManager {
     setProjectRoot(cwd);
     // Enable engine config reading (must be called before any getGlobalConfig)
     enableConfigs();
+    // Initialize engine bundled skills (remember, verify, simplify, etc.)
+    import("./engine/skills/bundled/index.js").then(m => {
+      m.initBundledSkills();
+      import("./engine/skills/bundledSkills.js").then(bs => {
+        console.log(`[Skills] ${bs.getBundledSkills().length} bundled skill(s) registered`);
+      });
+    }).catch(err => console.error("[Skills] Failed to init bundled skills:", err));
     // Seed default prompt sections from engine hardcoded content
     this.seedPromptSections();
   }

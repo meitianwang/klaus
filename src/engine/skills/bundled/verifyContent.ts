@@ -1,13 +1,23 @@
 // Content for the verify bundled skill.
-// Each .md file is inlined as a string at build time via Bun's text loader.
+// Uses readFileSync instead of Bun's text loader for Node.js/tsx compatibility.
 
-import cliMd from './verify/examples/cli.md'
-import serverMd from './verify/examples/server.md'
-import skillMd from './verify/SKILL.md'
+import { readFileSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
-export const SKILL_MD: string = skillMd
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+function readMd(relativePath: string): string {
+  try {
+    return readFileSync(join(__dirname, relativePath), 'utf-8')
+  } catch {
+    return ''
+  }
+}
+
+export const SKILL_MD: string = readMd('./verify/SKILL.md')
 
 export const SKILL_FILES: Record<string, string> = {
-  'examples/cli.md': cliMd,
-  'examples/server.md': serverMd,
+  'examples/cli.md': readMd('./verify/examples/cli.md'),
+  'examples/server.md': readMd('./verify/examples/server.md'),
 }

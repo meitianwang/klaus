@@ -8,6 +8,10 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   external: ["better-sqlite3", "@larksuiteoapi/node-sdk"],
+  loader: {
+    ".md": "text",
+    ".txt": "text",
+  },
   banner: {
     js: "#!/usr/bin/env node",
   },
