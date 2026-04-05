@@ -650,8 +650,9 @@ export function getSettingsJs(): string {
 
   function renderSkillCards(skills) {
     var filtered = skills.filter(function(s) {
-      if (skFilter === "enabled") return s.userEnabled;
-      if (skFilter === "disabled") return !s.userEnabled;
+      if (skFilter === "enabled") return s.userEnabled || s.always;
+      if (skFilter === "disabled") return !s.userEnabled && !s.always;
+      if (skFilter === "builtin") return s.always;
       return true;
     });
     var query = (skSearch.value || "").toLowerCase().trim();
@@ -729,10 +730,12 @@ export function getSettingsJs(): string {
       skAllData = data.skills || [];
       // Update tab counts
       var allCount = skAllData.length;
-      var enabledCount = skAllData.filter(function(s) { return s.userEnabled; }).length;
+      var builtinCount = skAllData.filter(function(s) { return s.always; }).length;
+      var enabledCount = skAllData.filter(function(s) { return s.userEnabled || s.always; }).length;
+      var disabledCount = skAllData.filter(function(s) { return !s.userEnabled && !s.always; }).length;
       document.querySelectorAll(".sk-tab").forEach(function(t) {
         var f = t.getAttribute("data-sk-filter");
-        var count = f === "all" ? allCount : f === "enabled" ? enabledCount : allCount - enabledCount;
+        var count = f === "all" ? allCount : f === "builtin" ? builtinCount : f === "enabled" ? enabledCount : disabledCount;
         var label = t.getAttribute("data-i18n") ? tt(t.getAttribute("data-i18n")) : t.textContent;
         t.textContent = label.replace(/ \\d+$/, "") + " " + count;
       });

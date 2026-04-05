@@ -521,6 +521,7 @@ export function getChatBodyHtml(): string {
               <div class="settings-section-desc" data-i18n="settings_skills_desc">Enable skills to extend Klaus with specialized capabilities and tools.</div>
               <div class="sk-tabs">
                 <button class="sk-tab active" data-sk-filter="all" data-i18n="settings_skills_all">All</button>
+                <button class="sk-tab" data-sk-filter="builtin" data-i18n="settings_skills_builtin">Built-in</button>
                 <button class="sk-tab" data-sk-filter="enabled" data-i18n="settings_skills_enabled">Enabled</button>
                 <button class="sk-tab" data-sk-filter="disabled" data-i18n="settings_skills_disabled">Disabled</button>
               </div>
