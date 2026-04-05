@@ -1443,18 +1443,27 @@ async function handleUserSkills(
       const { join } = await import("path");
       // Use ~/.klaus as cwd to avoid scanning Klaus project's .claude/skills/
       const allCommands = await getCommands(join(homedir(), '.klaus'));
+      // Read per-user skill preferences
+      const userSkillPrefs = settingsStoreRef.getByPrefix(`user.${auth.user.id}.skill.`);
       const skills = allCommands
         .filter((cmd: any) => cmd.type === "prompt")
-        .map((cmd: any) => ({
-          name: cmd.name,
-          description: cmd.description ?? "",
-          source: cmd.source ?? cmd.loadedFrom ?? "unknown",
-          enabled: true,
-          eligible: true,
-          always: cmd.loadedFrom === "bundled",  // bundled skills always on, no toggle
-          userEnabled: cmd.loadedFrom === "bundled" ? true : undefined,
-          userInvocable: cmd.userInvocable !== false,
-        }));
+        .map((cmd: any) => {
+          const isBundled = cmd.loadedFrom === "bundled";
+          const prefKey = `user.${auth.user.id}.skill.${cmd.name}`;
+          const pref = userSkillPrefs.get(prefKey);
+          // bundled: always on; others: default on, user can toggle off
+          const userEnabled = isBundled ? true : pref !== "off";
+          return {
+            name: cmd.name,
+            description: cmd.description ?? "",
+            source: cmd.source ?? cmd.loadedFrom ?? "unknown",
+            enabled: true,
+            eligible: true,
+            always: isBundled,
+            userEnabled,
+            userInvocable: cmd.userInvocable !== false,
+          };
+        });
       jsonResponse(res, 200, { skills });
     } catch (err) {
       gatewayErrorResponse(res, err);

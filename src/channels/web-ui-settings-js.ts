@@ -736,8 +736,8 @@ export function getSettingsJs(): string {
       document.querySelectorAll(".sk-tab").forEach(function(t) {
         var f = t.getAttribute("data-sk-filter");
         var count = f === "all" ? allCount : f === "builtin" ? builtinCount : f === "enabled" ? enabledCount : disabledCount;
-        var label = t.textContent.replace(/ \d+$/, "");
-        t.textContent = label + " " + count;
+        if (!t.getAttribute("data-label")) t.setAttribute("data-label", t.textContent.replace(/ \d+$/, "").trim());
+        t.textContent = t.getAttribute("data-label") + " " + count;
       });
       renderSkillCards(skAllData);
     }).catch(function(e) { console.error("Failed to load skills:", e); });
