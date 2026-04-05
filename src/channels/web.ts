@@ -1442,7 +1442,7 @@ async function handleUserSkills(
       const cwd = process.cwd();
       const allCommands = await getCommands(cwd);
       const skills = allCommands
-        .filter((cmd: any) => cmd.type === "prompt" && !cmd.disableModelInvocation)
+        .filter((cmd: any) => cmd.type === "prompt")
         .map((cmd: any) => ({
           name: cmd.name,
           description: cmd.description ?? "",
