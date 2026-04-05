@@ -169,9 +169,12 @@ export class AgentSessionManager {
       setAdditionalDirectoriesForClaudeMd([
         join(homedir(), '.klaus', 'users', userId),
       ]);
-      // Clear skill cache since user changed
-      const { clearCommandsCache } = await import("./engine/commands.js");
+      // Clear skill cache and set per-user skill filter
+      const { clearCommandsCache, setCommandFilter } = await import("./engine/commands.js");
       clearCommandsCache();
+      // Filter disabled skills from getCommands() — affects both system prompt listing and SkillTool
+      const disabledSkills = this.getDisabledSkills(userId);
+      setCommandFilter((cmd: any) => !disabledSkills.has(cmd.name));
 
       // Build query params
       const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
