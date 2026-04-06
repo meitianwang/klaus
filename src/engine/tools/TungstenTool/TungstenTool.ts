@@ -2,7 +2,7 @@
  * Stub: internal-only TungstenTool (ant-only).
  * Guarded by USER_TYPE === 'ant' at the import site in tools.ts.
  */
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 
 export const TungstenTool = buildTool({

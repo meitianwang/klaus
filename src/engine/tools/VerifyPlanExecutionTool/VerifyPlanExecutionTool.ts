@@ -2,7 +2,7 @@
  * Stub: internal-only VerifyPlanExecutionTool.
  * Guarded by CLAUDE_CODE_VERIFY_PLAN === 'true' at the import site in tools.ts.
  */
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 import { VERIFY_PLAN_EXECUTION_TOOL_NAME } from './constants.js'
 
