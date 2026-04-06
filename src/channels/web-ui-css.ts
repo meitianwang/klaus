@@ -341,7 +341,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   transition:background var(--transition);
 }
 .slash-menu-item:hover,.slash-menu-item.active{background:var(--bg-hover)}
-.slash-menu-item-name{font-weight:500;color:var(--fg);font-size:14px}
+.slash-menu-item-name{font-weight:500;color:var(--fg);font-size:14px;white-space:nowrap;flex-shrink:0}
 .slash-menu-item-desc{color:var(--fg-tertiary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #input-area{
   background:var(--input-bg);border:1px solid var(--border);
