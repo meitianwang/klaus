@@ -41,13 +41,6 @@ export type GatewayAdminRpcContext = {
     patch: Record<string, unknown>;
   }): { ok: true; prompt: unknown };
   deleteAdminPrompt(id: string): boolean;
-  listAdminRules(): { rules: readonly unknown[] };
-  createAdminRule(input: Record<string, unknown>): { ok: true; rule: unknown };
-  updateAdminRule(params: {
-    id: string;
-    patch: Record<string, unknown>;
-  }): { ok: true; rule: unknown };
-  deleteAdminRule(id: string): boolean;
   listAdminMcpServers(): { servers: readonly unknown[] };
   createAdminMcpServer(input: Record<string, unknown>): { ok: true; server: unknown };
   updateAdminMcpServer(params: {

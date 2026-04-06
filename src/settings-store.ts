@@ -49,16 +49,6 @@ export interface PromptRecord {
   readonly updatedAt: number;
 }
 
-export interface RuleRecord {
-  readonly id: string;
-  readonly name: string;
-  readonly content: string;
-  readonly enabled: boolean;
-  readonly sortOrder: number;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-}
-
 export interface McpServerRecord {
   readonly id: string;
   readonly name: string;
@@ -425,42 +415,7 @@ export class SettingsStore {
   // Rules CRUD
   // -----------------------------------------------------------------------
 
-  listRules(): RuleRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM rules ORDER BY sort_order ASC, name ASC")
-      .all() as RawRuleRow[];
-    return rows.map(toRuleRecord);
-  }
-
-  getEnabledRules(): RuleRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM rules WHERE enabled = 1 ORDER BY sort_order ASC, name ASC")
-      .all() as RawRuleRow[];
-    return rows.map(toRuleRecord);
-  }
-
-  upsertRule(r: RuleRecord): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO rules (id, name, content, enabled, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name, content = excluded.content,
-           enabled = excluded.enabled, sort_order = excluded.sort_order,
-           updated_at = excluded.updated_at`,
-      )
-      .run(r.id, r.name, r.content, r.enabled ? 1 : 0, r.sortOrder, r.createdAt ?? now, now);
-  }
-
-  deleteRule(id: string): boolean {
-    const result = this.db
-      .prepare("DELETE FROM rules WHERE id = ?")
-      .run(id);
-    return result.changes > 0;
-  }
-
-  // -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
   // Cron tasks CRUD
   // -----------------------------------------------------------------------
 
@@ -661,28 +616,6 @@ function toPromptRecord(r: RawPromptRow): PromptRecord {
     name: r.name,
     content: r.content,
     isDefault: r.is_default === 1,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
-interface RawRuleRow {
-  id: string;
-  name: string;
-  content: string;
-  enabled: number;
-  sort_order: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function toRuleRecord(r: RawRuleRow): RuleRecord {
-  return {
-    id: r.id,
-    name: r.name,
-    content: r.content,
-    enabled: r.enabled === 1,
-    sortOrder: r.sort_order,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

@@ -25,12 +25,6 @@ export {
   updateGatewayAdminPrompt,
 } from "./prompts.js";
 export {
-  createGatewayAdminRule,
-  deleteGatewayAdminRule,
-  listGatewayAdminRules,
-  updateGatewayAdminRule,
-} from "./rules.js";
-export {
   getGatewayAdminSettings,
   updateGatewayAdminSettings,
   listGatewayCronTasks,

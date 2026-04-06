@@ -248,10 +248,7 @@ tr.clickable:hover { background: var(--card-bg); }
       <button class="nav-item" data-tab="prompts">
         <span data-i18n="tab_prompts">Prompts</span>
       </button>
-      <button class="nav-item" data-tab="rules">
-        <span data-i18n="tab_rules">Rules</span>
-      </button>
-      <button class="nav-item" data-tab="users">
+<button class="nav-item" data-tab="users">
         <span data-i18n="tab_users">Users</span>
       </button>
       <button class="nav-item" data-tab="invites">
@@ -413,7 +410,6 @@ tr.clickable:hover { background: var(--card-bg); }
           <div><label data-i18n="lbl_prompt_id">ID</label><input id="pf-id" class="f-input" placeholder="e.g. default"></div>
           <div><label data-i18n="lbl_prompt_name">Name</label><input id="pf-name" class="f-input" placeholder="Display name"></div>
           <div class="task-form-full"><label data-i18n="lbl_prompt_content">Content</label><textarea id="pf-content" class="f-textarea" rows="5" placeholder="System prompt content"></textarea></div>
-          <div><label><input type="checkbox" id="pf-default"> <span data-i18n="lbl_set_default">Set as default</span></label></div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" id="pf-cancel" data-i18n="btn_cancel">Cancel</button>
@@ -424,29 +420,8 @@ tr.clickable:hover { background: var(--card-bg); }
       <div id="prompts-empty" class="empty" style="display:none" data-i18n="no_prompts">No prompts configured.</div>
     </div>
 
-    <!-- ============ Rules Tab ============ -->
-    <div id="tab-rules" class="tab-panel">
-      <h1 class="page-title" data-i18n="tab_rules">Rules</h1>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-        <button class="btn btn-primary btn-sm" id="rule-add-btn" data-i18n="btn_add_rule">+ Add Rule</button>
-      </div>
-      <div id="rule-form" class="task-form" style="display:none">
-        <div class="task-form-grid">
-          <div><label data-i18n="lbl_rule_id">ID</label><input id="rf-id" class="f-input" placeholder="e.g. lang-match"></div>
-          <div><label data-i18n="lbl_rule_name">Name</label><input id="rf-name" class="f-input" placeholder="Display name"></div>
-          <div class="task-form-full"><label data-i18n="lbl_rule_content">Content</label><textarea id="rf-content" class="f-textarea" rows="3" placeholder="Rule text"></textarea></div>
-          <div><label data-i18n="lbl_rule_order">Sort Order</label><input id="rf-order" class="f-input f-input-sm" type="number" value="0"></div>
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button class="btn btn-ghost btn-sm" id="rf-cancel" data-i18n="btn_cancel">Cancel</button>
-          <button class="btn btn-primary btn-sm" id="rf-save" data-i18n="btn_save">Save</button>
-        </div>
-      </div>
-      <div id="rules-wrap"></div>
-      <div id="rules-empty" class="empty" style="display:none" data-i18n="no_rules">No rules configured.</div>
-    </div>
 
-    <!-- ============ Users Tab ============ -->
+<!-- ============ Users Tab ============ -->
     <div id="tab-users" class="tab-panel">
       <div id="users-list" class="sub-view active">
         <h1 class="page-title" data-i18n="tab_users">Users</h1>
@@ -643,7 +618,7 @@ tr.clickable:hover { background: var(--card-bg); }
   var I18N = {
     en: {
       admin_title: "Admin",
-      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_rules: "Rules", tab_users: "Users", tab_invites: "Invites", tab_memory: "Memory",      back_chat: "Back to Chat", back_klaus: "Back to Klaus",
+      tab_settings: "Settings", tab_models: "Models", tab_prompts: "Prompts", tab_users: "Users", tab_invites: "Invites", tab_memory: "Memory",      back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_agent: "Agent", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts", sec_cron: "Cron",
       lbl_persona: "System Prompt",
       lbl_max_sessions: "Max Sessions", lbl_yolo: "Auto-approve Tools",
@@ -662,15 +637,13 @@ tr.clickable:hover { background: var(--card-bg); }
       created_copied: "Created! Code copied", created_ok: "Created!",
       sessions_label: "sessions", msgs_label: "msgs",
       no_sessions: "No sessions found", no_messages: "No messages in this session",
-      btn_add_model: "+ Add Model", btn_refresh_models: "Refresh Models", btn_add_prompt: "+ Add Prompt", btn_add_rule: "+ Add Rule",
-      lbl_model_id: "ID", lbl_model_name: "Name", lbl_model_provider: "Provider", lbl_model_model: "Model ID",
+      btn_add_model: "+ Add Model", btn_refresh_models: "Refresh Models", btn_add_prompt: "+ Add Prompt",      lbl_model_id: "ID", lbl_model_name: "Name", lbl_model_provider: "Provider", lbl_model_model: "Model ID",
       lbl_model_apikey: "API Key", lbl_model_baseurl: "Base URL", lbl_model_tokens: "Max Context Tokens", lbl_model_thinking: "Thinking",
       lbl_model_cost: "Cost ($/M tokens)", lbl_cost_input: "Input", lbl_cost_output: "Output", lbl_cost_cache_read: "Cache Read", lbl_cost_cache_write: "Cache Write",
       lbl_set_default: "Set as default", no_models: "No models configured.",
       lbl_prompt_id: "ID", lbl_prompt_name: "Name", lbl_prompt_content: "Content", no_prompts: "No prompts configured.",
-      lbl_rule_id: "ID", lbl_rule_name: "Name", lbl_rule_content: "Content", lbl_rule_order: "Sort Order", no_rules: "No rules configured.",
-      default_badge: "Default", enabled_badge: "Enabled", disabled_badge: "Disabled",
-      confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?", confirm_delete_rule: "Delete this rule?",
+      default_badge: "Default",
+      confirm_delete_model: "Delete this model?", confirm_delete_prompt: "Delete this prompt?",
       models_refreshed: "Models refreshed", btn_authorize: "Authorize", auth_authorized: "Authorized", auth_not_authorized: "Not authorized", auth_save_first: "Save model first", lbl_model_oauth: "Authorization", lbl_add_model: "Add Model", lbl_edit_model: "Edit Model", lbl_custom_model: "Custom...",
       sec_auth: "Authentication", sec_mode: "Mode", sec_thirdparty: "Third-party API", sec_model_map: "Model Mapping",
       lbl_auth_status: "Status", lbl_mode: "Mode", lbl_default_model: "Default Model",
@@ -680,7 +653,7 @@ tr.clickable:hover { background: var(--card-bg); }
     },
     zh: {
       admin_title: "管理面板",
-      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_rules: "规则", tab_users: "用户", tab_invites: "邀请码", tab_memory: "记忆",      back_chat: "返回对话", back_klaus: "返回 Klaus",
+      tab_settings: "设置", tab_models: "模型", tab_prompts: "提示词", tab_users: "用户", tab_invites: "邀请码", tab_memory: "记忆",      back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_agent: "Agent", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录", sec_cron: "定时任务",
       lbl_persona: "系统提示词",
       lbl_max_sessions: "最大会话数", lbl_yolo: "自动批准工具",
@@ -699,15 +672,13 @@ tr.clickable:hover { background: var(--card-bg); }
       created_copied: "已创建并复制!", created_ok: "已创建!",
       sessions_label: "会话", msgs_label: "消息",
       no_sessions: "暂无会话", no_messages: "该会话暂无消息",
-      btn_add_model: "+ 添加模型", btn_refresh_models: "刷新模型", btn_add_prompt: "+ 添加提示词", btn_add_rule: "+ 添加规则",
-      lbl_model_id: "ID", lbl_model_name: "名称", lbl_model_provider: "提供商", lbl_model_model: "模型 ID",
+      btn_add_model: "+ 添加模型", btn_refresh_models: "刷新模型", btn_add_prompt: "+ 添加提示词",      lbl_model_id: "ID", lbl_model_name: "名称", lbl_model_provider: "提供商", lbl_model_model: "模型 ID",
       lbl_model_apikey: "API Key", lbl_model_baseurl: "API 地址", lbl_model_tokens: "最大上下文 Token", lbl_model_thinking: "思考",
       lbl_model_cost: "成本 ($/百万 Token)", lbl_cost_input: "输入", lbl_cost_output: "输出", lbl_cost_cache_read: "缓存读取", lbl_cost_cache_write: "缓存写入",
       lbl_set_default: "设为默认", no_models: "暂无模型配置。",
       lbl_prompt_id: "ID", lbl_prompt_name: "名称", lbl_prompt_content: "内容", no_prompts: "暂无提示词配置。",
-      lbl_rule_id: "ID", lbl_rule_name: "名称", lbl_rule_content: "内容", lbl_rule_order: "排序", no_rules: "暂无规则配置。",
-      default_badge: "默认", enabled_badge: "启用", disabled_badge: "禁用",
-      confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？", confirm_delete_rule: "确定删除此规则？",
+      default_badge: "默认",
+      confirm_delete_model: "确定删除此模型？", confirm_delete_prompt: "确定删除此提示词？",
       models_refreshed: "模型已刷新", btn_authorize: "授权", auth_authorized: "已授权", auth_not_authorized: "未授权", auth_save_first: "请先保存模型", lbl_model_oauth: "授权", lbl_add_model: "添加模型", lbl_edit_model: "编辑模型", lbl_custom_model: "自定义...",
       sec_auth: "认证", sec_mode: "模式", sec_thirdparty: "第三方 API", sec_model_map: "模型映射",
       lbl_auth_status: "状态", lbl_mode: "模式", lbl_default_model: "默认模型",
@@ -760,7 +731,6 @@ tr.clickable:hover { background: var(--card-bg); }
     if (id === "users") showSubView("users-list");
     if (id === "models") loadProviders().then(loadModels);
     if (id === "prompts") loadPrompts();
-    if (id === "rules") loadRules();
   }
   navItems.forEach(function(b) { b.addEventListener("click", function() { switchTab(b.dataset.tab); }); });
 
@@ -1287,19 +1257,17 @@ tr.clickable:hover { background: var(--card-bg); }
   var pfId = document.getElementById("pf-id");
   var pfName = document.getElementById("pf-name");
   var pfContent = document.getElementById("pf-content");
-  var pfDefault = document.getElementById("pf-default");
+
   var pfSave = document.getElementById("pf-save");
   var pfCancel = document.getElementById("pf-cancel");
   var editingPromptId = null;
 
   function renderPromptRow(p, editing) {
-    var badge = p.isDefault ? "<span class='badge badge-green'>" + tt("default_badge") + "</span>" : "";
     if (editing) {
       return "<tr data-prompt-row='" + esc(p.id) + "'>"
         + "<td><span class='code-text'>" + esc(p.id) + "</span></td>"
         + "<td><input class='f-input f-input-sm' data-field='name' value='" + esc(p.name || "") + "' style='width:100%'></td>"
         + "<td><textarea class='f-textarea' data-field='content' rows='4' style='width:100%;font-size:13px'>" + esc(p.content || "") + "</textarea></td>"
-        + "<td>" + badge + "</td>"
         + "<td><div class='actions'>"
         + "<button class='btn btn-sm btn-primary' data-saveprompt='" + esc(p.id) + "'>" + tt("btn_save") + "</button>"
         + "<button class='btn btn-sm btn-ghost' data-cancelprompt='" + esc(p.id) + "'>" + tt("btn_cancel") + "</button>"
@@ -1310,9 +1278,7 @@ tr.clickable:hover { background: var(--card-bg); }
       + "<td><span class='code-text'>" + esc(p.id) + "</span></td>"
       + "<td>" + esc(p.name) + "</td>"
       + "<td class='stat-muted'>" + esc(preview) + "</td>"
-      + "<td>" + badge + "</td>"
       + "<td><div class='actions'>"
-      + (p.isDefault ? "" : "<button class='btn btn-sm btn-ghost' data-setdefaultprompt='" + esc(p.id) + "'>" + tt("lbl_set_default") + "</button>")
       + "<button class='btn btn-sm btn-ghost' data-editprompt='" + esc(p.id) + "'>Edit</button>"
       + "<button class='btn btn-sm btn-danger' data-delprompt='" + esc(p.id) + "'>" + tt("delete") + "</button>"
       + "</div></td></tr>";
@@ -1325,7 +1291,7 @@ tr.clickable:hover { background: var(--card-bg); }
       promptsCache = d.prompts || [];
       if (!promptsCache.length) { promptsWrap.innerHTML = ""; promptsEmpty.style.display = "block"; return; }
       promptsEmpty.style.display = "none";
-      var h = "<table><thead><tr><th>ID</th><th>" + tt("lbl_prompt_name") + "</th><th>" + tt("lbl_prompt_content") + "</th><th>Status</th><th>" + tt("actions") + "</th></tr></thead><tbody>";
+      var h = "<table><thead><tr><th>ID</th><th>" + tt("lbl_prompt_name") + "</th><th>" + tt("lbl_prompt_content") + "</th><th>" + tt("actions") + "</th></tr></thead><tbody>";
       promptsCache.forEach(function(p) { h += renderPromptRow(p, false); });
       h += "</tbody></table>";
       promptsWrap.innerHTML = h;
@@ -1334,7 +1300,7 @@ tr.clickable:hover { background: var(--card-bg); }
 
   promptAddBtn.onclick = function() {
     editingPromptId = null;
-    pfId.value = ""; pfName.value = ""; pfContent.value = ""; pfDefault.checked = false;
+    pfId.value = ""; pfName.value = ""; pfContent.value = "";
     pfId.disabled = false;
     promptForm.style.display = "block";
     pfId.focus();
@@ -1346,7 +1312,7 @@ tr.clickable:hover { background: var(--card-bg); }
     var content = pfContent.value.trim();
     if (!id || !content) return;
     pfSave.disabled = true;
-    var payload = { id: id, name: pfName.value.trim() || id, content: content, is_default: pfDefault.checked };
+    var payload = { id: id, name: pfName.value.trim() || id, content: content };
     var method = editingPromptId ? "PATCH" : "POST";
     var path = editingPromptId ? "prompts?id=" + encodeURIComponent(editingPromptId) : "prompts";
     api(path, method, payload)
@@ -1362,8 +1328,6 @@ tr.clickable:hover { background: var(--card-bg); }
     if (btn.dataset.delprompt) {
       if (!confirm(tt("confirm_delete_prompt"))) return;
       api("prompts?id=" + encodeURIComponent(btn.dataset.delprompt), "DELETE").then(function() { loadPrompts(); showToast(tt("deleted")); });
-    } else if (btn.dataset.setdefaultprompt) {
-      api("prompts?id=" + encodeURIComponent(btn.dataset.setdefaultprompt), "PATCH", { is_default: true }).then(function() { loadPrompts(); });
     } else if (btn.dataset.editprompt) {
       var pid = btn.dataset.editprompt;
       var p = promptsCache.find(function(x) { return x.id === pid; });
@@ -1388,121 +1352,6 @@ tr.clickable:hover { background: var(--card-bg); }
   });
 
   // =====================================================
-  // RULES TAB
-  // =====================================================
-  var rulesWrap = document.getElementById("rules-wrap");
-  var rulesEmpty = document.getElementById("rules-empty");
-  var ruleForm = document.getElementById("rule-form");
-  var ruleAddBtn = document.getElementById("rule-add-btn");
-  var rfId = document.getElementById("rf-id");
-  var rfName = document.getElementById("rf-name");
-  var rfContent = document.getElementById("rf-content");
-  var rfOrder = document.getElementById("rf-order");
-  var rfSave = document.getElementById("rf-save");
-  var rfCancel = document.getElementById("rf-cancel");
-  var editingRuleId = null;
-
-  function renderRuleRow(r, editing) {
-    var badge = r.enabled
-      ? "<span class='badge badge-green'>" + tt("enabled_badge") + "</span>"
-      : "<span class='badge badge-gray'>" + tt("disabled_badge") + "</span>";
-    if (editing) {
-      return "<tr data-rule-row='" + esc(r.id) + "'>"
-        + "<td><span class='code-text'>" + esc(r.id) + "</span></td>"
-        + "<td><input class='f-input f-input-sm' data-field='name' value='" + esc(r.name || "") + "' style='width:100%'></td>"
-        + "<td><textarea class='f-textarea' data-field='content' rows='3' style='width:100%;font-size:13px'>" + esc(r.content || "") + "</textarea></td>"
-        + "<td>" + badge + "</td>"
-        + "<td><input class='f-input f-input-sm' data-field='order' type='number' value='" + (r.sortOrder || 0) + "' style='width:60px'></td>"
-        + "<td><div class='actions'>"
-        + "<button class='btn btn-sm btn-primary' data-saverule='" + esc(r.id) + "'>" + tt("btn_save") + "</button>"
-        + "<button class='btn btn-sm btn-ghost' data-cancelrule='" + esc(r.id) + "'>" + tt("btn_cancel") + "</button>"
-        + "</div></td></tr>";
-    }
-    var preview = r.content.length > 60 ? r.content.slice(0, 60) + "..." : r.content;
-    return "<tr data-rule-row='" + esc(r.id) + "'>"
-      + "<td><span class='code-text'>" + esc(r.id) + "</span></td>"
-      + "<td>" + esc(r.name) + "</td>"
-      + "<td class='stat-muted'>" + esc(preview) + "</td>"
-      + "<td>" + badge + "</td>"
-      + "<td class='stat-muted'>" + r.sortOrder + "</td>"
-      + "<td><div class='actions'>"
-      + "<button class='btn btn-sm btn-ghost' data-togglerule='" + esc(r.id) + "' data-enabled='" + (r.enabled ? "1" : "0") + "'>" + (r.enabled ? "Disable" : "Enable") + "</button>"
-      + "<button class='btn btn-sm btn-ghost' data-editrule='" + esc(r.id) + "'>Edit</button>"
-      + "<button class='btn btn-sm btn-danger' data-delrule='" + esc(r.id) + "'>" + tt("delete") + "</button>"
-      + "</div></td></tr>";
-  }
-
-  var rulesCache = [];
-
-  function loadRules() {
-    api("rules", "GET").then(function(d) {
-      rulesCache = d.rules || [];
-      if (!rulesCache.length) { rulesWrap.innerHTML = ""; rulesEmpty.style.display = "block"; return; }
-      rulesEmpty.style.display = "none";
-      var h = "<table><thead><tr><th>ID</th><th>" + tt("lbl_rule_name") + "</th><th>" + tt("lbl_rule_content") + "</th><th>Status</th><th>" + tt("lbl_rule_order") + "</th><th>" + tt("actions") + "</th></tr></thead><tbody>";
-      rulesCache.forEach(function(r) { h += renderRuleRow(r, false); });
-      h += "</tbody></table>";
-      rulesWrap.innerHTML = h;
-    });
-  }
-
-  ruleAddBtn.onclick = function() {
-    editingRuleId = null;
-    rfId.value = ""; rfName.value = ""; rfContent.value = ""; rfOrder.value = "0";
-    rfId.disabled = false;
-    ruleForm.style.display = "block";
-    rfId.focus();
-  };
-  rfCancel.onclick = function() { ruleForm.style.display = "none"; };
-
-  rfSave.onclick = function() {
-    var id = rfId.value.trim();
-    var content = rfContent.value.trim();
-    if (!id || !content) return;
-    rfSave.disabled = true;
-    var payload = { id: id, name: rfName.value.trim() || id, content: content, sort_order: parseInt(rfOrder.value, 10) || 0, enabled: true };
-    var method = editingRuleId ? "PATCH" : "POST";
-    var path = editingRuleId ? "rules?id=" + encodeURIComponent(editingRuleId) : "rules";
-    api(path, method, payload)
-      .then(function() { ruleForm.style.display = "none"; showToast(tt("saved")); loadRules(); })
-      .catch(function() { showToast(tt("failed")); })
-      .finally(function() { rfSave.disabled = false; });
-  };
-
-  rulesWrap.addEventListener("click", function(e) {
-    var btn = e.target.closest("button");
-    if (!btn) return;
-    e.stopPropagation();
-    if (btn.dataset.delrule) {
-      if (!confirm(tt("confirm_delete_rule"))) return;
-      api("rules?id=" + encodeURIComponent(btn.dataset.delrule), "DELETE").then(function() { loadRules(); showToast(tt("deleted")); });
-    } else if (btn.dataset.togglerule) {
-      var enabled = btn.dataset.enabled === "1";
-      api("rules?id=" + encodeURIComponent(btn.dataset.togglerule), "PATCH", { enabled: !enabled }).then(function() { loadRules(); });
-    } else if (btn.dataset.editrule) {
-      var rid = btn.dataset.editrule;
-      var r = rulesCache.find(function(x) { return x.id === rid; });
-      if (!r) return;
-      editingRuleId = rid;
-      var row = btn.closest("tr");
-      if (row) row.outerHTML = renderRuleRow(r, true);
-    } else if (btn.dataset.saverule) {
-      var sid = btn.dataset.saverule;
-      var srow = btn.closest("tr");
-      var nameVal = srow.querySelector("[data-field='name']").value.trim();
-      var contentVal = srow.querySelector("[data-field='content']").value.trim();
-      var orderVal = parseInt(srow.querySelector("[data-field='order']").value, 10) || 0;
-      if (!contentVal) return;
-      btn.disabled = true;
-      api("rules?id=" + encodeURIComponent(sid), "PATCH", { id: sid, name: nameVal || sid, content: contentVal, sort_order: orderVal })
-        .then(function() { editingRuleId = null; showToast(tt("saved")); loadRules(); })
-        .catch(function() { showToast(tt("failed")); btn.disabled = false; });
-    } else if (btn.dataset.cancelrule) {
-      editingRuleId = null;
-      loadRules();
-    }
-  });
-
   // =====================================================
   // MEMORY TAB
   // =====================================================

@@ -1304,61 +1304,6 @@ async function handleAdminPrompts(
 // Admin: rules CRUD
 // ---------------------------------------------------------------------------
 
-async function handleAdminRules(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (!adminAuth(req, res)) return;
-  if (req.method === "GET") {
-    try {
-      jsonResponse(res, 200, gateway.listAdminRules());
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  if (req.method === "POST") {
-    try {
-      const parsed = await readJsonBody(req, 16384);
-      jsonResponse(res, 201, gateway.createAdminRule(parsed));
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  if (req.method === "PATCH") {
-    const url = new URL(req.url ?? "", "http://localhost");
-    const id = url.searchParams.get("id") ?? "";
-    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
-
-    try {
-      const parsed = await readJsonBody(req, 16384);
-      jsonResponse(res, 200, gateway.updateAdminRule({ id, patch: parsed }));
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  if (req.method === "DELETE") {
-    const url = new URL(req.url ?? "", "http://localhost");
-    const id = url.searchParams.get("id") ?? "";
-    if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
-    try {
-      const deleted = gateway.deleteAdminRule(id);
-      if (!deleted) { jsonResponse(res, 404, { error: "rule not found" }); return; }
-      jsonResponse(res, 200, { ok: true });
-    } catch (err) {
-      gatewayErrorResponse(res, err);
-    }
-    return;
-  }
-
-  jsonResponse(res, 405, { error: "method not allowed" });
-}
-
 // ---------------------------------------------------------------------------
 // Admin: MCP servers CRUD
 // ---------------------------------------------------------------------------
@@ -2810,9 +2755,7 @@ async function handleRequest(
       return handleOAuthCallback(req, res);
     case "/api/admin/prompts":
       return handleAdminPrompts(req, res);
-    case "/api/admin/rules":
-      return handleAdminRules(req, res);
-    case "/api/admin/mcp":
+case "/api/admin/mcp":
       return handleAdminMcp(req, res);
     case "/api/admin/channels":
       return handleAdminChannels(req, res);

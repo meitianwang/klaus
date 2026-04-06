@@ -7,7 +7,6 @@ import type { MessageStore } from "../message-store.js";
 import type {
   McpServerRecord,
   PromptRecord,
-  RuleRecord,
   SettingsStore,
 } from "../settings-store.js";
 import type { UserStore } from "../user-store.js";
@@ -42,18 +41,15 @@ import {
   createGatewayAdminMcpServer,
   createGatewayAdminModel,
   createGatewayAdminPrompt,
-  createGatewayAdminRule,
   createGatewayCronTask,
   deleteGatewayAdminMcpServer,
   deleteGatewayAdminModel,
   deleteGatewayAdminPrompt,
-  deleteGatewayAdminRule,
   deleteGatewayCronTask,
   getGatewayAdminSettings,
   listGatewayAdminMcpServers,
   listGatewayAdminModels,
   listGatewayAdminPrompts,
-  listGatewayAdminRules,
   listGatewayAdminSessions,
   listGatewayAdminUsers,
   listGatewayCronTasks,
@@ -61,7 +57,6 @@ import {
   updateGatewayAdminMcpServer,
   updateGatewayAdminModel,
   updateGatewayAdminPrompt,
-  updateGatewayAdminRule,
   updateGatewayAdminSettings,
   updateGatewayAdminUser,
   updateGatewayCronTask,
@@ -509,37 +504,7 @@ class GatewayService {
     });
   }
 
-  listAdminRules(): { rules: readonly RuleRecord[] } {
-    return listGatewayAdminRules({
-      settingsStore: this.requireSettingsStore(),
-    });
-  }
-
-  createAdminRule(input: Record<string, unknown>): { ok: true; rule: RuleRecord } {
-    return createGatewayAdminRule({
-      settingsStore: this.requireSettingsStore(),
-      input,
-    });
-  }
-
-  updateAdminRule(params: {
-    id: string;
-    patch: Record<string, unknown>;
-  }): { ok: true; rule: RuleRecord } {
-    return updateGatewayAdminRule({
-      settingsStore: this.requireSettingsStore(),
-      ...params,
-    });
-  }
-
-  deleteAdminRule(id: string): boolean {
-    return deleteGatewayAdminRule({
-      settingsStore: this.requireSettingsStore(),
-      id,
-    });
-  }
-
-  listAdminMcpServers(): { servers: readonly McpServerRecord[] } {
+listAdminMcpServers(): { servers: readonly McpServerRecord[] } {
     return listGatewayAdminMcpServers({
       settingsStore: this.requireSettingsStore(),
     });

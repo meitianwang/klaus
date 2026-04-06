@@ -654,8 +654,6 @@ export class AgentSessionManager {
       }
     }
 
-    const rules = this.store.getEnabledRules();
-
     // Build tools
     const tools = await this.buildTools(userId, apiKey);
 
@@ -674,15 +672,7 @@ export class AgentSessionManager {
     const systemPrompt = asSystemPrompt(systemPromptParts);
 
     // Build userContext & systemContext dicts (aligned with claude-code's context.ts)
-    // Rules and memory go into userContext (not mixed into system prompt sections)
-    const userContextParts: string[] = [];
-    const rulesContent = rules.map(r => r.content).filter(Boolean).join("\n\n");
-    if (rulesContent) {
-      userContextParts.push(rulesContent);
-    }
-    const claudeMd = userContextParts.length > 0 ? userContextParts.join("\n\n") : null;
     const userContext: { [k: string]: string } = {
-      ...(claudeMd && { claudeMd }),
       currentDate: `Today's date is ${new Date().toISOString().split("T")[0]}.`,
     };
     const systemContext: { [k: string]: string } = {
