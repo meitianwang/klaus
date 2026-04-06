@@ -41,6 +41,7 @@ import {
   getEmptyToolPermissionContext,
 } from "./engine/index.js";
 import { asSystemPrompt, type SystemPrompt } from "./engine/utils/systemPromptType.js";
+import { getAutoMemPath } from "./engine/memdir/paths.js";
 import { enableConfigs } from "./engine/utils/config.js";
 
 // ============================================================================
@@ -164,11 +165,13 @@ export class AgentSessionManager {
     try {
       const userId = extractUserId(sessionKey);
 
+      // Per-user global state values (will be restored before each async yield)
+      const userAdditionalDirs = [join(homedir(), '.klaus', 'users', userId)];
+      const userMemoryPath = join(homedir(), '.klaus', 'users', userId, 'memory');
+
       // Set per-user skill directory so engine scans user's skills
       const { setAdditionalDirectoriesForClaudeMd } = await import("./engine/bootstrap/state.js");
-      setAdditionalDirectoriesForClaudeMd([
-        join(homedir(), '.klaus', 'users', userId),
-      ]);
+      setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
       // Clear skill cache (user's skill directory may differ)
       const { clearCommandsCache } = await import("./engine/commands.js");
       clearCommandsCache();
@@ -254,7 +257,9 @@ export class AgentSessionManager {
       };
 
       // Set per-user memory path for the engine's three-layer memory system
-      process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = join(homedir(), '.klaus', 'users', userId, 'memory');
+      process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = userMemoryPath;
+      // Clear memoized getAutoMemPath so it picks up the new env var
+      getAutoMemPath.cache.clear?.();
 
       // Consume the query generator
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
@@ -263,6 +268,14 @@ export class AgentSessionManager {
       let currentToolCallId = ""; // Track current tool_use block ID for input_json_delta
 
       for await (const event of gen) {
+        // Restore per-user global state after each async yield (another user's
+        // chat() may have overwritten these while we were awaiting)
+        setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
+        process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = userMemoryPath;
+        getAutoMemPath.cache.clear?.();
+        process.env.ANTHROPIC_API_KEY = apiKey;
+        if (baseUrl) process.env.ANTHROPIC_BASE_URL = baseUrl;
+
         if (!onEvent) continue;
         const ev = event as any;
 
