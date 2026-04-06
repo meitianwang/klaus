@@ -1,9 +1,10 @@
-// Feature-gated tool stub — only loaded when feature() returns true
+// Feature-gated tool stub
+import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 export const WebBrowserTool = buildTool({
   name: 'WebBrowserTool',
-  async description() { return '' },
-  inputSchema: { type: 'object' } as any,
-  async call() { return { data: 'Feature not enabled' } },
-  userFacingName: () => 'WebBrowserTool',
+  inputSchema: z.object({}),
+  async prompt() { return '' },
+  async call() { return { data: 'Feature not available' } },
+  isEnabled: () => false,
 } as any)

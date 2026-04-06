@@ -1,8 +1,10 @@
+// Feature-gated tool stub
+import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 export const WorkflowTool = buildTool({
   name: 'WorkflowTool',
-  async description() { return '' },
-  inputSchema: { type: 'object' } as any,
-  async call() { return { data: 'Feature not enabled' } },
-  userFacingName: () => 'WorkflowTool',
+  inputSchema: z.object({}),
+  async prompt() { return '' },
+  async call() { return { data: 'Feature not available' } },
+  isEnabled: () => false,
 } as any)
