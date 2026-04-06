@@ -767,6 +767,12 @@ const TOOL_DEFAULTS = {
     Promise.resolve({ behavior: 'allow', updatedInput: input }),
   toAutoClassifierInput: (_input?: unknown) => '',
   userFacingName: (_input?: unknown) => '',
+  async prompt(this: any, _options?: unknown): Promise<string> {
+    if (typeof this.description === 'function') {
+      return this.description({})
+    }
+    return this.name ?? ''
+  },
 }
 
 // The defaults type is the ACTUAL shape of TOOL_DEFAULTS (optional params so
