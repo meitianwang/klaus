@@ -327,6 +327,22 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   max-width:720px;width:100%;margin:0 auto;padding:0 16px 20px;
   position:relative;z-index:5;
 }
+.slash-menu{
+  position:absolute;bottom:100%;left:16px;right:16px;
+  max-height:260px;overflow-y:auto;
+  background:var(--input-bg);border:1px solid var(--border);
+  border-radius:var(--radius-lg);box-shadow:0 4px 16px rgba(0,0,0,0.15);
+  padding:4px 0;margin-bottom:4px;
+}
+.slash-menu.hidden{display:none}
+.slash-menu-item{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;cursor:pointer;
+  transition:background var(--transition);
+}
+.slash-menu-item:hover,.slash-menu-item.active{background:var(--bg-hover)}
+.slash-menu-item-name{font-weight:500;color:var(--fg);font-size:14px}
+.slash-menu-item-desc{color:var(--fg-tertiary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #input-area{
   background:var(--input-bg);border:1px solid var(--border);
   border-radius:var(--radius-xl);padding:8px 12px;

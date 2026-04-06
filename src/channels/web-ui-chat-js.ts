@@ -208,6 +208,108 @@ export function getChatMainJs(): string {
     this.style.height = "auto";
     this.style.height = Math.min(this.scrollHeight, 200) + "px";
     updateBtn();
+    handleSlashMenu();
+  });
+
+  // --- Slash command autocomplete ---
+  var slashMenu = document.getElementById("slash-menu");
+  var slashSkillsCache = null;
+  var slashActiveIdx = -1;
+
+  async function fetchSkills() {
+    if (slashSkillsCache) return slashSkillsCache;
+    try {
+      var res = await fetch("/api/skills", { credentials: "same-origin" });
+      if (!res.ok) return [];
+      var data = await res.json();
+      slashSkillsCache = (data.skills || []).filter(function(s) { return s.userInvocable && s.userEnabled; });
+      return slashSkillsCache;
+    } catch(e) { return []; }
+  }
+
+  async function handleSlashMenu() {
+    var text = input.value;
+    if (!text.startsWith("/") || text.includes(" ") || text.includes("\\n")) {
+      hideSlashMenu();
+      return;
+    }
+    var query = text.slice(1).toLowerCase();
+    var skills = await fetchSkills();
+    var filtered = skills.filter(function(s) {
+      return s.name.toLowerCase().includes(query);
+    });
+    if (!filtered.length) { hideSlashMenu(); return; }
+    slashActiveIdx = 0;
+    renderSlashMenu(filtered);
+  }
+
+  function renderSlashMenu(items) {
+    slashMenu.innerHTML = "";
+    items.forEach(function(s, i) {
+      var el = document.createElement("div");
+      el.className = "slash-menu-item" + (i === slashActiveIdx ? " active" : "");
+      el.innerHTML = '<span class="slash-menu-item-name">/' + escHtml(s.name) + '</span>'
+        + (s.description ? '<span class="slash-menu-item-desc">' + escHtml(s.description) + '</span>' : '');
+      el.onmouseenter = function() {
+        slashActiveIdx = i;
+        slashMenu.querySelectorAll(".slash-menu-item").forEach(function(el2, j) {
+          el2.classList.toggle("active", j === i);
+        });
+      };
+      el.onclick = function(e) {
+        e.preventDefault();
+        selectSlashItem(s);
+      };
+      slashMenu.appendChild(el);
+    });
+    slashMenu.classList.remove("hidden");
+  }
+
+  function selectSlashItem(skill) {
+    input.value = "/" + skill.name + " ";
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    updateBtn();
+    hideSlashMenu();
+    input.focus();
+  }
+
+  function hideSlashMenu() {
+    slashMenu.classList.add("hidden");
+    slashMenu.innerHTML = "";
+    slashActiveIdx = -1;
+  }
+
+  input.addEventListener("keydown", function(e) {
+    if (slashMenu.classList.contains("hidden")) return;
+    var items = slashMenu.querySelectorAll(".slash-menu-item");
+    if (!items.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      slashActiveIdx = (slashActiveIdx + 1) % items.length;
+      items.forEach(function(el, j) { el.classList.toggle("active", j === slashActiveIdx); });
+      items[slashActiveIdx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      slashActiveIdx = (slashActiveIdx - 1 + items.length) % items.length;
+      items.forEach(function(el, j) { el.classList.toggle("active", j === slashActiveIdx); });
+      items[slashActiveIdx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+      if (slashActiveIdx >= 0 && slashActiveIdx < items.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        items[slashActiveIdx].click();
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      hideSlashMenu();
+    }
+  });
+
+  document.addEventListener("click", function(e) {
+    if (!slashMenu.contains(e.target) && e.target !== input) {
+      hideSlashMenu();
+    }
   });
 
   var ws = null;
@@ -331,7 +433,7 @@ export function getChatMainJs(): string {
         return;
       }
       if (data.type === "ping") return;
-      if (data.type === "config_updated") { showConfigNotification(); return; }
+      if (data.type === "config_updated") { slashSkillsCache = null; showConfigNotification(); return; }
       if (data.type === "channel_message") {
         loadSessionList();
         // If currently viewing this session, append the message directly

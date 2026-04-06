@@ -49,6 +49,7 @@ export function getChatBodyHtml(): string {
     </div>
     <div id="messages"></div>
     <div id="input-wrapper">
+      <div id="slash-menu" class="slash-menu hidden"></div>
       <div id="input-area">
         <div id="previews"></div>
         <div class="input-row">

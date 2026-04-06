@@ -152,6 +152,8 @@ export function getMessagesJs(): string {
   sendBtn.addEventListener("click", send);
   input.addEventListener("keydown", function(e) {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      var sm = document.getElementById("slash-menu");
+      if (sm && !sm.classList.contains("hidden")) return;
       e.preventDefault(); send();
     }
   });
