@@ -657,9 +657,6 @@ export class AgentSessionManager {
     // Build tools
     const tools = await this.buildTools(userId, apiKey);
 
-    // Git status snapshot (matches claude-code's getGitStatus in context.ts)
-    const gitStatus = await getGitStatusSnapshot(process.cwd());
-
     const disabledSkills = this.getDisabledSkills(userId);
     const systemPromptParts = await getSystemPrompt(
       tools,
@@ -675,9 +672,7 @@ export class AgentSessionManager {
     const userContext: { [k: string]: string } = {
       currentDate: `Today's date is ${new Date().toISOString().split("T")[0]}.`,
     };
-    const systemContext: { [k: string]: string } = {
-      ...(gitStatus && { gitStatus }),
-    };
+    const systemContext: { [k: string]: string } = {};
 
     // Skills are now managed by the engine's own skill system (loadSkillsDir + bundledSkills)
     // No manual skillDefinitions needed — SkillTool reads from getCommands() internally
@@ -815,43 +810,6 @@ function stripToolTags(text: string): string {
  * Git status snapshot — matches claude-code's getGitStatus() in context.ts.
  * Returns branch, main branch, user, status, recent commits.
  */
-async function getGitStatusSnapshot(cwd: string): Promise<string | null> {
-  const { execSync } = await import("node:child_process");
-  try {
-    execSync("git rev-parse --is-inside-work-tree", { cwd, stdio: "pipe" });
-  } catch {
-    return null;
-  }
-
-  const run = (args: string) => {
-    try {
-      return execSync(`git ${args}`, { cwd, stdio: "pipe", timeout: 5000 }).toString().trim();
-    } catch {
-      return "";
-    }
-  };
-
-  const branch = run("branch --show-current") || run("rev-parse --short HEAD");
-  const mainBranch = run("config init.defaultBranch") || "main";
-  const userName = run("config user.name");
-  const status = run("--no-optional-locks status --short");
-  const log = run("--no-optional-locks log --oneline -n 5");
-
-  const MAX_STATUS_CHARS = 2000;
-  const truncatedStatus = status.length > MAX_STATUS_CHARS
-    ? status.substring(0, MAX_STATUS_CHARS) + '\n... (truncated, run "git status" for full output)'
-    : status;
-
-  return [
-    "This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.",
-    `Current branch: ${branch}`,
-    `Main branch (you will usually use this for PRs): ${mainBranch}`,
-    ...(userName ? [`Git user: ${userName}`] : []),
-    `Status:\n${truncatedStatus || "(clean)"}`,
-    `Recent commits:\n${log}`,
-  ].join("\n\n");
-}
-
 function extractFinalText(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
