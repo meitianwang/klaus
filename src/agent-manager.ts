@@ -419,7 +419,8 @@ export class AgentSessionManager {
     const apiKey = apiKeyOverride ?? modelRecord?.apiKey;
 
     // Start with engine's built-in tools (BashTool, FileRead/Edit/Write, Glob, Grep, etc.)
-    const tools: any[] = [...getAllBaseTools()];
+    // Filter out disabled tools (stubs like TungstenTool, REPLTool etc.)
+    const tools: any[] = [...getAllBaseTools()].filter(t => t.isEnabled());
 
     // Add capability-registered legacy tools wrapped as engine tools
     const legacyCapTools = capabilities.buildTools();

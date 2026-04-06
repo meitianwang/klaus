@@ -21,7 +21,8 @@ export function zodToJsonSchema(schema: ZodTypeAny): JsonSchema7Type {
   let result: JsonSchema7Type
   try {
     result = toJSONSchema(schema) as JsonSchema7Type
-  } catch {
+  } catch (err) {
+    console.warn('[zodToJsonSchema] toJSONSchema failed, using fallback:', (err as Error)?.message)
     // Fallback for zod v3 schemas: use .shape if available
     const s = schema as any
     if (s?._def?.typeName === 'ZodObject' && s.shape) {
