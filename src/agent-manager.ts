@@ -168,10 +168,8 @@ export class AgentSessionManager {
       const userId = extractUserId(sessionKey);
 
       // Per-user global state values (will be restored before each async yield)
-      const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
       const userAdditionalDirs = [
         join(homedir(), '.klaus', 'users', userId),
-        join(projectRoot, 'builtin-skills'),
       ];
       const userMemoryPath = join(homedir(), '.klaus', 'users', userId, 'memory');
 

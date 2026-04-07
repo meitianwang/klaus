@@ -1388,15 +1388,12 @@ async function handleUserSkills(
       // Read skills from engine's command system
       const { getCommands, clearCommandsCache } = await import("../engine/commands.js");
       const { homedir } = await import("os");
-      const { join, dirname } = await import("path");
-      const { fileURLToPath } = await import("url");
+      const { join } = await import("path");
       const { readdir } = await import("node:fs/promises");
       const { setAdditionalDirectoriesForClaudeMd } = await import("../engine/bootstrap/state.js");
-      // Set additionalDirs so engine discovers builtin-skills and per-user skills
-      const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+      // Set additionalDirs so engine discovers per-user installed skills
       setAdditionalDirectoriesForClaudeMd([
         join(homedir(), '.klaus', 'users', auth.user.id),
-        join(projectRoot, 'builtin-skills'),
       ]);
       clearCommandsCache();
       const allCommands = await getCommands(join(homedir(), '.klaus'));
