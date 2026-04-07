@@ -8,7 +8,6 @@ import { GREP_TOOL_NAME } from '../../tools/GrepTool/prompt.js'
 import { LIST_MCP_RESOURCES_TOOL_NAME } from '../../tools/ListMcpResourcesTool/prompt.js'
 import { LSP_TOOL_NAME } from '../../tools/LSPTool/prompt.js'
 import { SEND_MESSAGE_TOOL_NAME } from '../../tools/SendMessageTool/constants.js'
-import { SLEEP_TOOL_NAME } from '../../tools/SleepTool/prompt.js'
 import { TASK_CREATE_TOOL_NAME } from '../../tools/TaskCreateTool/constants.js'
 import { TASK_GET_TOOL_NAME } from '../../tools/TaskGetTool/constants.js'
 import { TASK_LIST_TOOL_NAME } from '../../tools/TaskListTool/constants.js'
@@ -24,16 +23,6 @@ import { YOLO_CLASSIFIER_TOOL_NAME } from './yoloClassifier.js'
 // Ant-only tool names: conditional require so Bun can DCE these in external builds.
 // Gates mirror tools.ts. Keeps the tool name strings out of cli.js.
 /* eslint-disable @typescript-eslint/no-require-imports */
-const TERMINAL_CAPTURE_TOOL_NAME = feature('TERMINAL_PANEL')
-  ? (
-      require('../../tools/TerminalCaptureTool/prompt.js') as typeof import('../../tools/TerminalCaptureTool/prompt.js')
-    ).TERMINAL_CAPTURE_TOOL_NAME
-  : null
-const OVERFLOW_TEST_TOOL_NAME = feature('OVERFLOW_TEST_TOOL')
-  ? (
-      require('../../tools/OverflowTestTool/OverflowTestTool.js') as typeof import('../../tools/OverflowTestTool/OverflowTestTool.js')
-    ).OVERFLOW_TEST_TOOL_NAME
-  : null
 const VERIFY_PLAN_EXECUTION_TOOL_NAME =
   process.env.USER_TYPE === 'ant'
     ? (
@@ -84,10 +73,6 @@ const SAFE_YOLO_ALLOWLISTED_TOOLS = new Set([
   // Workflow orchestration — subagents go through canUseTool individually
   ...(WORKFLOW_TOOL_NAME ? [WORKFLOW_TOOL_NAME] : []),
   // Misc safe
-  SLEEP_TOOL_NAME,
-  // Ant-only safe tools (gates mirror tools.ts)
-  ...(TERMINAL_CAPTURE_TOOL_NAME ? [TERMINAL_CAPTURE_TOOL_NAME] : []),
-  ...(OVERFLOW_TEST_TOOL_NAME ? [OVERFLOW_TEST_TOOL_NAME] : []),
   ...(VERIFY_PLAN_EXECUTION_TOOL_NAME ? [VERIFY_PLAN_EXECUTION_TOOL_NAME] : []),
   // Internal classifier tool
   YOLO_CLASSIFIER_TOOL_NAME,
