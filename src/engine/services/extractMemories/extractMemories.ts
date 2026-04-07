@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /**
  * Extracts durable memories from the current session transcript
  * and writes them to the auto-memory directory (~/.claude/projects/<path>/memory/).

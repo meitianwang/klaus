@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import type {
   ToolResultBlockParam,

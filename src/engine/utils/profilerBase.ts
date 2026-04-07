@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /**
  * Shared infrastructure for profiler modules (startupProfiler, queryProfiler,
  * headlessProfiler). All three use the same perf_hooks timeline and the same

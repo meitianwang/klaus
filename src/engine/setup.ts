@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /* eslint-disable custom-rules/no-process-exit */
 
 import { feature } from 'bun:bundle'

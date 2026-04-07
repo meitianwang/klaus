@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 import type * as https from 'https'
 import { Agent as HttpsAgent } from 'https'
 import memoize from 'lodash-es/memoize.js'

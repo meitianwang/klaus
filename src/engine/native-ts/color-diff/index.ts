@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /**
  * Pure TypeScript port of vendor/color-diff-src.
  *

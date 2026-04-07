@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 export const PRODUCT_URL = 'https://claude.com/claude-code'
 
 // Claude Code Remote session URLs

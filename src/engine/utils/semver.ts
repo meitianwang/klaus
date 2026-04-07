@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /**
  * Semver comparison utilities that use Bun.semver when available
  * and fall back to the npm `semver` package in Node.js environments.

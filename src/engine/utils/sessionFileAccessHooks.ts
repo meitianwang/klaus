@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 /**
  * Session file access analytics hooks.
  * Tracks access to session memory and transcript files via Read, Grep, Glob tools.

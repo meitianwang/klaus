@@ -1,4 +1,3 @@
-import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import axios from 'axios'
 import { execa } from 'execa'
