@@ -105,11 +105,13 @@ export class AgentSessionManager {
   constructor(store: SettingsStore) {
     this.store = store;
     this.maxSessions = store.getNumber("max_sessions", 20);
-    // Initialize engine state
-    const cwd = process.cwd();
-    setOriginalCwd(cwd);
-    setCwdState(cwd);
-    setProjectRoot(cwd);
+    // Initialize engine state — use ~/.klaus as project root so the engine
+    // does NOT scan the Klaus source tree's .claude/skills/ (those are dev
+    // tools, not user-facing skills).
+    const klausHome = join(homedir(), '.klaus');
+    setOriginalCwd(klausHome);
+    setCwdState(klausHome);
+    setProjectRoot(klausHome);
     // Enable engine config reading (must be called before any getGlobalConfig)
     enableConfigs();
     // Initialize engine bundled skills (remember, verify, simplify, etc.)
