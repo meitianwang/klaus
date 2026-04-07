@@ -120,18 +120,12 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   ]
 })
 
-// Klaus extension: external command filter (e.g., per-user skill enable/disable)
-let _commandFilter: ((cmd: Command) => boolean) | null = null
-export function setCommandFilter(filter: ((cmd: Command) => boolean) | null): void {
-  _commandFilter = filter
-}
-
 export async function getCommands(cwd: string): Promise<Command[]> {
   const allCommands = await loadAllCommands(cwd)
   const dynamicSkills = getDynamicSkills()
 
   const baseCommands = allCommands.filter(
-    _ => meetsAvailabilityRequirement(_) && isCommandEnabled(_) && (!_commandFilter || _commandFilter(_)),
+    _ => meetsAvailabilityRequirement(_) && isCommandEnabled(_),
   )
 
   if (dynamicSkills.length === 0) {

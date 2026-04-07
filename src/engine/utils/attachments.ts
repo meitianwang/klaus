@@ -2684,6 +2684,13 @@ async function getSkillListingAttachments(
       ? uniqBy([...localCommands, ...mcpSkills], 'name')
       : localCommands
 
+  // Klaus: filter out per-user disabled skills so they don't appear in the
+  // skill_listing system-reminder sent to the model.
+  const disabledSkills = (toolUseContext as any).disabledSkills as Set<string> | undefined
+  if (disabledSkills?.size) {
+    allCommands = allCommands.filter(cmd => !disabledSkills.has(cmd.name))
+  }
+
   // When skill search is active, filter to bundled + MCP instead of full
   // suppression. Resolves the turn-0 gap: main thread gets turn-0 discovery
   // via getTurnZeroSkillDiscovery (blocking), but subagents use the async

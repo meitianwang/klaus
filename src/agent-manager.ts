@@ -95,12 +95,29 @@ interface SessionEntry {
 // AgentSessionManager
 // ============================================================================
 
+// Mutex for serializing per-user skill state operations.
+// The engine stores additionalDirs in a global singleton — concurrent requests
+// can overwrite each other's state between setAdditionalDirs → getCommands.
+// This lock ensures the whole sequence (set dirs → clear cache → build config
+// → collect attachments) runs atomically per request.
+class SkillStateMutex {
+  private pending: Promise<void> = Promise.resolve();
+  acquire(): Promise<() => void> {
+    let release!: () => void;
+    const next = new Promise<void>(resolve => { release = resolve; });
+    const prev = this.pending;
+    this.pending = next;
+    return prev.then(() => release);
+  }
+}
+
 export class AgentSessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly store: SettingsStore;
   private readonly maxSessions: number;
   private mcpManager: MCPManager | null = null;
   private messageStore: MessageStore | null = null;
+  private readonly skillMutex = new SkillStateMutex();
 
   constructor(store: SettingsStore) {
     this.store = store;
@@ -175,16 +192,54 @@ export class AgentSessionManager {
       ];
       const userMemoryPath = join(homedir(), '.klaus', 'users', userId, 'memory');
 
-      // Set per-user skill directory so engine scans user's skills
-      const { setAdditionalDirectoriesForClaudeMd } = await import("./engine/bootstrap/state.js");
-      setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
-      // Clear skill cache (user's skill directory may differ)
-      const { clearCommandsCache } = await import("./engine/commands.js");
-      clearCommandsCache();
+      // Acquire skill mutex — serializes the global-state-dependent sequence:
+      // setAdditionalDirs → clearCache → buildQueryConfig → getAttachmentMessages.
+      // Without this, concurrent users can overwrite each other's additionalDirs.
+      const releaseSkillLock = await this.skillMutex.acquire();
+      let systemPrompt, userContext, systemContext, apiKey: string, baseUrl: string | undefined,
+        model: string, fallbackModel: string | undefined, maxContextTokens: number,
+        thinkingConfig: ThinkingConfig, tools: any[], toolSchemas: any[];
+      let toolUseContext: ToolUseContext;
+      let attachmentMessages: Message[];
+      try {
+        // Set per-user skill directory so engine scans user's skills
+        const { setAdditionalDirectoriesForClaudeMd } = await import("./engine/bootstrap/state.js");
+        setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
+        // Clear skill cache (user's skill directory may differ)
+        const { clearCommandsCache } = await import("./engine/commands.js");
+        clearCommandsCache();
 
-      // Build query params
-      const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
-        await this.buildQueryConfig(sessionKey);
+        // Build query params (reads getCommands → depends on additionalDirs)
+        ({ systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
+          await this.buildQueryConfig(sessionKey));
+
+        // Set API credentials for the engine's getAnthropicClient()
+        process.env.ANTHROPIC_API_KEY = apiKey;
+        if (baseUrl) {
+          process.env.ANTHROPIC_BASE_URL = baseUrl;
+        }
+
+        // Build ToolUseContext
+        toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
+
+        // Collect attachment messages (skill_listing etc. — reads getSkillToolCommands)
+        const { getAttachmentMessages } = await import("./engine/utils/attachments.js");
+        const { toArray } = await import("./engine/utils/generators.js");
+        attachmentMessages = await toArray(
+          getAttachmentMessages(
+            text,
+            toolUseContext as any,
+            null,
+            [],
+            session.messages,
+            "repl_main_thread" as any,
+          ),
+        ) as Message[];
+      } finally {
+        releaseSkillLock();
+      }
+
+      // --- Below here no longer depends on global additionalDirs state ---
 
       // Inject user context as first message (matches claude-code's prependUserContext)
       if (userContext.claudeMd && session.messages.length === 0) {
@@ -210,33 +265,9 @@ export class AgentSessionManager {
       } as Message;
       session.messages.push(userMessage);
 
-      // Set API credentials for the engine's getAnthropicClient()
-      process.env.ANTHROPIC_API_KEY = apiKey;
-      if (baseUrl) {
-        process.env.ANTHROPIC_BASE_URL = baseUrl;
-      }
-
-      // Build ToolUseContext
-      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
-
-      // Inject attachment messages (skill_listing, etc.) that processUserInput
-      // would normally add. Klaus bypasses processUserInput, so we must inject
-      // them manually before query() runs, otherwise the model never sees the
-      // available skills list in its first turn.
-      const { getAttachmentMessages } = await import("./engine/utils/attachments.js");
-      const { toArray } = await import("./engine/utils/generators.js");
-      const attachmentMessages = await toArray(
-        getAttachmentMessages(
-          text,
-          toolUseContext as any,
-          null,
-          [],
-          session.messages,
-          "repl_main_thread" as any,
-        ),
-      );
+      // Inject attachment messages after user message
       for (const attachMsg of attachmentMessages) {
-        session.messages.push(attachMsg as Message);
+        session.messages.push(attachMsg);
       }
 
       // Auto-approve all tools (Klaus uses bypassPermissions mode)
