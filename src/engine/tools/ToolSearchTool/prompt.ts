@@ -12,12 +12,6 @@ const BRIEF_TOOL_NAME: string | null =
         require('../BriefTool/prompt.js') as typeof import('../BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
     : null
-const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
-  ? (
-      require('../SendUserFileTool/prompt.js') as typeof import('../SendUserFileTool/prompt.js')
-    ).SEND_USER_FILE_TOOL_NAME
-  : null
-
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 export { TOOL_SEARCH_TOOL_NAME } from './constants.js'
@@ -89,17 +83,6 @@ export function isDeferredTool(tool: Tool): boolean {
     (feature('KAIROS') || feature('KAIROS_BRIEF')) &&
     BRIEF_TOOL_NAME &&
     tool.name === BRIEF_TOOL_NAME
-  ) {
-    return false
-  }
-
-  // SendUserFile is a file-delivery communication channel (sibling of Brief).
-  // Must be immediately available without a ToolSearch round-trip.
-  if (
-    feature('KAIROS') &&
-    SEND_USER_FILE_TOOL_NAME &&
-    tool.name === SEND_USER_FILE_TOOL_NAME &&
-    isReplBridgeActive()
   ) {
     return false
   }
