@@ -119,7 +119,10 @@ async function start(): Promise<void> {
       ? gateway.createAgentEventForwarder(webSession)
       : undefined;
 
-    return await agentManager.chat(msg.sessionKey, msg.text, onEvent);
+    const sendWs = webSession
+      ? gateway.sendEvent.bind(gateway)
+      : undefined;
+    return await agentManager.chat(msg.sessionKey, msg.text, onEvent, sendWs);
   };
 
   // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ export type CronSchedulerLike = {
 export type GatewaySettingsSnapshot = {
   readonly max_sessions: number;
   readonly yolo: boolean;
+  readonly permission_mode: string;
   readonly web: {
     readonly session_max_age_days: number;
   };

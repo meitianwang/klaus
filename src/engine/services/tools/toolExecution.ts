@@ -411,6 +411,7 @@ export async function* runToolUse(
   }
 
   const toolInput = toolUse.input as { [key: string]: string }
+  console.log(`[ToolExec] ${tool.name} starting, input keys: ${Object.keys(toolInput).join(',')}, aborted: ${toolUseContext.abortController.signal.aborted}`)
   try {
     if (toolUseContext.abortController.signal.aborted) {
       logEvent('tengu_tool_use_cancelled', {
@@ -561,6 +562,7 @@ function streamedCheckPermissionsAndCallTool(
       }
     })
     .catch(error => {
+      console.error(`[ToolExec] ${tool.name} checkPermissionsAndCallTool THREW:`, error)
       stream.error(error)
     })
     .finally(() => {
@@ -612,9 +614,11 @@ async function checkPermissionsAndCallTool(
   ) => void,
 ): Promise<MessageUpdateLazy[]> {
   // Validate input types with zod (surprisingly, the model is not great at generating valid input)
+  console.log(`[ToolExec] ${tool.name} validating input...`)
   const parsedInput = tool.inputSchema.safeParse(input)
   if (!parsedInput.success) {
     let errorContent = formatZodValidationError(tool.name, parsedInput.error)
+    console.log(`[ToolExec] ${tool.name} input validation FAILED: ${errorContent.slice(0, 200)}`)
 
     const schemaHint = buildSchemaNotSentHint(
       tool,
@@ -679,12 +683,14 @@ async function checkPermissionsAndCallTool(
     ]
   }
 
+  console.log(`[ToolExec] ${tool.name} zod parse OK, running validateInput...`)
   // Validate input values. Each tool has its own validation logic
   const isValidCall = await tool.validateInput?.(
     parsedInput.data,
     toolUseContext,
   )
   if (isValidCall?.result === false) {
+    console.log(`[ToolExec] ${tool.name} validateInput FAILED: ${isValidCall.message?.slice(0, 200)}`)
     logForDebugging(
       `${tool.name} tool validation error: ${isValidCall.message?.slice(0, 200)}`,
     )
@@ -792,6 +798,7 @@ async function checkPermissionsAndCallTool(
     processedInput = backfilledClone
   }
 
+  console.log(`[ToolExec] ${tool.name} validateInput OK, running pre-tool hooks...`)
   let shouldPreventContinuation = false
   let stopReason: string | undefined
   let hookPermissionResult: PermissionResult | undefined
@@ -837,6 +844,7 @@ async function checkPermissionsAndCallTool(
         processedInput = result.updatedInput
         break
       case 'preventContinuation':
+        console.log(`[ToolExec] ${tool.name} preventContinuation=${result.shouldPreventContinuation}`)
         shouldPreventContinuation = result.shouldPreventContinuation
         break
       case 'stopReason':
@@ -846,6 +854,7 @@ async function checkPermissionsAndCallTool(
         resultingMessages.push(result.message)
         break
       case 'stop':
+        console.log(`[ToolExec] ${tool.name} STOPPED by pre-tool hook: ${stopReason}`)
         getStatsStore()?.observe(
           'pre_tool_hook_duration_ms',
           Date.now() - preToolHookStart,
@@ -915,6 +924,7 @@ async function checkPermissionsAndCallTool(
 
   // Check whether we have permission to use the tool,
   // and ask the user for permission if we don't
+  console.log(`[ToolExec] ${tool.name} passed validation+hooks, now checking permissions...`)
   const permissionMode = toolUseContext.getAppState().toolPermissionContext.mode
   const permissionStart = Date.now()
 

@@ -23,6 +23,7 @@ function buildSettingsSnapshot(settingsStore: SettingsStore): GatewaySettingsSna
   return {
     max_sessions: settingsStore.getNumber("max_sessions", 20),
     yolo: settingsStore.getBool("yolo", true),
+    permission_mode: settingsStore.get("permission_mode") ?? "default",
     web: {
       session_max_age_days: settingsStore.getNumber("web.session_max_age_days", 7),
     },
@@ -177,6 +178,13 @@ export function updateGatewayAdminSettings(params: {
   }
   if ("yolo" in params.input) {
     params.settingsStore.set("yolo", String(Boolean(params.input.yolo)));
+  }
+  if ("permission_mode" in params.input) {
+    const mode = String(params.input.permission_mode);
+    const validModes = ["default", "plan", "acceptEdits", "bypassPermissions"];
+    if (validModes.includes(mode)) {
+      params.settingsStore.set("permission_mode", mode);
+    }
   }
   if ("web" in params.input && typeof params.input.web === "object" && params.input.web) {
     const web = params.input.web as Record<string, unknown>;

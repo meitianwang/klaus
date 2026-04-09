@@ -475,6 +475,11 @@ export function getChatMainJs(): string {
         }
         return;
       }
+      if (data.type === "permission_request") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        showPermissionDialog(data);
+        return;
+      }
       if (data.sessionId && data.sessionId !== currentSessionId) return;
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }
@@ -496,6 +501,96 @@ export function getChatMainJs(): string {
     };
   }
   connectWs();
+
+  // ---------------------------------------------------------------------------
+  // Permission approval dialog
+  // ---------------------------------------------------------------------------
+
+  var pendingPermissions = new Map(); // requestId → element
+
+  function showPermissionDialog(data) {
+    var container = getOrCreateToolContainer();
+    var card = document.createElement("div");
+    card.className = "permission-card";
+    card.id = "perm-" + data.requestId;
+
+    // Tool name display
+    var toolName = data.toolName || "Unknown";
+    var headerHtml = '<div class="permission-header">'
+      + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+      + '<span class="permission-title">' + escHtml(toolName) + '</span>'
+      + '</div>';
+
+    // Message
+    var msgHtml = '<div class="permission-message">' + escHtml(data.message || "This tool requires your approval.") + '</div>';
+
+    // Input preview (collapsible)
+    var inputHtml = '';
+    if (data.toolInput && Object.keys(data.toolInput).length > 0) {
+      var inputStr = JSON.stringify(data.toolInput, null, 2);
+      if (inputStr.length > 500) inputStr = inputStr.slice(0, 500) + "\\n...";
+      inputHtml = '<details class="permission-input-details"><summary>' + tt("show_input") + '</summary>'
+        + '<pre class="permission-input-preview">' + escHtml(inputStr) + '</pre></details>';
+    }
+
+    // Buttons
+    var actionsHtml = '<div class="permission-actions">'
+      + '<button class="permission-btn permission-btn-allow">' + tt("allow") + '</button>'
+      + '<button class="permission-btn permission-btn-deny">' + tt("deny") + '</button>'
+      + '</div>';
+
+    // Timer
+    var timerHtml = '<div class="permission-timer"><span class="permission-timer-text">120s</span></div>';
+
+    card.innerHTML = headerHtml + msgHtml + inputHtml + actionsHtml + timerHtml;
+    container.appendChild(card);
+    scrollBottom();
+
+    var requestId = data.requestId;
+    var timerSpan = card.querySelector(".permission-timer-text");
+    var remaining = 120;
+    var countdown = setInterval(function() {
+      remaining--;
+      if (timerSpan) timerSpan.textContent = remaining + "s";
+      if (remaining <= 0) {
+        clearInterval(countdown);
+        resolvePermission(requestId, "deny");
+      }
+    }, 1000);
+
+    pendingPermissions.set(requestId, { card: card, countdown: countdown });
+
+    // Button handlers
+    var allowBtn = card.querySelector(".permission-btn-allow");
+    var denyBtn = card.querySelector(".permission-btn-deny");
+    if (allowBtn) allowBtn.onclick = function() { resolvePermission(requestId, "allow"); };
+    if (denyBtn) denyBtn.onclick = function() { resolvePermission(requestId, "deny"); };
+  }
+
+  function resolvePermission(requestId, decision) {
+    var entry = pendingPermissions.get(requestId);
+    if (!entry) return;
+    clearInterval(entry.countdown);
+    pendingPermissions.delete(requestId);
+
+    // Send response to server
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "permission_response", requestId: requestId, decision: decision }));
+    }
+
+    // Update card UI
+    var card = entry.card;
+    var actions = card.querySelector(".permission-actions");
+    var timer = card.querySelector(".permission-timer");
+    if (actions) actions.remove();
+    if (timer) timer.remove();
+
+    var badge = document.createElement("div");
+    badge.className = "permission-result " + (decision === "allow" ? "permission-allowed" : "permission-denied");
+    badge.textContent = decision === "allow" ? (tt("allowed") || "Allowed") : (tt("denied") || "Denied");
+    card.appendChild(badge);
+    card.classList.add("permission-resolved");
+  }
 
 `;
 }

@@ -87,6 +87,7 @@ import {
   type WsEvent,
 } from "../gateway/protocol.js";
 import { gatewayErrorStatusCode } from "../gateway/errors.js";
+import { permissionManager } from "../permission-manager.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -560,7 +561,8 @@ type ClientWsMessage =
       method: string;
       params?: Record<string, unknown>;
     }
-  | { type: "pong" };
+  | { type: "pong" }
+  | { type: "permission_response"; requestId: string; decision: "allow" | "deny" };
 
 function handleWsMessage(
   ws: KlausWebSocket,
@@ -644,6 +646,10 @@ function handleWsMessage(
           }),
         );
       });
+      break;
+    }
+    case "permission_response": {
+      permissionManager.handleResponse(parsed.requestId, parsed.decision);
       break;
     }
     default:
@@ -1510,6 +1516,7 @@ async function handleUserSettings(
     jsonResponse(res, 200, {
       language: settingsStoreRef.getUserLanguage(userId),
       output_style: settingsStoreRef.getUserOutputStyle(userId),
+      permission_mode: settingsStoreRef.getUserPermissionMode(userId),
     });
     return;
   }
@@ -1523,9 +1530,16 @@ async function handleUserSettings(
       if (typeof parsed.output_style === "string") {
         settingsStoreRef.setUserOutputStyle(userId, parsed.output_style);
       }
+      if (typeof parsed.permission_mode === "string") {
+        const validModes = ["default", "plan", "acceptEdits", "bypassPermissions"];
+        if (validModes.includes(parsed.permission_mode)) {
+          settingsStoreRef.setUserPermissionMode(userId, parsed.permission_mode);
+        }
+      }
       jsonResponse(res, 200, {
         language: settingsStoreRef.getUserLanguage(userId),
         output_style: settingsStoreRef.getUserOutputStyle(userId),
+        permission_mode: settingsStoreRef.getUserPermissionMode(userId),
       });
     } catch (err) {
       gatewayErrorResponse(res, err);
@@ -3140,6 +3154,8 @@ export const webPlugin: ChannelPlugin = {
 
         ws.on("close", () => {
           gateway.unregisterClient(user.id, ws);
+          // Deny any pending permission requests for this user
+          permissionManager.cancelForUser(user.id);
           console.log(`[Web] WebSocket disconnected: ${userLabel(user)}`);
         });
 

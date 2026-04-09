@@ -135,6 +135,51 @@ export function getChatBodyHtml(): string {
                 </div>
               </div>
             </div>
+
+            <div class="settings-section">
+              <div class="settings-section-title" data-i18n="settings_permission_mode">Permission Mode</div>
+              <div class="settings-field">
+                <label class="settings-field-label" data-i18n="settings_permission_mode_desc">Choose when tool execution requires your approval</label>
+                <div class="settings-permission-options" id="settings-permission-options">
+                  <div class="settings-perm-card" data-perm="default">
+                    <div class="settings-perm-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div class="settings-perm-info">
+                      <div class="settings-perm-label" data-i18n="settings_perm_default">Default</div>
+                      <div class="settings-perm-desc" data-i18n="settings_perm_default_desc">Ask permission for potentially risky operations</div>
+                    </div>
+                  </div>
+                  <div class="settings-perm-card" data-perm="plan">
+                    <div class="settings-perm-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </div>
+                    <div class="settings-perm-info">
+                      <div class="settings-perm-label" data-i18n="settings_perm_plan">Plan Mode</div>
+                      <div class="settings-perm-desc" data-i18n="settings_perm_plan_desc">Review and approve plans before any execution</div>
+                    </div>
+                  </div>
+                  <div class="settings-perm-card" data-perm="acceptEdits">
+                    <div class="settings-perm-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </div>
+                    <div class="settings-perm-info">
+                      <div class="settings-perm-label" data-i18n="settings_perm_accept_edits">Accept Edits</div>
+                      <div class="settings-perm-desc" data-i18n="settings_perm_accept_edits_desc">Auto-approve file edits, ask for other operations</div>
+                    </div>
+                  </div>
+                  <div class="settings-perm-card" data-perm="bypassPermissions">
+                    <div class="settings-perm-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    </div>
+                    <div class="settings-perm-info">
+                      <div class="settings-perm-label" data-i18n="settings_perm_bypass">YOLO Mode</div>
+                      <div class="settings-perm-desc" data-i18n="settings_perm_bypass_desc">Auto-approve all tools, no approval required</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Channels tab -->

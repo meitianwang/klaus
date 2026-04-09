@@ -296,19 +296,10 @@ export function isToolSearchEnabledOptimistic(): boolean {
   // means the user is explicitly configuring tool search and asserts their
   // setup supports it. The falsy check (rather than === undefined) aligns
   // with getToolSearchMode(), which also treats "" as unset.
-  if (
-    !process.env.ENABLE_TOOL_SEARCH &&
-    getAPIProvider() === 'firstParty' &&
-    !isFirstPartyAnthropicBaseUrl()
-  ) {
-    if (!loggedOptimistic) {
-      loggedOptimistic = true
-      logForDebugging(
-        `[ToolSearch:optimistic] disabled: ANTHROPIC_BASE_URL=${process.env.ANTHROPIC_BASE_URL} is not a first-party Anthropic host. Set ENABLE_TOOL_SEARCH=true (or auto / auto:N) if your proxy forwards tool_reference blocks.`,
-      )
-    }
-    return false
-  }
+  // Klaus: always enable tool search regardless of base URL — third-party
+  // providers (kimi-code etc.) are managed at the application level.
+  // Original claude-code disables this for non-first-party proxies that may
+  // not support tool_reference blocks, but Klaus handles this differently.
 
   if (!loggedOptimistic) {
     loggedOptimistic = true

@@ -67,6 +67,14 @@ export type WsEvent =
       readonly stagedSpans: number;
       readonly totalErrors: number;
       readonly sessionId?: string;
+    }
+  | {
+      readonly type: "permission_request";
+      readonly requestId: string;
+      readonly toolName: string;
+      readonly toolInput: Record<string, unknown>;
+      readonly message: string;
+      readonly sessionId?: string;
     };
 
 export type GatewayRpcResponseEnvelope = {

@@ -115,6 +115,39 @@ export function getSettingsJs(): string {
     avatarInput.value = "";
   });
 
+  // Permission Mode
+  var permOptionsEl = document.getElementById("settings-permission-options");
+  function loadUserPermissionMode() {
+    fetch("/api/user/settings", { credentials: "same-origin" })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var mode = d.permission_mode || "default";
+        permOptionsEl.querySelectorAll(".settings-perm-card").forEach(function(c) {
+          c.classList.toggle("active", c.getAttribute("data-perm") === mode);
+        });
+      }).catch(function() {});
+  }
+  loadUserPermissionMode();
+  permOptionsEl.addEventListener("click", function(e) {
+    var card = e.target.closest(".settings-perm-card");
+    if (!card) return;
+    var mode = card.getAttribute("data-perm");
+    permOptionsEl.querySelectorAll(".settings-perm-card").forEach(function(c) {
+      c.classList.toggle("active", c.getAttribute("data-perm") === mode);
+    });
+    fetch("/api/user/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ permission_mode: mode }),
+    }).then(function(r) {
+      if (!r.ok) throw new Error();
+      var status = document.getElementById("settings-save-status");
+      status.textContent = tt("settings_saved") || "Saved";
+      setTimeout(function() { status.textContent = ""; }, 2000);
+    }).catch(function() {});
+  });
+
   // Theme
   document.getElementById("settings-theme-options").addEventListener("click", function(e) {
     var card = e.target.closest(".settings-theme-card");

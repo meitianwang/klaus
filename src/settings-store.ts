@@ -266,6 +266,14 @@ export class SettingsStore {
     this.set(`user.${userId}.output_style`, style);
   }
 
+  getUserPermissionMode(userId: string): string | undefined {
+    return this.get(`user.${userId}.permission_mode`) || undefined;
+  }
+
+  setUserPermissionMode(userId: string, mode: string): void {
+    this.set(`user.${userId}.permission_mode`, mode);
+  }
+
   // -----------------------------------------------------------------------
   // Models CRUD
   // -----------------------------------------------------------------------

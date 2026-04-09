@@ -1580,15 +1580,11 @@ function getHooksConfig(
  * See hasInstructionsLoadedHook / hasWorktreeCreateHook for the same pattern.
  */
 function hasHookForEvent(
-  hookEvent: HookEvent,
-  appState: AppState | undefined,
-  sessionId: string,
+  _hookEvent: HookEvent,
+  _appState: AppState | undefined,
+  _sessionId: string,
 ): boolean {
-  const snap = getHooksConfigFromSnapshot()?.[hookEvent]
-  if (snap && snap.length > 0) return true
-  const reg = getRegisteredHooks()?.[hookEvent]
-  if (reg && reg.length > 0) return true
-  if (appState?.sessionHooks.get(sessionId)?.hooks[hookEvent]) return true
+  // Klaus: CLI hooks disabled — permission approval uses WebSocket dialogs
   return false
 }
 

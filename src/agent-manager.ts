@@ -38,6 +38,7 @@ import { MessageQueueManager } from "./engine/services/messageQueue.js";
 import type { MessageStore } from "./message-store.js";
 import { createContentReplacementState } from "./engine/utils/toolResultStorage.js";
 import type { ContentReplacementState } from "./engine/utils/toolResultStorage.js";
+import { parseWebSessionKey } from "./gateway/protocol.js";
 
 // Engine imports
 import {
@@ -153,6 +154,7 @@ export class AgentSessionManager {
         console.log(`[Skills] ${bs.getBundledSkills().length} bundled skill(s) registered`);
       });
     }).catch(err => console.error("[Skills] Failed to init bundled skills:", err));
+    // CLI hooks disabled at engine level (hasHookForEvent → false)
     // Seed default prompt sections from engine hardcoded content
     this.seedPromptSections();
   }
@@ -266,6 +268,7 @@ export class AgentSessionManager {
     sessionKey: string,
     text: string,
     onEvent?: EngineEventCallback,
+    sendEvent?: (userId: string, event: import("./gateway/protocol.js").WsEvent) => void,
   ): Promise<string | null> {
     const session = await this.getOrCreate(sessionKey);
     session.isRunning = true;
@@ -368,8 +371,8 @@ export class AgentSessionManager {
         session.messages.push(attachMsg);
       }
 
-      // Auto-approve all tools (Klaus uses bypassPermissions mode)
-      const canUseTool: CanUseToolFn = async (_tool, input) => {
+      // Permission check: use engine's permission system + WebSocket approval
+      const canUseTool: CanUseToolFn = async (_tool, input, _toolUseContext, assistantMessage, toolUseID) => {
         // Loop detection
         const loopResult = session.loopDetector.check({
           toolName: _tool.name,
@@ -379,7 +382,53 @@ export class AgentSessionManager {
         if (loopResult?.block) {
           return { behavior: "deny" as const, message: loopResult.reason ?? "Loop detected", decisionReason: { type: "other" as const, reason: loopResult.reason ?? "Loop detected" } };
         }
-        return { behavior: "allow" as const, updatedInput: input };
+
+        // In bypassPermissions mode, skip all permission checks
+        const currentMode = toolUseContext.getAppState().toolPermissionContext.mode;
+        if (currentMode === "bypassPermissions") {
+          return { behavior: "allow" as const, updatedInput: input };
+        }
+
+        // Determine permission via tool's own checkPermissions (lightweight, no classifier)
+        try {
+          const parsedInput = _tool.inputSchema.parse(input);
+          const checkResult = await _tool.checkPermissions(parsedInput, toolUseContext);
+          console.log(`[Permission] ${_tool.name}: checkPermissions → ${checkResult.behavior} (mode=${currentMode})`);
+          if (checkResult.behavior === "allow") {
+            return { behavior: "allow" as const, updatedInput: input, decisionReason: checkResult.decisionReason };
+          }
+          if (checkResult.behavior === "deny") {
+            return { behavior: "deny" as const, message: (checkResult as any).message, decisionReason: checkResult.decisionReason };
+          }
+          // "ask" or "passthrough" → fall through to WebSocket approval
+        } catch (err) {
+          console.warn(`[Permission] checkPermissions error for ${_tool.name}:`, err);
+          // On error, fall through to ask the user
+        }
+
+        // behavior === "ask": send WebSocket request to user for approval
+        const parsed = parseWebSessionKey(sessionKey);
+        if (!parsed || !sendEvent) {
+          return { behavior: "deny" as const, message: "Permission required but no interactive channel available", decisionReason: { type: "other" as const, reason: "non-interactive" } };
+        }
+
+        const { createPermissionRequestMessage } = await import("./engine/utils/permissions/permissions.js");
+        const { permissionManager } = await import("./permission-manager.js");
+        const message = createPermissionRequestMessage(_tool.name);
+        console.log(`[Permission] Asking user for ${_tool.name} (mode=${currentMode})`);
+        const decision = await permissionManager.requestPermission({
+          userId: parsed.userId,
+          sessionId: parsed.sessionId,
+          toolName: _tool.name,
+          toolInput: input as Record<string, unknown>,
+          message,
+          sendEvent,
+        });
+
+        if (decision === "allow") {
+          return { behavior: "allow" as const, updatedInput: input };
+        }
+        return { behavior: "deny" as const, message: "User denied permission", decisionReason: { type: "other" as const, reason: "user_rejected" } };
       };
 
       const queryParams: QueryParams = {
@@ -891,12 +940,20 @@ export class AgentSessionManager {
     apiKey?: string,
     baseURL?: string,
   ): ToolUseContext {
+    // Per-user permission mode takes precedence over global setting
+    const userId = extractUserId(sessionKey);
+    const permissionMode = (
+      this.store.getUserPermissionMode(userId)
+      ?? this.store.get("permission_mode")
+      ?? "default"
+    ) as ToolPermissionContext["mode"];
+    const isBypass = permissionMode === "bypassPermissions";
     const appState = {
       toolPermissionContext: {
         ...getEmptyToolPermissionContext(),
-        mode: 'bypassPermissions' as const,
+        mode: permissionMode,
         isBypassPermissionsModeAvailable: true,
-        shouldAvoidPermissionPrompts: true,
+        shouldAvoidPermissionPrompts: isBypass,
       },
       skills: [], // Engine manages skills via getCommands() internally
       mcp: {
@@ -921,9 +978,12 @@ export class AgentSessionManager {
         thinkingConfig,
         mcpClients: this._mcpClients,
         mcpResources: this._mcpResources,
-        isNonInteractiveSession: true,
+        isNonInteractiveSession: isBypass, // interactive when permissions are enabled (WebSocket approval)
         agentDefinitions: { agents: [], errors: [], activeAgents: [], allowedAgentTypes: undefined },
-        hooksConfig: this.store.getHooks(),
+        // Hooks disabled: Klaus uses WebSocket-based permission approval
+        // instead of claude-code's CLI hooks. PreToolUse hooks block tool
+        // execution with stopReason=undefined in this context.
+        hooksConfig: {},
       },
       abortController: new AbortController(),
       readFileState: new Map() as any,

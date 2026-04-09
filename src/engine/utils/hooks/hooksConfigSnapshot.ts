@@ -131,3 +131,11 @@ export function resetHooksConfigSnapshot(): void {
   initialHooksConfig = null
   resetSdkInitState()
 }
+
+/**
+ * Override the hooks configuration snapshot with a specific config.
+ * Used by Klaus to disable CLI hooks in the web environment.
+ */
+export function overrideHooksConfigSnapshot(config: HooksSettings): void {
+  initialHooksConfig = config
+}

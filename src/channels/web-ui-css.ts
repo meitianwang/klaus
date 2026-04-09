@@ -504,6 +504,38 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   line-height:1.4;
 }
 
+/* ─── Permission approval dialog ─── */
+.permission-card{
+  background:var(--bg-elevated);border:1px solid rgba(234,179,8,0.3);
+  border-radius:var(--radius-md);padding:12px 16px;margin:4px 0;
+  box-shadow:0 1px 3px rgba(0,0,0,0.06);
+}
+.permission-card.permission-resolved{opacity:0.5}
+.permission-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--fg)}
+.permission-header svg{color:#eab308;flex-shrink:0}
+.permission-title{font-size:13px;font-weight:600;color:var(--fg)}
+.permission-message{font-size:12px;color:var(--fg-secondary);margin-bottom:10px;line-height:1.5;word-break:break-word}
+.permission-input-details{margin-bottom:10px}
+.permission-input-details summary{font-size:11px;color:var(--fg-tertiary);cursor:pointer;user-select:none}
+.permission-input-preview{
+  font-size:11px;font-family:var(--font-mono);color:var(--fg-tertiary);
+  background:var(--bg-surface);border-radius:4px;padding:8px;margin-top:4px;
+  max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4;
+}
+.permission-actions{display:flex;gap:8px;margin-bottom:6px}
+.permission-btn{
+  padding:5px 16px;border-radius:var(--radius-sm);font-size:12px;font-weight:500;
+  cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s;
+}
+.permission-btn-allow{background:#16a34a;color:#fff;border-color:#16a34a}
+.permission-btn-allow:hover{background:#15803d}
+.permission-btn-deny{background:var(--bg-surface);color:var(--fg);border-color:var(--border)}
+.permission-btn-deny:hover{background:var(--bg-hover);border-color:#dc2626;color:#dc2626}
+.permission-timer{font-size:10px;color:var(--fg-quaternary)}
+.permission-result{font-size:12px;font-weight:500;margin-top:4px}
+.permission-allowed{color:#16a34a}
+.permission-denied{color:#dc2626}
+
 /* ─── Config notification ─── */
 .config-banner{
   position:fixed;top:70px;left:50%;transform:translateX(-50%);
@@ -645,6 +677,20 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .settings-theme-preview-auto{background:linear-gradient(135deg,#f8fafc 50%,#1e293b 50%);border:1px solid #e2e8f0}
 .settings-theme-preview-auto::after{content:'';position:absolute;bottom:8px;left:8px;right:8px;height:12px;background:linear-gradient(90deg,#020617 50%,#f8fafc 50%);border-radius:4px}
 .settings-theme-label{text-align:center;font-size:13px;color:var(--fg-secondary);margin-top:8px;padding-bottom:4px}
+/* Permission mode cards */
+.settings-permission-options{display:flex;flex-direction:column;gap:8px}
+.settings-perm-card{
+  display:flex;align-items:center;gap:12px;padding:12px 16px;
+  border:2px solid var(--border);border-radius:12px;cursor:pointer;
+  transition:border-color .15s,background .15s;
+}
+.settings-perm-card:hover{border-color:var(--fg-tertiary);background:var(--bg-hover)}
+.settings-perm-card.active{border-color:var(--accent);background:rgba(99,102,241,0.05)}
+.settings-perm-icon{flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--bg-surface);color:var(--fg-secondary)}
+.settings-perm-card.active .settings-perm-icon{color:var(--accent)}
+.settings-perm-info{flex:1;min-width:0}
+.settings-perm-label{font-size:14px;font-weight:600;color:var(--fg);margin-bottom:2px}
+.settings-perm-desc{font-size:12px;color:var(--fg-tertiary);line-height:1.4}
 .settings-lang-options{display:flex;gap:8px}
 .settings-lang-option{
   padding:8px 16px;border:1px solid var(--border);border-radius:8px;font-size:14px;
