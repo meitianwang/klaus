@@ -852,6 +852,13 @@ export async function performMCPOAuthFlow(
   options?: {
     skipBrowserOpen?: boolean
     onWaitingForCallback?: (submit: (callbackUrl: string) => void) => void
+    /** Use an external redirect URI instead of starting a localhost callback server.
+     *  When set, `onExternalCode` must also be provided — it receives a resolve
+     *  function that the caller invokes with the authorization code. */
+    externalRedirectUri?: string
+    /** Called when externalRedirectUri is set. The caller must arrange for the
+     *  code to arrive (e.g. via an HTTP route) and call `resolve(code)`. */
+    onExternalCode?: (resolve: (code: string) => void, reject: (err: Error) => void) => void
   },
 ): Promise<void> {
   // XAA (SEP-990): if configured, bypass the per-server consent dance.
@@ -956,14 +963,22 @@ export async function performMCPOAuthFlow(
   let authorizationCodeObtained = false
 
   try {
-    // Use configured callback port for pre-configured OAuth, otherwise find an available port
-    const configuredCallbackPort = serverConfig.oauth?.callbackPort
-    const port = configuredCallbackPort ?? (await findAvailablePort())
-    const redirectUri = buildRedirectUri(port)
-    logMCPDebug(
-      serverName,
-      `Using redirect port: ${port}${configuredCallbackPort ? ' (from config)' : ''}`,
-    )
+    // Determine redirect URI: external (Klaus server route) or localhost
+    const useExternal = !!(options?.externalRedirectUri && options?.onExternalCode)
+    let redirectUri: string
+    let port: number | undefined
+    if (useExternal) {
+      redirectUri = options!.externalRedirectUri!
+      logMCPDebug(serverName, `Using external redirect URI: ${redirectUri}`)
+    } else {
+      const configuredCallbackPort = serverConfig.oauth?.callbackPort
+      port = configuredCallbackPort ?? (await findAvailablePort())
+      redirectUri = buildRedirectUri(port)
+      logMCPDebug(
+        serverName,
+        `Using redirect port: ${port}${configuredCallbackPort ? ' (from config)' : ''}`,
+      )
+    }
 
     const provider = new ClaudeAuthProvider(
       serverName,
@@ -1096,121 +1111,162 @@ export async function performMCPOAuthFlow(
         })
       }
 
-      server = createServer((req, res) => {
-        const parsedUrl = parse(req.url || '', true)
+      if (useExternal) {
+        // External redirect mode: Klaus's HTTP route receives the callback.
+        // Register the external code receiver, then start the SDK auth flow.
+        options!.onExternalCode!(
+          (code: string) => { cleanup(); resolveOnce(code) },
+          (err: Error) => { cleanup(); rejectOnce(err) },
+        )
 
-        if (parsedUrl.pathname === '/callback') {
-          const code = parsedUrl.query.code as string
-          const state = parsedUrl.query.state as string
-          const error = parsedUrl.query.error
-          const errorDescription = parsedUrl.query.error_description as string
-          const errorUri = parsedUrl.query.error_uri as string
-
-          // Validate OAuth state to prevent CSRF attacks
-          if (!error && state !== oauthState) {
-            res.writeHead(400, { 'Content-Type': 'text/html' })
-            res.end(
-              `<h1>Authentication Error</h1><p>Invalid state parameter. Please try again.</p><p>You can close this window.</p>`,
-            )
-            cleanup()
-            rejectOnce(new Error('OAuth state mismatch - possible CSRF attack'))
-            return
-          }
-
-          if (error) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            // Sanitize error messages to prevent XSS
-            const sanitizedError = xss(String(error))
-            const sanitizedErrorDescription = errorDescription
-              ? xss(String(errorDescription))
-              : ''
-            res.end(
-              `<h1>Authentication Error</h1><p>${sanitizedError}: ${sanitizedErrorDescription}</p><p>You can close this window.</p>`,
-            )
-            cleanup()
-            let errorMessage = `OAuth error: ${error}`
-            if (errorDescription) {
-              errorMessage += ` - ${errorDescription}`
+        // Start the SDK auth flow (triggers client registration + redirect URL generation)
+        void (async () => {
+          try {
+            logMCPDebug(serverName, `Starting SDK auth (external redirect)`)
+            logMCPDebug(serverName, `Server URL: ${serverConfig.url}`)
+            const result = await sdkAuth(provider, {
+              serverUrl: serverConfig.url,
+              scope: wwwAuthParams.scope,
+              resourceMetadataUrl: wwwAuthParams.resourceMetadataUrl,
+            })
+            logMCPDebug(serverName, `Initial auth result: ${result}`)
+            if (result !== 'REDIRECT') {
+              logMCPDebug(serverName, `Unexpected auth result, expected REDIRECT: ${result}`)
             }
-            if (errorUri) {
-              errorMessage += ` (See: ${errorUri})`
-            }
-            rejectOnce(new Error(errorMessage))
-            return
-          }
-
-          if (code) {
-            res.writeHead(200, { 'Content-Type': 'text/html' })
-            res.end(
-              `<h1>Authentication Successful</h1><p>You can close this window. Return to Claude Code.</p>`,
-            )
+          } catch (error) {
             cleanup()
-            resolveOnce(code)
+            rejectOnce(new Error(`SDK auth failed: ${errorMessage(error)}`))
           }
-        }
-      })
+        })()
 
-      server.on('error', (err: NodeJS.ErrnoException) => {
-        cleanup()
-        if (err.code === 'EADDRINUSE') {
-          const findCmd =
-            getPlatform() === 'windows'
-              ? `netstat -ano | findstr :${port}`
-              : `lsof -ti:${port} -sTCP:LISTEN`
-          rejectOnce(
-            new Error(
-              `OAuth callback port ${port} is already in use — another process may be holding it. ` +
-                `Run \`${findCmd}\` to find it.`,
-            ),
-          )
-        } else {
-          rejectOnce(new Error(`OAuth callback server failed: ${err.message}`))
-        }
-      })
+        timeoutId = setTimeout(
+          (cleanup: () => void, rejectOnce: (err: Error) => void) => {
+            cleanup()
+            rejectOnce(new Error('Authentication timeout'))
+          },
+          5 * 60 * 1000,
+          cleanup,
+          rejectOnce,
+        )
+        if (timeoutId) timeoutId.unref()
+      } else {
+        // Localhost callback server mode (original claude-code behavior)
+        server = createServer((req, res) => {
+          const parsedUrl = parse(req.url || '', true)
 
-      server.listen(port, '127.0.0.1', async () => {
-        try {
-          logMCPDebug(serverName, `Starting SDK auth`)
-          logMCPDebug(serverName, `Server URL: ${serverConfig.url}`)
+          if (parsedUrl.pathname === '/callback') {
+            const code = parsedUrl.query.code as string
+            const state = parsedUrl.query.state as string
+            const error = parsedUrl.query.error
+            const errorDescription = parsedUrl.query.error_description as string
+            const errorUri = parsedUrl.query.error_uri as string
 
-          // First call to start the auth flow - should redirect
-          // Pass the scope and resource_metadata from WWW-Authenticate header if available
-          const result = await sdkAuth(provider, {
-            serverUrl: serverConfig.url,
-            scope: wwwAuthParams.scope,
-            resourceMetadataUrl: wwwAuthParams.resourceMetadataUrl,
-          })
-          logMCPDebug(serverName, `Initial auth result: ${result}`)
+            // Validate OAuth state to prevent CSRF attacks
+            if (!error && state !== oauthState) {
+              res.writeHead(400, { 'Content-Type': 'text/html' })
+              res.end(
+                `<h1>Authentication Error</h1><p>Invalid state parameter. Please try again.</p><p>You can close this window.</p>`,
+              )
+              cleanup()
+              rejectOnce(new Error('OAuth state mismatch - possible CSRF attack'))
+              return
+            }
 
-          if (result !== 'REDIRECT') {
-            logMCPDebug(
-              serverName,
-              `Unexpected auth result, expected REDIRECT: ${result}`,
+            if (error) {
+              res.writeHead(200, { 'Content-Type': 'text/html' })
+              // Sanitize error messages to prevent XSS
+              const sanitizedError = xss(String(error))
+              const sanitizedErrorDescription = errorDescription
+                ? xss(String(errorDescription))
+                : ''
+              res.end(
+                `<h1>Authentication Error</h1><p>${sanitizedError}: ${sanitizedErrorDescription}</p><p>You can close this window.</p>`,
+              )
+              cleanup()
+              let errorMessage = `OAuth error: ${error}`
+              if (errorDescription) {
+                errorMessage += ` - ${errorDescription}`
+              }
+              if (errorUri) {
+                errorMessage += ` (See: ${errorUri})`
+              }
+              rejectOnce(new Error(errorMessage))
+              return
+            }
+
+            if (code) {
+              res.writeHead(200, { 'Content-Type': 'text/html' })
+              res.end(
+                `<h1>Authentication Successful</h1><p>You can close this window. Return to Claude Code.</p>`,
+              )
+              cleanup()
+              resolveOnce(code)
+            }
+          }
+        })
+
+        server.on('error', (err: NodeJS.ErrnoException) => {
+          cleanup()
+          if (err.code === 'EADDRINUSE') {
+            const findCmd =
+              getPlatform() === 'windows'
+                ? `netstat -ano | findstr :${port}`
+                : `lsof -ti:${port} -sTCP:LISTEN`
+            rejectOnce(
+              new Error(
+                `OAuth callback port ${port} is already in use — another process may be holding it. ` +
+                  `Run \`${findCmd}\` to find it.`,
+              ),
             )
+          } else {
+            rejectOnce(new Error(`OAuth callback server failed: ${err.message}`))
           }
-        } catch (error) {
-          logMCPDebug(serverName, `SDK auth error: ${error}`)
-          cleanup()
-          rejectOnce(new Error(`SDK auth failed: ${errorMessage(error)}`))
-        }
-      })
+        })
 
-      // Don't let the callback server or timeout pin the event loop — if the UI
-      // component unmounts without aborting (e.g. parent intercepts Esc), we'd
-      // rather let the process exit than stay alive for 5 minutes holding the
-      // port. The abortSignal is the intended lifecycle management.
-      server.unref()
+        server.listen(port, '127.0.0.1', async () => {
+          try {
+            logMCPDebug(serverName, `Starting SDK auth`)
+            logMCPDebug(serverName, `Server URL: ${serverConfig.url}`)
 
-      timeoutId = setTimeout(
-        (cleanup, rejectOnce) => {
-          cleanup()
-          rejectOnce(new Error('Authentication timeout'))
-        },
-        5 * 60 * 1000, // 5 minutes
-        cleanup,
-        rejectOnce,
-      )
-      timeoutId.unref()
+            // First call to start the auth flow - should redirect
+            // Pass the scope and resource_metadata from WWW-Authenticate header if available
+            const result = await sdkAuth(provider, {
+              serverUrl: serverConfig.url,
+              scope: wwwAuthParams.scope,
+              resourceMetadataUrl: wwwAuthParams.resourceMetadataUrl,
+            })
+            logMCPDebug(serverName, `Initial auth result: ${result}`)
+
+            if (result !== 'REDIRECT') {
+              logMCPDebug(
+                serverName,
+                `Unexpected auth result, expected REDIRECT: ${result}`,
+              )
+            }
+          } catch (error) {
+            logMCPDebug(serverName, `SDK auth error: ${error}`)
+            cleanup()
+            rejectOnce(new Error(`SDK auth failed: ${errorMessage(error)}`))
+          }
+        })
+
+        // Don't let the callback server or timeout pin the event loop — if the UI
+        // component unmounts without aborting (e.g. parent intercepts Esc), we'd
+        // rather let the process exit than stay alive for 5 minutes holding the
+        // port. The abortSignal is the intended lifecycle management.
+        server.unref()
+
+        timeoutId = setTimeout(
+          (cleanup: () => void, rejectOnce: (err: Error) => void) => {
+            cleanup()
+            rejectOnce(new Error('Authentication timeout'))
+          },
+          5 * 60 * 1000, // 5 minutes
+          cleanup,
+          rejectOnce,
+        )
+        timeoutId.unref()
+      }
     })
 
     authorizationCodeObtained = true

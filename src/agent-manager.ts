@@ -140,6 +140,9 @@ export class AgentSessionManager {
   private readonly _mcpByUser = new Map<string, McpUserState>();
   private messageStore: MessageStore | null = null;
   private readonly skillMutex = new SkillStateMutex();
+  /** Public base URL of the Klaus server (e.g. "https://example.com").
+   *  Set by the web channel on first request. Used for MCP OAuth callbacks. */
+  private _publicBaseUrl: string | null = null;
 
   constructor(store: SettingsStore) {
     this.store = store;
@@ -192,6 +195,14 @@ export class AgentSessionManager {
 
   setMessageStore(store: MessageStore | null): void {
     this.messageStore = store;
+  }
+
+  setPublicBaseUrl(url: string): void {
+    this._publicBaseUrl = url;
+  }
+
+  get publicBaseUrl(): string | null {
+    return this._publicBaseUrl;
   }
 
   /** Get per-user MCP state (read-only, returns empty if not initialized). */
@@ -1020,6 +1031,8 @@ export class AgentSessionManager {
       disabledSkills: this.getDisabledSkills(extractUserId(sessionKey)),
       // Per-session content replacement state for tool result budget
       contentReplacementState: session.contentReplacementState,
+      // Public base URL for MCP OAuth callbacks (e.g. "https://example.com")
+      publicBaseUrl: this._publicBaseUrl,
       // Persist collapse entries to JSONL transcript (fire-and-forget)
       persistCollapseEntry: this.messageStore
         ? (entry: any) => {

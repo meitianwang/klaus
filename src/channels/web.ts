@@ -28,6 +28,7 @@
  *   GET  /api/skills/market    → Browse skills marketplace
  *   POST /api/skills/install   → Install skill (from market or upload)
  *   DELETE /api/skills/installed/:name → Uninstall user skill
+ *   GET  /api/oauth/mcp/callback → MCP OAuth redirect callback (no auth)
  *   GET  /api/health          → Health check (no auth)
  */
 
@@ -88,6 +89,11 @@ import {
 } from "../gateway/protocol.js";
 import { gatewayErrorStatusCode } from "../gateway/errors.js";
 import { permissionManager } from "../permission-manager.js";
+import {
+  resolvePendingAuth,
+  rejectPendingAuth,
+  hasPendingAuth,
+} from "../mcp-oauth-bridge.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -547,6 +553,66 @@ async function processUserMessage(
       sessionId,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// MCP OAuth callback handler (方案2 — primary)
+// ---------------------------------------------------------------------------
+
+function handleMcpOAuthCallback(
+  _req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
+  const serverName = url.searchParams.get("server");
+  const code = url.searchParams.get("code");
+  const error = url.searchParams.get("error");
+  const errorDescription = url.searchParams.get("error_description") ?? "";
+
+  // Validate serverName: must be a reasonable MCP server name (alphanumeric, dashes, underscores)
+  if (!serverName || !/^[a-zA-Z0-9_\-]{1,128}$/.test(serverName)) {
+    res.writeHead(400, { "Content-Type": "text/html" });
+    res.end("<h1>Bad Request</h1><p>Missing or invalid server parameter.</p>");
+    return;
+  }
+
+  if (error) {
+    rejectPendingAuth(serverName, `OAuth error: ${error} - ${errorDescription}`);
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(
+      `<h1>Authentication Failed</h1>` +
+      `<p>${escapeHtml(error)}: ${escapeHtml(errorDescription)}</p>` +
+      `<p>You can close this window.</p>`,
+    );
+    return;
+  }
+
+  if (!code) {
+    res.writeHead(400, { "Content-Type": "text/html" });
+    res.end("<h1>Bad Request</h1><p>Missing authorization code.</p>");
+    return;
+  }
+
+  if (!hasPendingAuth(serverName)) {
+    res.writeHead(404, { "Content-Type": "text/html" });
+    res.end(
+      `<h1>No Pending Authentication</h1>` +
+      `<p>No pending OAuth flow found for server "${escapeHtml(serverName)}". It may have timed out or already completed.</p>` +
+      `<p>You can close this window.</p>`,
+    );
+    return;
+  }
+
+  resolvePendingAuth(serverName, code);
+  res.writeHead(200, { "Content-Type": "text/html" });
+  res.end(
+    `<h1>Authentication Successful</h1>` +
+    `<p>The MCP server "${escapeHtml(serverName)}" has been authorized. You can close this window and return to Klaus.</p>`,
+  );
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // ---------------------------------------------------------------------------
@@ -2949,6 +3015,9 @@ case "/api/mcp":
       return;
     }
 
+    case "/api/oauth/mcp/callback":
+      return handleMcpOAuthCallback(req, res, url);
+
     case "/api/health":
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("ok");
@@ -3102,6 +3171,14 @@ export const webPlugin: ChannelPlugin = {
     wss.on(
       "connection",
       (rawWs: WebSocket, req: IncomingMessage, user: User) => {
+        // Set public base URL for MCP OAuth callbacks (once, from first connection)
+        if (agentManagerRef && !agentManagerRef.publicBaseUrl && req.headers.host) {
+          const fwdProto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim().toLowerCase();
+          const proto = (fwdProto === "https" || fwdProto === "http") ? fwdProto : "http";
+          agentManagerRef.setPublicBaseUrl(`${proto}://${req.headers.host}`);
+          console.log(`[Web] Public base URL set: ${proto}://${req.headers.host}`);
+        }
+
         const ws = rawWs as KlausWebSocket;
         ws.isAlive = true;
         ws.klausUserId = user.id;
