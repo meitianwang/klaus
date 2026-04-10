@@ -40,7 +40,7 @@ import mapValues from 'lodash-es/mapValues.js'
 import memoize from 'lodash-es/memoize.js'
 import zipObject from 'lodash-es/zipObject.js'
 import pMap from 'p-map'
-import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
+import { getOriginalCwd, getSessionId, getScopedUserId } from '../../bootstrap/state.js'
 import type { Command } from '../../commands.js'
 import { getOauthConfig } from '../../constants/oauth.js'
 import { PRODUCT_URL } from '../../constants/product.js'
@@ -553,16 +553,23 @@ function isIncludedMcpTool(tool: Tool): boolean {
 }
 
 /**
- * Generates the cache key for a server connection
+ * Generates the cache key for a server connection.
+ * Includes an optional userId so that each user gets an independent connection
+ * instance in multi-user server mode (Klaus).  In single-user CLI mode
+ * (no ALS context) userId is omitted and the key degrades to name+config.
  * @param name Server name
  * @param serverRef Server configuration
+ * @param userId Optional user identifier for per-user isolation
  * @returns Cache key string
  */
 export function getServerCacheKey(
   name: string,
   serverRef: ScopedMcpServerConfig,
+  userId?: string | null,
 ): string {
-  return `${name}-${jsonStringify(serverRef)}`
+  const uid = userId ?? getScopedUserId()
+  const prefix = uid ? `${uid}:` : ''
+  return `${prefix}${name}-${jsonStringify(serverRef)}`
 }
 
 /**
@@ -585,6 +592,10 @@ export const connectToServer = memoize(
       wsIdeCount: number
     },
   ): Promise<MCPServerConnection> => {
+    // Capture cache key at connection time for use in the onclose callback
+    // (which may fire outside any ALS context).
+    const capturedCacheKey = getServerCacheKey(name, serverRef)
+
     const connectStartTime = Date.now()
     let inProcessServer:
       | { connect(t: Transport): Promise<void>; close(): Promise<void> }
@@ -1321,20 +1332,17 @@ export const connectToServer = memoize(
           `${transportType.toUpperCase()} connection closed after ${Math.floor(uptime / 1000)}s (${hasErrorOccurred ? 'with errors' : 'cleanly'})`,
         )
 
-        // Clear the memoization cache so next operation reconnects
-        const key = getServerCacheKey(name, serverRef)
-
-        // Also clear fetch caches (keyed by server name). Reconnection
-        // creates a new connection object; without clearing, the next
-        // fetch would return stale tools/resources from the old connection.
-        fetchToolsForClient.cache.delete(name)
-        fetchResourcesForClient.cache.delete(name)
-        fetchCommandsForClient.cache.delete(name)
+        // Clear memoization caches so next operation reconnects.
+        // Fetch caches use getServerCacheKey (name+config) to match
+        // the connection cache key and isolate same-name different-config servers.
+        fetchToolsForClient.cache.delete(capturedCacheKey)
+        fetchResourcesForClient.cache.delete(capturedCacheKey)
+        fetchCommandsForClient.cache.delete(capturedCacheKey)
         if (feature('MCP_SKILLS')) {
-          fetchMcpSkillsForClient!.cache.delete(name)
+          fetchMcpSkillsForClient!.cache.delete(capturedCacheKey)
         }
 
-        connectToServer.cache.delete(key)
+        connectToServer.cache.delete(capturedCacheKey)
         logMCPDebug(name, `Cleared connection cache for reconnection`)
 
         if (originalOnclose) {
@@ -1578,19 +1586,21 @@ export const connectToServer = memoize(
       }
     }
   },
-  getServerCacheKey,
+  (name: string, serverRef: ScopedMcpServerConfig) => getServerCacheKey(name, serverRef),
 )
 
 /**
- * Clears the memoize cache for a specific server
+ * Clears the memoize cache for a specific server.
  * @param name Server name
  * @param serverRef Server configuration
+ * @param userId Explicit userId for cache key — pass when calling outside ALS context
  */
 export async function clearServerCache(
   name: string,
   serverRef: ScopedMcpServerConfig,
+  userId?: string | null,
 ): Promise<void> {
-  const key = getServerCacheKey(name, serverRef)
+  const key = getServerCacheKey(name, serverRef, userId)
 
   try {
     const wrappedClient = await connectToServer(name, serverRef)
@@ -1603,13 +1613,13 @@ export async function clearServerCache(
   }
 
   // Clear from cache (both connection and fetch caches so reconnect
-  // fetches fresh tools/resources/commands instead of stale ones)
+  // fetches fresh tools/resources/commands instead of stale ones).
   connectToServer.cache.delete(key)
-  fetchToolsForClient.cache.delete(name)
-  fetchResourcesForClient.cache.delete(name)
-  fetchCommandsForClient.cache.delete(name)
+  fetchToolsForClient.cache.delete(key)
+  fetchResourcesForClient.cache.delete(key)
+  fetchCommandsForClient.cache.delete(key)
   if (feature('MCP_SKILLS')) {
-    fetchMcpSkillsForClient!.cache.delete(name)
+    fetchMcpSkillsForClient!.cache.delete(key)
   }
 }
 
@@ -1923,7 +1933,10 @@ export const fetchToolsForClient = memoizeWithLRU(
       return []
     }
   },
-  (client: MCPServerConnection) => client.name,
+  (client: MCPServerConnection) =>
+    client.type === 'connected' || client.type === 'failed'
+      ? getServerCacheKey(client.name, client.config)
+      : client.name,
   MCP_FETCH_CACHE_SIZE,
 )
 
@@ -1956,7 +1969,10 @@ export const fetchResourcesForClient = memoizeWithLRU(
       return []
     }
   },
-  (client: MCPServerConnection) => client.name,
+  (client: MCPServerConnection) =>
+    client.type === 'connected' || client.type === 'failed'
+      ? getServerCacheKey(client.name, client.config)
+      : client.name,
   MCP_FETCH_CACHE_SIZE,
 )
 
@@ -2032,7 +2048,10 @@ export const fetchCommandsForClient = memoizeWithLRU(
       return []
     }
   },
-  (client: MCPServerConnection) => client.name,
+  (client: MCPServerConnection) =>
+    client.type === 'connected' || client.type === 'failed'
+      ? getServerCacheKey(client.name, client.config)
+      : client.name,
   MCP_FETCH_CACHE_SIZE,
 )
 

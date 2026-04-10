@@ -9,6 +9,7 @@ import memoize from 'lodash-es/memoize.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
+import { getScopedUserId, getOriginalCwd } from './bootstrap/state.js'
 import {
   getSkillDirCommands,
   clearSkillCaches,
@@ -96,7 +97,19 @@ async function getSkills(cwd: string): Promise<{
 }
 
 /**
- * Loads all command sources (skills, plugins, workflows). Memoized by cwd.
+ * Cache key that combines cwd with the ALS-scoped userId so that concurrent
+ * users with different skill directories get independent cached results.
+ * In single-user CLI mode (no ALS) this degrades to just `cwd`.
+ */
+function commandsCacheKey(cwd: string): string {
+  const uid = getScopedUserId()
+  return uid ? `${uid}:${cwd}` : cwd
+}
+
+/**
+ * Loads all command sources (skills, plugins, workflows).
+ * Memoized by cwd + userId (via ALS) so per-user skill directories are respected
+ * without needing a global clearCommandsCache() between users.
  */
 const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   const [
@@ -118,7 +131,7 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
     ...pluginSkills,
     // No CLI COMMANDS() in Klaus
   ]
-})
+}, commandsCacheKey)
 
 export async function getCommands(cwd: string): Promise<Command[]> {
   const allCommands = await loadAllCommands(cwd)
@@ -157,6 +170,22 @@ export function clearCommandsCache(): void {
   clearSkillCaches()
 }
 
+/**
+ * Invalidate cached commands for a specific user.
+ * Deletes only the cache entries keyed by `userId:cwd`, leaving other users'
+ * caches intact.  Falls back to a full clear if targeted deletion isn't possible.
+ */
+export function invalidateUserCommandsCache(userId: string): void {
+  const cwd = getOriginalCwd()
+  const key = `${userId}:${cwd}`
+  // lodash memoize exposes .cache as a Map-like object
+  loadAllCommands.cache?.delete?.(key)
+  getSkillToolCommands.cache?.delete?.(key)
+  getSlashCommandToolSkills.cache?.delete?.(key)
+  // Skill dir commands also keyed per-user
+  clearSkillCaches()
+}
+
 export function getMcpSkillCommands(
   mcpCommands: readonly Command[],
 ): readonly Command[] {
@@ -186,6 +215,7 @@ export const getSkillToolCommands = memoize(
           cmd.whenToUse),
     )
   },
+  commandsCacheKey,
 )
 
 export const getSlashCommandToolSkills = memoize(
@@ -208,6 +238,7 @@ export const getSlashCommandToolSkills = memoize(
       return []
     }
   },
+  commandsCacheKey,
 )
 
 export function isBridgeSafeCommand(cmd: Command): boolean {

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { Attributes, Meter, MetricOptions } from '@opentelemetry/api'
 import type { logs } from '@opentelemetry/api-logs'
@@ -1667,22 +1668,108 @@ export function setLastEmittedDate(date: string | null): void {
   STATE.lastEmittedDate = date
 }
 
+// ---------------------------------------------------------------------------
+// Per-user scoped state via AsyncLocalStorage.
+// In multi-user server mode (Klaus), each user's async context carries its
+// own additionalDirectories and mcpUserConfigPath, eliminating the need for
+// a global mutex around these values.  Getters check ALS first, falling back
+// to the global STATE for single-user CLI mode (claude-code compatibility).
+// ---------------------------------------------------------------------------
+
+interface UserScopedState {
+  /** Logical user identifier — used to namespace memoize caches (MCP
+   *  connections, tool/resource fetches) so concurrent users don't share
+   *  connections even when their server configs are identical. */
+  userId?: string
+  additionalDirectoriesForClaudeMd?: string[]
+  currentMcpUserConfigPath?: string | null
+  /** Per-user Anthropic API key — avoids process.env race under concurrency. */
+  anthropicApiKey?: string | null
+  /** Per-user Anthropic base URL — avoids process.env race under concurrency. */
+  anthropicBaseUrl?: string | null
+  /** Per-user memory path override — avoids process.env race under concurrency. */
+  memoryPathOverride?: string | null
+}
+
+const userScopedStorage = new AsyncLocalStorage<UserScopedState>()
+
+/**
+ * Run `fn` with per-user scoped state.  All engine code called within `fn`
+ * (including across awaits) will read from `scope` instead of the global STATE.
+ */
+export function runWithUserScope<T>(
+  scope: UserScopedState,
+  fn: () => T,
+): T {
+  return userScopedStorage.run(scope, fn)
+}
+
 export function getAdditionalDirectoriesForClaudeMd(): string[] {
-  return STATE.additionalDirectoriesForClaudeMd
+  return (
+    userScopedStorage.getStore()?.additionalDirectoriesForClaudeMd ??
+    STATE.additionalDirectoriesForClaudeMd
+  )
 }
 
 export function setAdditionalDirectoriesForClaudeMd(
   directories: string[],
 ): void {
-  STATE.additionalDirectoriesForClaudeMd = directories
+  const store = userScopedStorage.getStore()
+  if (store) {
+    store.additionalDirectoriesForClaudeMd = directories
+  } else {
+    STATE.additionalDirectoriesForClaudeMd = directories
+  }
 }
 
 export function getCurrentMcpUserConfigPath(): string | null {
+  const store = userScopedStorage.getStore()
+  if (store && store.currentMcpUserConfigPath !== undefined) {
+    return store.currentMcpUserConfigPath
+  }
   return STATE.currentMcpUserConfigPath
 }
 
 export function setCurrentMcpUserConfigPath(path: string | null): void {
-  STATE.currentMcpUserConfigPath = path
+  const store = userScopedStorage.getStore()
+  if (store) {
+    store.currentMcpUserConfigPath = path
+  } else {
+    STATE.currentMcpUserConfigPath = path
+  }
+}
+
+/**
+ * Per-user Anthropic API key.  ALS-scoped so concurrent users with different
+ * keys don't overwrite each other's process.env.ANTHROPIC_API_KEY.
+ */
+export function getScopedAnthropicApiKey(): string | null {
+  return userScopedStorage.getStore()?.anthropicApiKey ?? null
+}
+
+/**
+ * Per-user Anthropic base URL.  ALS-scoped so concurrent users with different
+ * providers don't overwrite each other's process.env.ANTHROPIC_BASE_URL.
+ */
+export function getScopedAnthropicBaseUrl(): string | null {
+  return userScopedStorage.getStore()?.anthropicBaseUrl ?? null
+}
+
+/**
+ * Per-user memory path override.  ALS-scoped so concurrent users don't
+ * overwrite each other's CLAUDE_COWORK_MEMORY_PATH_OVERRIDE.
+ */
+export function getScopedMemoryPathOverride(): string | null {
+  return userScopedStorage.getStore()?.memoryPathOverride ?? null
+}
+
+/**
+ * Current ALS-scoped user ID.  Used by MCP cache keys so concurrent users
+ * with identical server configs get independent connections.
+ * Returns null in single-user CLI mode (no ALS store).
+ */
+export function getScopedUserId(): string | null {
+  return userScopedStorage.getStore()?.userId ?? null
 }
 
 export function getAllowedChannels(): ChannelEntry[] {

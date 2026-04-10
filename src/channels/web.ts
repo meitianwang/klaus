@@ -565,6 +565,7 @@ function handleMcpOAuthCallback(
   url: URL,
 ): void {
   const serverName = url.searchParams.get("server");
+  const userId = url.searchParams.get("uid");
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
@@ -577,8 +578,15 @@ function handleMcpOAuthCallback(
     return;
   }
 
+  // Validate userId
+  if (!userId || !/^[a-zA-Z0-9_\-@.]{1,256}$/.test(userId)) {
+    res.writeHead(400, { "Content-Type": "text/html" });
+    res.end("<h1>Bad Request</h1><p>Missing or invalid uid parameter.</p>");
+    return;
+  }
+
   if (error) {
-    rejectPendingAuth(serverName, `OAuth error: ${error} - ${errorDescription}`);
+    rejectPendingAuth(userId, serverName, `OAuth error: ${error} - ${errorDescription}`);
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(
       `<h1>Authentication Failed</h1>` +
@@ -594,7 +602,7 @@ function handleMcpOAuthCallback(
     return;
   }
 
-  if (!hasPendingAuth(serverName)) {
+  if (!hasPendingAuth(userId, serverName)) {
     res.writeHead(404, { "Content-Type": "text/html" });
     res.end(
       `<h1>No Pending Authentication</h1>` +
@@ -604,7 +612,7 @@ function handleMcpOAuthCallback(
     return;
   }
 
-  const resolved = resolvePendingAuth(serverName, code, state);
+  const resolved = resolvePendingAuth(userId, serverName, code, state);
   if (!resolved) {
     res.writeHead(403, { "Content-Type": "text/html" });
     res.end(
@@ -1482,17 +1490,19 @@ async function handleUserSkills(
   if (req.method === "GET") {
     try {
       // Read skills from engine's command system
-      const { getCommands, clearCommandsCache } = await import("../engine/commands.js");
+      const { getCommands } = await import("../engine/commands.js");
       const { homedir } = await import("os");
       const { join } = await import("path");
       const { readdir } = await import("node:fs/promises");
-      const { setAdditionalDirectoriesForClaudeMd } = await import("../engine/bootstrap/state.js");
-      // Set additionalDirs so engine discovers per-user installed skills
-      setAdditionalDirectoriesForClaudeMd([
-        join(homedir(), '.klaus', 'users', auth.user.id),
-      ]);
-      clearCommandsCache();
-      const allCommands = await getCommands(join(homedir(), '.klaus'));
+      const { runWithUserScope } = await import("../engine/bootstrap/state.js");
+      // Run inside user scope so engine discovers per-user installed skills
+      const allCommands = await runWithUserScope(
+        {
+          userId: auth.user.id,
+          additionalDirectoriesForClaudeMd: [join(homedir(), '.klaus', 'users', auth.user.id)],
+        },
+        () => getCommands(join(homedir(), '.klaus')),
+      );
       // Read per-user skill preferences
       const userSkillPrefs = settingsStoreRef.getByPrefix(`user.${auth.user.id}.skill.`);
       // Check which skills are installed in user directory
@@ -1730,9 +1740,9 @@ async function handleSkillsInstall(
       await cp(srcDir, destDir, { recursive: true });
       // Auto-enable
       settingsStoreRef.set(`user.${userId}.skill.${name}`, "on");
-      // Clear engine cache
-      const { clearCommandsCache } = await import("../engine/commands.js");
-      clearCommandsCache();
+      // Invalidate this user's cached commands so next query picks up the new skill
+      const { invalidateUserCommandsCache } = await import("../engine/commands.js");
+      invalidateUserCommandsCache(userId);
       jsonResponse(res, 200, { ok: true, name });
     } else {
       // Mode 2: Upload install (.zip or .md)
@@ -1801,8 +1811,8 @@ async function handleSkillsInstall(
 
       // Auto-enable
       settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "on");
-      const { clearCommandsCache } = await import("../engine/commands.js");
-      clearCommandsCache();
+      const { invalidateUserCommandsCache } = await import("../engine/commands.js");
+      invalidateUserCommandsCache(userId);
       jsonResponse(res, 200, { ok: true, name: skillName });
     }
   } catch (err) {
@@ -1854,8 +1864,8 @@ async function handleSkillUninstall(
   await rm(skillDir, { recursive: true, force: true });
   // Clear the preference (setting to empty so it won't affect future installs)
   settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "");
-  const { clearCommandsCache } = await import("../engine/commands.js");
-  clearCommandsCache();
+  const { invalidateUserCommandsCache } = await import("../engine/commands.js");
+  invalidateUserCommandsCache(userId);
   jsonResponse(res, 200, { ok: true });
 }
 
@@ -3126,14 +3136,33 @@ export const webPlugin: ChannelPlugin = {
     // Set public base URL from config (after services are applied so agentManagerRef is available)
     if (cfg.publicBaseUrl) {
       if (agentManagerRef) {
-        agentManagerRef.setPublicBaseUrl(cfg.publicBaseUrl);
+        agentManagerRef.setPublicBaseUrl(cfg.publicBaseUrl, true);
         console.log(`[Web] Public base URL set from config: ${cfg.publicBaseUrl}`);
       } else {
         console.warn(`[Web] public_base_url configured but agentManager not available yet — will fall back to request inference`);
       }
     }
 
+    /** Try to infer publicBaseUrl from an incoming request's Host header.
+     *  Config.yaml URLs are never overridden.  The localhost listen-fallback
+     *  IS overridden by a real Host header (which reflects the actual URL
+     *  the user's browser sees, e.g. behind a reverse proxy). */
+    function maybeInferPublicBaseUrl(req: IncomingMessage): void {
+      if (!agentManagerRef || !req.headers.host) return;
+      // Config-provided URL is authoritative — never override it
+      if (agentManagerRef.publicBaseUrlIsFromConfig) return;
+      const fwdProto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim().toLowerCase();
+      const proto = (fwdProto === "https" || fwdProto === "http") ? fwdProto : "http";
+      const inferred = `${proto}://${req.headers.host}`;
+      // Don't re-infer once we have a real (non-localhost-fallback) URL
+      if (agentManagerRef.publicBaseUrl === inferred) return;
+      agentManagerRef.setPublicBaseUrl(inferred);
+      console.log(`[Web] Public base URL inferred from request: ${inferred} — set web.public_base_url in config.yaml for reliability`);
+    }
+
     const server = createServer((req, res) => {
+      maybeInferPublicBaseUrl(req);
+
       handleRequest(req, res, cfg).catch((err) => {
         console.error("[Web] Request error:", err);
         if (!res.headersSent) {
@@ -3192,15 +3221,7 @@ export const webPlugin: ChannelPlugin = {
     wss.on(
       "connection",
       (rawWs: WebSocket, req: IncomingMessage, user: User) => {
-        // Infer public base URL from first WS connection if not set via config.
-        // This is a fallback — prefer setting web.public_base_url in config.yaml.
-        if (agentManagerRef && !agentManagerRef.publicBaseUrl && req.headers.host) {
-          const fwdProto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim().toLowerCase();
-          const proto = (fwdProto === "https" || fwdProto === "http") ? fwdProto : "http";
-          const inferred = `${proto}://${req.headers.host}`;
-          agentManagerRef.setPublicBaseUrl(inferred);
-          console.warn(`[Web] Public base URL inferred from request: ${inferred} — set web.public_base_url in config.yaml for reliability`);
-        }
+        maybeInferPublicBaseUrl(req);
 
         const ws = rawWs as KlausWebSocket;
         ws.isAlive = true;
@@ -3236,13 +3257,25 @@ export const webPlugin: ChannelPlugin = {
     );
 
     server.listen(cfg.port, "0.0.0.0", () => {
+      const addr = server.address();
+      const listenPort = (typeof addr === "object" && addr?.port) ? addr.port : cfg.port;
       console.log(
-        `Klaus Web channel listening on http://localhost:${cfg.port}`,
+        `Klaus Web channel listening on http://localhost:${listenPort}`,
       );
-      console.log(`Login: http://localhost:${cfg.port}/login`);
+      console.log(`Login: http://localhost:${listenPort}/login`);
       console.log(
-        `Admin: http://localhost:${cfg.port}/admin (requires admin role)`,
+        `Admin: http://localhost:${listenPort}/admin (requires admin role)`,
       );
+
+      // Set a localhost fallback publicBaseUrl from the listen address so that
+      // MCP OAuth works even before the first inbound request arrives.
+      // Config-provided or request-inferred URLs take precedence (checked by
+      // maybeInferPublicBaseUrl's guard: agentManagerRef.publicBaseUrl already set).
+      if (agentManagerRef && !agentManagerRef.publicBaseUrl) {
+        const fallback = `http://localhost:${listenPort}`;
+        agentManagerRef.setPublicBaseUrl(fallback);
+        console.log(`[Web] Public base URL set from listen address: ${fallback} (override with web.public_base_url in config.yaml)`);
+      }
     });
 
     // Config file watcher

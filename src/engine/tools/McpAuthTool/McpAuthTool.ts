@@ -134,31 +134,41 @@ export function createMcpAuthTool(
       const controller = new AbortController()
       const { setAppState } = context
 
-      // Determine if we can use external redirect (Klaus public URL available)
+      // Determine public base URL for external redirect.
+      // Klaus is a server — localhost callback servers don't work (user's
+      // browser is on a different machine). Always use external redirect.
       const publicBaseUrl = context.publicBaseUrl
-      const useExternal = !!publicBaseUrl
+      const userId: string = (context as any).userId ?? '__anonymous__'
 
-      // Build options for performMCPOAuthFlow
+      if (!publicBaseUrl) {
+        return {
+          data: {
+            status: 'error' as const,
+            message:
+              `Cannot start OAuth for "${serverName}": the server's public URL is not known yet. ` +
+              `Set \`web.public_base_url\` in config.yaml (e.g. "https://your-klaus-server.com") ` +
+              `or ensure the user has connected via WebSocket first so the URL can be inferred from the Host header. ` +
+              `Then try again.`,
+          },
+        }
+      }
+
+      // Build options for performMCPOAuthFlow — always use external redirect
+      // (Klaus's own /api/oauth/mcp/callback route) instead of localhost.
+      const redirectUri = `${publicBaseUrl}/api/oauth/mcp/callback?server=${encodeURIComponent(serverName)}&uid=${encodeURIComponent(userId)}`
       const flowOptions: Parameters<typeof performMCPOAuthFlow>[4] = {
         skipBrowserOpen: true,
-        // 方案1 fallback: let user paste callback URL via WebSocket.
-        // TODO: wire up gateway/WS handler to read _mcpOAuthSubmitCallback
-        // and call submit(url) when the user pastes a callback URL in chat.
+        externalRedirectUri: redirectUri,
+        onExternalCode: (resolve, rejectFn, oauthState) => {
+          registerPendingAuth(userId, serverName, resolve, rejectFn, oauthState)
+        },
+        // Fallback: let user paste callback URL via WebSocket if redirect fails.
         onWaitingForCallback: (submit) => {
           logMCPDebug(serverName, 'Waiting for manual callback URL paste (fallback)')
           ;(context as any)._mcpOAuthSubmitCallback = submit
         },
       }
-
-      if (useExternal) {
-        // 方案2: external redirect through Klaus's own HTTP route
-        const redirectUri = `${publicBaseUrl}/api/oauth/mcp/callback?server=${encodeURIComponent(serverName)}`
-        flowOptions.externalRedirectUri = redirectUri
-        flowOptions.onExternalCode = (resolve, rejectFn, oauthState) => {
-          registerPendingAuth(serverName, resolve, rejectFn, oauthState)
-        }
-        logMCPDebug(serverName, `Using Klaus external redirect: ${redirectUri}`)
-      }
+      logMCPDebug(serverName, `Using Klaus external redirect: ${redirectUri}`)
 
       const oauthPromise = performMCPOAuthFlow(
         serverName,
@@ -174,7 +184,7 @@ export function createMcpAuthTool(
       void oauthPromise
         .then(async () => {
           clearMcpAuthCache()
-          removePendingAuth(serverName)
+          removePendingAuth(userId, serverName)
           const result = await reconnectMcpServerImpl(serverName, config)
           const prefix = getMcpPrefix(serverName)
           setAppState(prev => ({
@@ -203,7 +213,7 @@ export function createMcpAuthTool(
           )
         })
         .catch(err => {
-          removePendingAuth(serverName)
+          removePendingAuth(userId, serverName)
           logMCPError(
             serverName,
             `OAuth flow failed after tool-triggered start: ${errorMessage(err)}`,
@@ -219,14 +229,11 @@ export function createMcpAuthTool(
         ])
 
         if (authUrl) {
-          const pasteHint = useExternal
-            ? ''
-            : `\n\nIf the redirect fails (page cannot be reached), copy the full URL from your browser's address bar and paste it here.`
           return {
             data: {
               status: 'auth_url' as const,
               authUrl,
-              message: `Ask the user to open this URL in their browser to authorize the ${serverName} MCP server:\n\n${authUrl}\n\nOnce they complete the flow, the server's tools will become available automatically.${pasteHint}`,
+              message: `Ask the user to open this URL in their browser to authorize the ${serverName} MCP server:\n\n${authUrl}\n\nOnce they complete the flow, the server's tools will become available automatically.`,
             },
           }
         }
@@ -238,7 +245,7 @@ export function createMcpAuthTool(
           },
         }
       } catch (err) {
-        removePendingAuth(serverName)
+        removePendingAuth(userId, serverName)
         return {
           data: {
             status: 'error' as const,

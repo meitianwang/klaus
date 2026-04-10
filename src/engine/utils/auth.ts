@@ -14,6 +14,7 @@ import { getAPIProvider } from './model/providers.js'
 import {
   getIsNonInteractiveSession,
   preferThirdPartyAuthentication,
+  getScopedAnthropicApiKey,
 } from '../bootstrap/state.js'
 import {
   getMockSubscriptionType,
@@ -229,6 +230,12 @@ export function getAnthropicApiKeyWithSource(
   key: null | string
   source: ApiKeySource
 } {
+  // ALS-scoped key takes priority — set by Klaus for per-user isolation.
+  const scopedKey = getScopedAnthropicApiKey()
+  if (scopedKey) {
+    return { key: scopedKey, source: 'ANTHROPIC_API_KEY' as ApiKeySource }
+  }
+
   // --bare: hermetic auth. Only ANTHROPIC_API_KEY env or apiKeyHelper from
   // the --settings flag. Never touches keychain, config file, or approval
   // lists. 3P (Bedrock/Vertex/Foundry) uses provider creds, not this path.

@@ -75,6 +75,12 @@ export type WsEvent =
       readonly toolInput: Record<string, unknown>;
       readonly message: string;
       readonly sessionId?: string;
+    }
+  | {
+      readonly type: "mcp_auth_url";
+      readonly serverName: string;
+      readonly url: string;
+      readonly sessionId?: string;
     };
 
 export type GatewayRpcResponseEnvelope = {

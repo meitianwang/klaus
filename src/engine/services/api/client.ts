@@ -20,6 +20,7 @@ import { getProxyFetchOptions } from '../../utils/proxy.js'
 import {
   getIsNonInteractiveSession,
   getSessionId,
+  getScopedAnthropicBaseUrl,
 } from '../../bootstrap/state.js'
 import { getOauthConfig } from '../../constants/oauth.js'
 import { isDebugToStdErr, logForDebugging } from '../../utils/debug.js'
@@ -297,6 +298,12 @@ export async function getAnthropicClient({
   }
 
   // Determine authentication method based on available tokens
+  //
+  // baseURL resolution order:
+  //   1. Staging OAuth override (ant-internal)
+  //   2. ALS-scoped per-user base URL (Klaus multi-user)
+  //   3. ANTHROPIC_BASE_URL env var (Anthropic SDK default — single-user CLI)
+  const scopedBaseUrl = getScopedAnthropicBaseUrl()
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
     apiKey: isClaudeAISubscriber() ? null : apiKey || getAnthropicApiKey(),
     authToken: isClaudeAISubscriber()
@@ -306,7 +313,9 @@ export async function getAnthropicClient({
     ...(process.env.USER_TYPE === 'ant' &&
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
-      : {}),
+      : scopedBaseUrl
+        ? { baseURL: scopedBaseUrl }
+        : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }

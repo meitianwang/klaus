@@ -6,7 +6,7 @@
 import { randomUUID } from "crypto";
 import { homedir } from "os";
 import { join } from "path";
-import { setOriginalCwd, setCwdState, setProjectRoot } from "./engine/bootstrap/state.js";
+import { setOriginalCwd, setCwdState, setProjectRoot, runWithUserScope } from "./engine/bootstrap/state.js";
 import type { SettingsStore } from "./settings-store.js";
 import { getProvider } from "./providers/registry.js";
 import { refreshAccessToken } from "./auth/oauth.js";
@@ -105,19 +105,13 @@ interface SessionEntry {
 // AgentSessionManager
 // ============================================================================
 
-// Mutex for serializing operations that touch global engine singletons
-// (additionalDirs, currentMcpUserConfigPath).  Concurrent requests can
-// overwrite each other's state — this lock serializes those critical sections.
-class GlobalStateMutex {
-  private pending: Promise<void> = Promise.resolve();
-  acquire(): Promise<() => void> {
-    let release!: () => void;
-    const next = new Promise<void>(resolve => { release = resolve; });
-    const prev = this.pending;
-    this.pending = next;
-    return prev.then(() => release);
-  }
-}
+// Global state mutex removed — replaced by AsyncLocalStorage (runWithUserScope)
+// which scopes additionalDirs and mcpUserConfigPath per async context,
+// eliminating cross-user contamination without serialization overhead.
+//
+// MCP connections are now truly per-user: getServerCacheKey includes userId
+// from ALS, so each user gets independent connection instances.  No reference
+// counting needed — each user owns their connections outright.
 
 interface McpUserState {
   clients: MCPServerConnection[];
@@ -134,13 +128,16 @@ export class AgentSessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly store: SettingsStore;
   private readonly maxSessions: number;
-  // Per-user MCP state — each user gets their own connections & tools
+  // Per-user MCP state — each user owns independent connections, tools, and resources.
   private readonly _mcpByUser = new Map<string, McpUserState>();
   private messageStore: MessageStore | null = null;
-  private readonly globalStateMutex = new GlobalStateMutex();
   /** Public base URL of the Klaus server (e.g. "https://example.com").
-   *  Set by the web channel on first request. Used for MCP OAuth callbacks. */
+   *  Set from config, or inferred from listen address / first request.
+   *  Used for MCP OAuth callbacks. */
   private _publicBaseUrl: string | null = null;
+  /** True when publicBaseUrl was explicitly set via config.yaml — prevents
+   *  request-inferred URLs from overriding a deliberate user choice. */
+  private _publicBaseUrlFromConfig = false;
 
   constructor(store: SettingsStore) {
     this.store = store;
@@ -195,12 +192,24 @@ export class AgentSessionManager {
     this.messageStore = store;
   }
 
-  setPublicBaseUrl(url: string): void {
+  /**
+   * Set the public base URL.
+   * @param url The URL string
+   * @param fromConfig True if this comes from config.yaml (locks against inference override)
+   */
+  setPublicBaseUrl(url: string, fromConfig = false): void {
+    if (this._publicBaseUrlFromConfig && !fromConfig) return; // config takes absolute precedence
     this._publicBaseUrl = url;
+    if (fromConfig) this._publicBaseUrlFromConfig = true;
   }
 
   get publicBaseUrl(): string | null {
     return this._publicBaseUrl;
+  }
+
+  /** Whether the publicBaseUrl was set explicitly via config.yaml. */
+  get publicBaseUrlIsFromConfig(): boolean {
+    return this._publicBaseUrlFromConfig;
   }
 
   /** Get per-user MCP state (read-only, returns empty if not initialized). */
@@ -210,91 +219,76 @@ export class AgentSessionManager {
 
   /**
    * Initialize MCP connections for a specific user.
-   * Acquires globalStateMutex to protect setCurrentMcpUserConfigPath.
-   * For calls from within an already-held lock (e.g. chat()), use _initMcpLocked().
+   * Uses AsyncLocalStorage to scope the config path — no global mutex needed.
    */
   async initMcp(userId?: string): Promise<void> {
-    const release = await this.globalStateMutex.acquire();
-    try {
-      await this._initMcpLocked(userId);
-    } finally {
-      release();
-    }
+    const { getUserMcpConfigPath } = await import("./user-dirs.js");
+    const userAdditionalDirs = userId
+      ? [join(homedir(), '.klaus', 'users', userId)]
+      : [];
+    const mcpConfigPath = userId ? getUserMcpConfigPath(userId) : null;
+
+    await runWithUserScope(
+      { userId: userId ?? undefined, additionalDirectoriesForClaudeMd: userAdditionalDirs, currentMcpUserConfigPath: mcpConfigPath },
+      () => this._initMcpUnlocked(userId),
+    );
   }
 
   /**
-   * Internal: initialize MCP connections. Caller MUST hold globalStateMutex.
+   * Internal: initialize MCP connections.
+   * Must be called within a runWithUserScope() context so that
+   * getAllMcpConfigs() reads the correct per-user config path from ALS.
    */
-  private async _initMcpLocked(userId?: string): Promise<void> {
+  private async _initMcpUnlocked(userId?: string): Promise<void> {
     const uid = userId ?? "__global__";
-    if (userId) {
-      const { setCurrentMcpUserConfigPath } = await import("./engine/bootstrap/state.js");
-      const { getUserMcpConfigPath } = await import("./user-dirs.js");
-      setCurrentMcpUserConfigPath(getUserMcpConfigPath(userId));
+
+    const { servers } = await getAllMcpConfigs();
+    if (Object.keys(servers).length === 0) {
+      this._mcpByUser.set(uid, emptyMcpState());
+      return;
     }
 
-    try {
-      const { servers } = await getAllMcpConfigs();
-      if (Object.keys(servers).length === 0) {
-        this._mcpByUser.set(uid, emptyMcpState());
-        return;
-      }
+    const state = emptyMcpState();
 
-      const state = emptyMcpState();
+    await getMcpToolsCommandsAndResources(
+      ({ client, tools, commands, resources }) => {
+        state.clients.push(client);
+        state.tools.push(...tools);
+        if (commands) state.commands.push(...commands);
+        if (resources && resources.length > 0) {
+          state.resources[client.name] = resources;
+        }
 
-      await getMcpToolsCommandsAndResources(
-        ({ client, tools, commands, resources }) => {
-          state.clients.push(client);
-          state.tools.push(...tools);
-          if (commands) state.commands.push(...commands);
-          if (resources && resources.length > 0) {
-            state.resources[client.name] = resources;
-          }
+        if (client.type === "connected") {
+          console.log(
+            `[MCP:${uid}] Connected to "${client.name}" — ${tools.length} tool(s): ${tools.map((t) => t.name).join(", ")}`,
+          );
+        } else if (client.type === "failed") {
+          console.warn(`[MCP:${uid}] Failed to connect to "${client.name}"`);
+        } else {
+          console.log(`[MCP:${uid}] "${client.name}" state: ${client.type}`);
+        }
+      },
+      servers,
+    );
 
-          if (client.type === "connected") {
-            console.log(
-              `[MCP:${uid}] Connected to "${client.name}" — ${tools.length} tool(s): ${tools.map((t) => t.name).join(", ")}`,
-            );
-          } else if (client.type === "failed") {
-            console.warn(`[MCP:${uid}] Failed to connect to "${client.name}"`);
-          } else {
-            console.log(`[MCP:${uid}] "${client.name}" state: ${client.type}`);
-          }
-        },
-        servers,
-      );
-
-      this._mcpByUser.set(uid, state);
-    } finally {
-      if (userId) {
-        const { setCurrentMcpUserConfigPath } = await import("./engine/bootstrap/state.js");
-        setCurrentMcpUserConfigPath(null);
-      }
-    }
+    this._mcpByUser.set(uid, state);
   }
 
   /** Invalidate cached MCP state for a user so next chat() triggers a reload.
    *  Closes existing connections before removing state to prevent leaks. */
   async invalidateMcpCache(userId?: string): Promise<void> {
-    const release = await this.globalStateMutex.acquire();
-    try {
-      await this._closeMcpConnections(userId);
-    } finally {
-      release();
-    }
+    await this._closeMcpConnections(userId);
   }
 
   async reconnectMcp(userId?: string): Promise<void> {
-    const release = await this.globalStateMutex.acquire();
-    try {
-      await this._closeMcpConnections(userId);
-      await this._initMcpLocked(userId);
-    } finally {
-      release();
-    }
+    await this._closeMcpConnections(userId);
+    await this.initMcp(userId);
   }
 
-  /** Internal: close MCP connections for user(s) and remove state. Caller MUST hold globalStateMutex. */
+  /** Internal: close MCP connections for user(s) and remove per-user state.
+   *  Each user owns their connections — clearServerCache with explicit userId
+   *  ensures the correct per-user cache entries are cleaned up. */
   private async _closeMcpConnections(userId?: string): Promise<void> {
     const uids = userId ? [userId] : [...this._mcpByUser.keys()];
     for (const uid of uids) {
@@ -302,7 +296,7 @@ export class AgentSessionManager {
       if (state) {
         for (const client of state.clients) {
           if (client.type === "connected") {
-            try { await clearServerCache(client.name, client.config); }
+            try { await clearServerCache(client.name, client.config, uid); }
             catch (err) { console.error(`[MCP:${uid}] Error closing "${client.name}": ${err}`); }
           }
         }
@@ -323,55 +317,52 @@ export class AgentSessionManager {
     try {
       const userId = extractUserId(sessionKey);
 
-      // Per-user global state values (will be restored before each async yield)
+      // Per-user scoped state — AsyncLocalStorage propagates through all awaits,
+      // eliminating global-state races between concurrent users.
       const userAdditionalDirs = [
         join(homedir(), '.klaus', 'users', userId),
       ];
       const userMemoryPath = join(homedir(), '.klaus', 'users', userId, 'memory');
-
-      // Acquire global state mutex — serializes the global-state-dependent sequence:
-      // setAdditionalDirs → setMcpConfigPath → clearCache → buildQueryConfig → getAttachmentMessages.
-      // Without this, concurrent users can overwrite each other's global state.
-      const releaseGlobalLock = await this.globalStateMutex.acquire();
-      let systemPrompt, userContext, systemContext, apiKey: string, baseUrl: string | undefined,
-        model: string, fallbackModel: string | undefined, maxContextTokens: number,
-        thinkingConfig: ThinkingConfig, tools: any[], toolSchemas: any[];
-      let toolUseContext: ToolUseContext;
-      let attachmentMessages: Message[];
-      const { setAdditionalDirectoriesForClaudeMd, setCurrentMcpUserConfigPath } = await import("./engine/bootstrap/state.js");
       const { getUserMcpConfigPath } = await import("./user-dirs.js");
-      try {
-        // Set per-user skill directory so engine scans user's skills
-        setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
-        // Set per-user MCP config path so engine reads user's MCP servers
-        setCurrentMcpUserConfigPath(getUserMcpConfigPath(userId));
 
-        // Ensure this user's MCP servers are loaded (no-op if already present)
-        if (!this._mcpByUser.has(userId)) {
-          await this._initMcpLocked(userId);
-        }
+      // Build a partial scope (without API credentials) for pre-config operations.
+      const baseScope = {
+        userId,
+        additionalDirectoriesForClaudeMd: userAdditionalDirs,
+        currentMcpUserConfigPath: getUserMcpConfigPath(userId),
+        memoryPathOverride: userMemoryPath,
+      };
 
-        // Clear skill cache (user's skill directory may differ)
-        const { clearCommandsCache } = await import("./engine/commands.js");
-        clearCommandsCache();
+      // Ensure this user's MCP servers are loaded.
+      if (!this._mcpByUser.has(userId)) {
+        await runWithUserScope(baseScope, () => this._initMcpUnlocked(userId));
+      }
 
-        // Build query params (reads getCommands → depends on additionalDirs)
-        ({ systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
-          await this.buildQueryConfig(sessionKey));
+      // Build query config inside user scope.
+      // No clearCommandsCache() needed — memoize keys include userId from ALS,
+      // so each user gets independent cached results automatically.
+      const { getAttachmentMessages } = await import("./engine/utils/attachments.js");
+      const { toArray } = await import("./engine/utils/generators.js");
 
-        // Set API credentials for the engine's getAnthropicClient()
-        process.env.ANTHROPIC_API_KEY = apiKey;
-        if (baseUrl) {
-          process.env.ANTHROPIC_BASE_URL = baseUrl;
-        }
+      const { systemPrompt, userContext, systemContext, apiKey, baseUrl, model, fallbackModel, maxContextTokens, thinkingConfig, tools, toolSchemas } =
+        await runWithUserScope(baseScope, async () => {
+          return this.buildQueryConfig(sessionKey);
+        });
 
-        // Build ToolUseContext
-        toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
+      // Full scope includes API credentials — used for the query loop and
+      // everything that may create an Anthropic client.
+      const userScope = {
+        ...baseScope,
+        anthropicApiKey: apiKey,
+        anthropicBaseUrl: baseUrl ?? null,
+      };
 
-        // Collect attachment messages (skill_listing etc. — reads getSkillToolCommands)
-        const { getAttachmentMessages } = await import("./engine/utils/attachments.js");
-        const { toArray } = await import("./engine/utils/generators.js");
-        attachmentMessages = await toArray(
+      // Build ToolUseContext
+      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
+
+      const attachmentMessages: Message[] = await runWithUserScope(
+        userScope,
+        async () => toArray(
           getAttachmentMessages(
             text,
             toolUseContext as any,
@@ -380,13 +371,8 @@ export class AgentSessionManager {
             session.messages,
             "repl_main_thread" as any,
           ),
-        ) as Message[];
-      } finally {
-        setCurrentMcpUserConfigPath(null);
-        releaseGlobalLock();
-      }
-
-      // --- Below here no longer depends on global additionalDirs/MCP state ---
+        ) as Promise<Message[]>,
+      );
 
       // Inject user context as first message (matches claude-code's prependUserContext)
       if (userContext.claudeMd && session.messages.length === 0) {
@@ -506,26 +492,20 @@ export class AgentSessionManager {
         onEvent?.({ type: "context_collapse_stats", ...stats });
       };
 
-      // Set per-user memory path for the engine's three-layer memory system
-      process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = userMemoryPath;
-      // Clear memoized getAutoMemPath so it picks up the new env var
+      // Clear memoized getAutoMemPath so it picks up the ALS-scoped override
       getAutoMemPath.cache.clear?.();
 
-      // Consume the query generator
+      // Run the entire query loop inside user scope — ALS propagates through
+      // all awaits in the for-await loop, so engine code always sees this user's
+      // dirs, MCP config, API credentials, and memory path.
+      return await runWithUserScope(userScope, async () => {
+
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
       const gen = query(queryParams);
 
       let currentToolCallId = ""; // Track current tool_use block ID for input_json_delta
 
       for await (const event of gen) {
-        // Restore per-user global state after each async yield (another user's
-        // chat() may have overwritten these while we were awaiting)
-        setAdditionalDirectoriesForClaudeMd(userAdditionalDirs);
-        process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = userMemoryPath;
-        getAutoMemPath.cache.clear?.();
-        process.env.ANTHROPIC_API_KEY = apiKey;
-        if (baseUrl) process.env.ANTHROPIC_BASE_URL = baseUrl;
-
         if (!onEvent) continue;
         const ev = event as any;
 
@@ -609,6 +589,25 @@ export class AgentSessionManager {
                     toolCallId: block.tool_use_id ?? "",
                     isError: block.is_error ?? false,
                   });
+
+                  // Auto-push MCP OAuth auth URL to the user's browser so it
+                  // opens automatically — no manual copy-paste needed.
+                  if (
+                    sendEvent &&
+                    block.toolName?.endsWith("__authenticate") &&
+                    typeof block.content === "string"
+                  ) {
+                    const urlMatch = block.content.match(/https?:\/\/\S+/);
+                    if (urlMatch) {
+                      const serverName = block.toolName.replace(/^mcp__/, "").replace(/__authenticate$/, "");
+                      sendEvent(userId, {
+                        type: "mcp_auth_url",
+                        serverName,
+                        url: urlMatch[0],
+                        sessionId: parseWebSessionKey(sessionKey)?.sessionId,
+                      });
+                    }
+                  }
                 }
               }
             }
@@ -657,6 +656,8 @@ export class AgentSessionManager {
       console.log(`[Query] Generator finished. Messages: ${session.messages.length}`);
 
       return extractFinalText(session.messages);
+
+      }); // end runWithUserScope
     } finally {
       session.isRunning = false;
     }

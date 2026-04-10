@@ -12,6 +12,7 @@ import {
 import {
   getAdditionalDirectoriesForClaudeMd,
   getSessionId,
+  getScopedUserId,
 } from '../bootstrap/state.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -800,6 +801,10 @@ export const getSkillDirCommands = memoize(
     )
 
     return unconditionalSkills
+  },
+  (cwd: string) => {
+    const uid = getScopedUserId()
+    return uid ? `${uid}:${cwd}` : cwd
   },
 )
 

@@ -475,6 +475,13 @@ export function getChatMainJs(): string {
         }
         return;
       }
+      if (data.type === "mcp_auth_url") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        // Auto-open MCP OAuth authorization URL in a new tab
+        window.open(data.url, "_blank");
+        appendSystemNotice("🔑 " + (data.serverName || "MCP") + " authorization opened in new tab");
+        return;
+      }
       if (data.type === "permission_request") {
         if (data.sessionId && data.sessionId !== currentSessionId) return;
         showPermissionDialog(data);

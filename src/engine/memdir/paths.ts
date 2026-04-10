@@ -4,6 +4,7 @@ import { isAbsolute, join, normalize, sep } from 'path'
 import {
   getIsNonInteractiveSession,
   getProjectRoot,
+  getScopedMemoryPathOverride,
 } from '../bootstrap/state.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import {
@@ -159,6 +160,11 @@ function validateMemoryPath(
  * produce a different project-key for every session.
  */
 function getAutoMemPathOverride(): string | undefined {
+  // ALS-scoped override takes priority (Klaus per-user memory isolation).
+  const scoped = getScopedMemoryPathOverride()
+  if (scoped) {
+    return validateMemoryPath(scoped, false)
+  }
   return validateMemoryPath(
     process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE,
     false,
@@ -231,7 +237,9 @@ export const getAutoMemPath = memoize(
       join(projectsDir, sanitizePath(getAutoMemBase()), AUTO_MEM_DIRNAME) + sep
     ).normalize('NFC')
   },
-  () => getProjectRoot(),
+  // Key includes the ALS-scoped override so concurrent users with different
+  // memory paths don't share a single cached result.
+  () => `${getProjectRoot()}::${getScopedMemoryPathOverride() ?? ''}`,
 )
 
 /**
