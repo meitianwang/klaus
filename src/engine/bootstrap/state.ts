@@ -391,11 +391,6 @@ function getInitialState(): State {
     mainThreadAgentType: undefined,
     // Remote mode
     isRemoteMode: false,
-    ...(process.env.USER_TYPE === 'ant'
-      ? {
-          replBridgeActive: false,
-        }
-      : {}),
     // Direct connect server URL
     directConnectServerUrl: undefined,
     // System prompt section cache state
@@ -1855,7 +1850,4 @@ export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
 
-export function isReplBridgeActive(): boolean {
-  return false
-}
 
