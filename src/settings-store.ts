@@ -144,6 +144,12 @@ export class SettingsStore {
         ALTER TABLE models ADD COLUMN cost_cache_write REAL;
       `);
     }
+    // Add user_id column to cron_tasks table (user-level cron)
+    const cronCols = this.db.prepare("PRAGMA table_info(cron_tasks)").all() as { name: string }[];
+    const cronColNames = new Set(cronCols.map((c) => c.name));
+    if (!cronColNames.has("user_id")) {
+      this.db.exec(`ALTER TABLE cron_tasks ADD COLUMN user_id TEXT`);
+    }
     // Add OAuth columns to models table
     if (!colNames.has("auth_type")) {
       this.db.exec(`
@@ -425,9 +431,10 @@ export class SettingsStore {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO cron_tasks (id, name, description, schedule, prompt, enabled, thinking, light_context, timeout_seconds, delete_after_run, deliver, webhook_url, webhook_token, failure_alert, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cron_tasks (id, user_id, name, description, schedule, prompt, enabled, thinking, light_context, timeout_seconds, delete_after_run, deliver, webhook_url, webhook_token, failure_alert, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           user_id = excluded.user_id,
            name = excluded.name, description = excluded.description,
            schedule = excluded.schedule, prompt = excluded.prompt,
            enabled = excluded.enabled, thinking = excluded.thinking,
@@ -438,6 +445,7 @@ export class SettingsStore {
       )
       .run(
         task.id,
+        task.userId ?? null,
         task.name ?? null,
         task.description ?? null,
         typeof task.schedule === "string" ? task.schedule : JSON.stringify(task.schedule),
@@ -458,6 +466,18 @@ export class SettingsStore {
 
   deleteTask(id: string): boolean {
     this.db.prepare("DELETE FROM cron_tasks WHERE id = ?").run(id);
+    return this.lastChanges() > 0;
+  }
+
+  listUserTasks(userId: string): CronTask[] {
+    const rows = this.db
+      .prepare("SELECT * FROM cron_tasks WHERE user_id = ? ORDER BY created_at ASC")
+      .all(userId) as RawCronRow[];
+    return rows.map(toCronTask);
+  }
+
+  deleteUserTask(userId: string, taskId: string): boolean {
+    this.db.prepare("DELETE FROM cron_tasks WHERE id = ? AND user_id = ?").run(taskId, userId);
     return this.lastChanges() > 0;
   }
 
@@ -566,6 +586,7 @@ function toPromptRecord(r: RawPromptRow): PromptRecord {
 
 interface RawCronRow {
   id: string;
+  user_id: string | null;
   name: string | null;
   description: string | null;
   schedule: string;
@@ -586,6 +607,7 @@ interface RawCronRow {
 function toCronTask(r: RawCronRow): CronTask {
   return {
     id: r.id,
+    ...(r.user_id ? { userId: r.user_id } : {}),
     ...(r.name ? { name: r.name } : {}),
     ...(r.description ? { description: r.description } : {}),
     schedule: r.schedule,

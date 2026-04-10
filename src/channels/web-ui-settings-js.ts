@@ -42,15 +42,12 @@ export function getSettingsJs(): string {
     document.querySelectorAll(".settings-theme-card").forEach(function(c) {
       c.classList.toggle("active", c.getAttribute("data-theme") === curTheme);
     });
-    // Show/hide admin-only tabs
+    // Show/hide admin-only tabs (MCP is admin-only; cron is available to all users)
     var mcpNav = document.querySelector("[data-stab='mcp']");
-    var cronNav = document.querySelector("[data-stab='cron']");
     if (isAdmin) {
       if (mcpNav) mcpNav.style.display = "";
-      if (cronNav) cronNav.style.display = "";
     } else {
       if (mcpNav) mcpNav.style.display = "none";
-      if (cronNav) cronNav.style.display = "none";
     }
   }
   function hideSettings() {
@@ -193,6 +190,21 @@ export function getSettingsJs(): string {
       qs = pairs.join("&");
     }
     var url = "/api/admin/" + path + (qs ? "?" + qs : "");
+    return fetch(url, opts).then(function(r) { if (!r.ok) throw new Error(r.status + " " + r.statusText); return r.json(); });
+  }
+
+  function userApi(path, method, params) {
+    var qs = "";
+    var opts = { method: method || "GET", credentials: "same-origin" };
+    if (method === "POST" || method === "PATCH") {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(params || {});
+    } else if (params) {
+      var pairs = [];
+      Object.keys(params).forEach(function(k) { pairs.push(k + "=" + encodeURIComponent(params[k])); });
+      qs = pairs.join("&");
+    }
+    var url = "/api/" + path + (qs ? "?" + qs : "");
     return fetch(url, opts).then(function(r) { if (!r.ok) throw new Error(r.status + " " + r.statusText); return r.json(); });
   }
 
@@ -434,7 +446,7 @@ export function getSettingsJs(): string {
   var sCfCancel = document.getElementById("s-cf-cancel");
 
   function loadCronTasks() {
-    adminApi("cron/tasks", "GET").then(function(d) {
+    userApi("cron/tasks", "GET").then(function(d) {
       var tasks = d.tasks || [];
       var sched = d.scheduler || {};
       var running = sched.running;
@@ -482,7 +494,7 @@ export function getSettingsJs(): string {
     if (!id || !schedule || !prompt) return;
     sCfSave.disabled = true;
     var payload = { id: id, schedule: schedule, prompt: prompt, name: sCfName.value.trim() || undefined, enabled: true };
-    adminApi("cron/tasks", "POST", payload)
+    userApi("cron/tasks", "POST", payload)
       .then(function() { sCronForm.style.display = "none"; showSettingsToast(tt("settings_saved")); loadCronTasks(); })
       .catch(function() { showSettingsToast(tt("settings_failed")); })
       .finally(function() { sCfSave.disabled = false; });
@@ -494,11 +506,11 @@ export function getSettingsJs(): string {
     e.stopPropagation();
     if (btn.dataset.togglecron) {
       var enabled = btn.dataset.enabled === "1";
-      adminApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.togglecron), "PATCH", { enabled: !enabled })
+      userApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.togglecron), "PATCH", { enabled: !enabled })
         .then(function() { loadCronTasks(); });
     } else if (btn.dataset.delcron) {
       if (!confirm(tt("settings_cron_delete_confirm"))) return;
-      adminApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.delcron), "DELETE")
+      userApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.delcron), "DELETE")
         .then(function() { loadCronTasks(); showSettingsToast(tt("settings_deleted")); });
     }
   });

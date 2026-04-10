@@ -1,10 +1,10 @@
 import { z } from 'zod/v4'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { cronToHuman } from '../../utils/cron.js'
-import { listAllCronTasks } from '../../utils/cronTasks.js'
 import { truncate } from '../../utils/format.js'
 import { lazySchema } from '../../utils/lazySchema.js'
-import { getTeammateContext } from '../../utils/teammateContext.js'
+import { getScopedUserId } from '../../bootstrap/state.js'
+import { getKlausCronStore } from '../../utils/klausCronBridge.js'
 import {
   buildCronListPrompt,
   CRON_LIST_DESCRIPTION,
@@ -26,7 +26,6 @@ const outputSchema = lazySchema(() =>
         humanSchedule: z.string(),
         prompt: z.string(),
         recurring: z.boolean().optional(),
-        durable: z.boolean().optional(),
       }),
     ),
   }),
@@ -61,20 +60,25 @@ export const CronListTool = buildTool({
     return buildCronListPrompt(isDurableCronEnabled())
   },
   async call() {
-    const allTasks = await listAllCronTasks()
-    // Teammates only see their own crons; team lead (no ctx) sees all.
-    const ctx = getTeammateContext()
-    const tasks = ctx
-      ? allTasks.filter(t => t.agentId === ctx.agentId)
-      : allTasks
-    const jobs = tasks.map(t => ({
-      id: t.id,
-      cron: t.cron,
-      humanSchedule: cronToHuman(t.cron),
-      prompt: t.prompt,
-      ...(t.recurring ? { recurring: true } : {}),
-      ...(t.durable === false ? { durable: false } : {}),
-    }))
+    const userId = getScopedUserId()
+    const store = getKlausCronStore()
+    if (!userId || !store) {
+      return { data: { jobs: [] } }
+    }
+
+    const tasks = store.listUserTasks(userId)
+    const jobs = tasks
+      .filter(t => t.enabled !== false)
+      .map(t => {
+        const schedule = typeof t.schedule === 'string' ? t.schedule : JSON.stringify(t.schedule)
+        return {
+          id: t.id,
+          cron: schedule,
+          humanSchedule: cronToHuman(schedule),
+          prompt: t.prompt,
+          ...(!t.deleteAfterRun ? { recurring: true } : {}),
+        }
+      })
     return { data: { jobs } }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
@@ -86,7 +90,7 @@ export const CronListTool = buildTool({
           ? output.jobs
               .map(
                 j =>
-                  `${j.id} — ${j.humanSchedule}${j.recurring ? ' (recurring)' : ' (one-shot)'}${j.durable === false ? ' [session-only]' : ''}: ${truncate(j.prompt, 80, true)}`,
+                  `${j.id} — ${j.humanSchedule}${j.recurring ? ' (recurring)' : ' (one-shot)'}: ${truncate(j.prompt, 80, true)}`,
               )
               .join('\n')
           : 'No scheduled jobs.',

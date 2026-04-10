@@ -1260,6 +1260,140 @@ async function handleAdminCronTasks(
 }
 
 // ---------------------------------------------------------------------------
+// User: cron tasks CRUD (per-user)
+// ---------------------------------------------------------------------------
+
+async function handleUserCronTasks(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const auth = authenticateRequest(req);
+  if (auth.kind === "invalid") {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+  const userId = auth.user.id;
+
+  if (!settingsStoreRef) {
+    jsonResponse(res, 503, { error: "not ready" });
+    return;
+  }
+
+  if (req.method === "GET") {
+    const tasks = settingsStoreRef.listUserTasks(userId);
+    const schedulerStatus = cronSchedulerRef
+      ? cronSchedulerRef.getSchedulerStatus()
+      : { running: false, taskCount: 0, activeJobs: 0, runningTasks: 0, maxConcurrentRuns: null, nextWakeAt: null };
+    // Enrich tasks with runtime status from scheduler (call getStatus once, not per-task)
+    const allStatus = cronSchedulerRef ? cronSchedulerRef.getStatus() : [];
+    const statusMap = new Map((allStatus as readonly { id: string }[]).map(s => [s.id, s]));
+    const enriched = tasks.map((t) => {
+      const status = statusMap.get(t.id) as { nextRun?: string | null; lastRun?: unknown; consecutiveErrors?: number } | undefined;
+      return {
+        ...t,
+        nextRun: status?.nextRun ?? null,
+        lastRun: status?.lastRun ?? null,
+        consecutiveErrors: status?.consecutiveErrors ?? 0,
+      };
+    });
+    jsonResponse(res, 200, { tasks: enriched, scheduler: schedulerStatus });
+    return;
+  }
+
+  if (req.method === "POST") {
+    try {
+      const parsed = await readJsonBody(req, 4096) as Record<string, unknown>;
+      const schedule = ((parsed.schedule as string) ?? "").trim();
+      const prompt = ((parsed.prompt as string) ?? "").trim();
+      if (!schedule || !prompt) {
+        jsonResponse(res, 400, { error: "schedule and prompt are required" });
+        return;
+      }
+      // Always auto-generate id to prevent cross-user id collision via upsert
+      const id = `cron-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const task: CronTask = {
+        id,
+        userId,
+        name: (parsed.name as string) || undefined,
+        description: (parsed.description as string) || undefined,
+        schedule,
+        prompt,
+        enabled: parsed.enabled !== false,
+        thinking: (parsed.thinking as CronTask["thinking"]) ?? undefined,
+        deleteAfterRun: !!parsed.deleteAfterRun,
+        timeoutSeconds: (parsed.timeoutSeconds as number) ?? undefined,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      settingsStoreRef.upsertTask(task);
+      cronSchedulerRef?.addTask(task);
+      jsonResponse(res, 201, { ok: true, task });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) {
+      jsonResponse(res, 400, { error: "id query parameter required" });
+      return;
+    }
+    // Verify ownership
+    const existing = settingsStoreRef.getTask(id);
+    if (!existing || existing.userId !== userId) {
+      jsonResponse(res, 404, { error: "task not found" });
+      return;
+    }
+    try {
+      const parsed = await readJsonBody(req, 4096) as Record<string, unknown>;
+      // Whitelist: only allow safe fields to be updated
+      const updated: CronTask = {
+        ...existing,
+        name: parsed.name !== undefined ? (parsed.name as string) || undefined : existing.name,
+        description: parsed.description !== undefined ? (parsed.description as string) || undefined : existing.description,
+        schedule: parsed.schedule !== undefined ? (parsed.schedule as string) : existing.schedule,
+        prompt: parsed.prompt !== undefined ? (parsed.prompt as string) : existing.prompt,
+        enabled: parsed.enabled !== undefined ? parsed.enabled !== false : existing.enabled,
+        thinking: parsed.thinking !== undefined ? (parsed.thinking as CronTask["thinking"]) : existing.thinking,
+        deleteAfterRun: parsed.deleteAfterRun !== undefined ? !!parsed.deleteAfterRun : existing.deleteAfterRun,
+        timeoutSeconds: parsed.timeoutSeconds !== undefined ? (parsed.timeoutSeconds as number) ?? undefined : existing.timeoutSeconds,
+        userId,
+        id,
+        updatedAt: Date.now(),
+      };
+      settingsStoreRef.upsertTask(updated);
+      cronSchedulerRef?.editTask(id, updated);
+      jsonResponse(res, 200, { ok: true, task: updated });
+    } catch (err) {
+      gatewayErrorResponse(res, err);
+    }
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) {
+      jsonResponse(res, 400, { error: "id query parameter required" });
+      return;
+    }
+    const deleted = settingsStoreRef.deleteUserTask(userId, id);
+    if (!deleted) {
+      jsonResponse(res, 404, { error: "task not found" });
+      return;
+    }
+    cronSchedulerRef?.removeTask(id);
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
 // Admin: providers (read-only, from registry)
 // ---------------------------------------------------------------------------
 
@@ -2986,7 +3120,9 @@ async function handleRequest(
       return handleAdminPrompts(req, res);
     case "/api/admin/permission-rules":
       return handleAdminPermissionRules(req, res);
-case "/api/mcp":
+case "/api/cron/tasks":
+      return handleUserCronTasks(req, res);
+    case "/api/mcp":
       return handleUserMcp(req, res);
     case "/api/admin/channels":
       return handleAdminChannels(req, res);

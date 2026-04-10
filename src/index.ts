@@ -239,6 +239,10 @@ async function start(): Promise<void> {
     }
   }
 
+  // Bridge engine cron tools to Klaus's SQLite + CronScheduler
+  const { setKlausCronBridge } = await import("./engine/utils/klausCronBridge.js");
+  setKlausCronBridge(settingsStore, cronScheduler);
+
   try {
     await manager.startAll();
   } finally {

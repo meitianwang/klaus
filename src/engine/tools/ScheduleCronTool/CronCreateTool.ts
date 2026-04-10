@@ -1,24 +1,18 @@
 import { z } from 'zod/v4'
-import { setScheduledTasksEnabled } from '../../bootstrap/state.js'
 import type { ValidationResult } from '../../Tool.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { cronToHuman, parseCronExpression } from '../../utils/cron.js'
-import {
-  addCronTask,
-  getCronFilePath,
-  listAllCronTasks,
-  nextCronRunMs,
-} from '../../utils/cronTasks.js'
+import { nextCronRunMs } from '../../utils/cronTasks.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { semanticBoolean } from '../../utils/semanticBoolean.js'
-import { getTeammateContext } from '../../utils/teammateContext.js'
+import { getScopedUserId } from '../../bootstrap/state.js'
+import { getKlausCronStore, getKlausCronScheduler } from '../../utils/klausCronBridge.js'
 import {
   buildCronCreateDescription,
   buildCronCreatePrompt,
   CRON_CREATE_TOOL_NAME,
-  DEFAULT_MAX_AGE_DAYS,
-  isDurableCronEnabled,
   isKairosCronEnabled,
+  isDurableCronEnabled,
 } from './prompt.js'
 import { renderCreateResultMessage, renderCreateToolUseMessage } from './UI.js'
 
@@ -33,11 +27,9 @@ const inputSchema = lazySchema(() =>
       ),
     prompt: z.string().describe('The prompt to enqueue at each fire time.'),
     recurring: semanticBoolean(z.boolean().optional()).describe(
-      `true (default) = fire on every cron match until deleted or auto-expired after ${DEFAULT_MAX_AGE_DAYS} days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month.`,
+      `true (default) = fire on every cron match. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month.`,
     ),
-    durable: semanticBoolean(z.boolean().optional()).describe(
-      'true = persist to .claude/scheduled_tasks.json and survive restarts. false (default) = in-memory only, dies when this Claude session ends. Use true only when the user asks the task to survive across sessions.',
-    ),
+    name: z.string().optional().describe('Optional human-readable name for the task.'),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>
@@ -47,7 +39,6 @@ const outputSchema = lazySchema(() =>
     id: z.string(),
     humanSchedule: z.string(),
     recurring: z.boolean(),
-    durable: z.boolean().optional(),
   }),
 )
 type OutputSchema = ReturnType<typeof outputSchema>
@@ -77,7 +68,7 @@ export const CronCreateTool = buildTool({
     return buildCronCreatePrompt(isDurableCronEnabled())
   },
   getPath() {
-    return getCronFilePath()
+    return ''
   },
   async validateInput(input): Promise<ValidationResult> {
     if (!parseCronExpression(input.cron)) {
@@ -94,62 +85,62 @@ export const CronCreateTool = buildTool({
         errorCode: 2,
       }
     }
-    const tasks = await listAllCronTasks()
+    const userId = getScopedUserId()
+    if (!userId) {
+      return { result: false, message: 'No user context available.', errorCode: 3 }
+    }
+    const store = getKlausCronStore()
+    if (!store) {
+      return { result: false, message: 'Cron system not available.', errorCode: 4 }
+    }
+    const tasks = store.listUserTasks(userId)
     if (tasks.length >= MAX_JOBS) {
       return {
         result: false,
         message: `Too many scheduled jobs (max ${MAX_JOBS}). Cancel one first.`,
-        errorCode: 3,
-      }
-    }
-    // Teammates don't persist across sessions, so a durable teammate cron
-    // would orphan on restart (agentId would point to a nonexistent teammate).
-    if (input.durable && getTeammateContext()) {
-      return {
-        result: false,
-        message:
-          'durable crons are not supported for teammates (teammates do not persist across sessions)',
-        errorCode: 4,
+        errorCode: 5,
       }
     }
     return { result: true }
   },
-  async call({ cron, prompt, recurring = true, durable = false }) {
-    // Kill switch forces session-only; schema stays stable so the model sees
-    // no validation errors when the gate flips mid-session.
-    const effectiveDurable = durable && isDurableCronEnabled()
-    const id = await addCronTask(
-      cron,
+  async call({ cron, prompt, recurring = true, name }) {
+    const userId = getScopedUserId()!
+    const store = getKlausCronStore()!
+    const scheduler = getKlausCronScheduler()
+
+    const id = `cron-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    const now = Date.now()
+
+    const task = {
+      id,
+      userId,
+      name: name ?? prompt.slice(0, 40),
+      schedule: cron,
       prompt,
-      recurring,
-      effectiveDurable,
-      getTeammateContext()?.agentId,
-    )
-    // Enable the scheduler so the task fires in this session. The
-    // useScheduledTasks hook polls this flag and will start watching
-    // on the next tick. For durable: false tasks the file never changes
-    // — check() reads the session store directly — but the enable flag
-    // is still what starts the tick loop.
-    setScheduledTasksEnabled(true)
+      enabled: true,
+      deleteAfterRun: !recurring,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    store.upsertTask(task)
+    scheduler?.addTask(task)
+
     return {
       data: {
         id,
         humanSchedule: cronToHuman(cron),
         recurring,
-        durable: effectiveDurable,
       },
     }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
-    const where = output.durable
-      ? 'Persisted to .claude/scheduled_tasks.json'
-      : 'Session-only (not written to disk, dies when Claude exits)'
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
       content: output.recurring
-        ? `Scheduled recurring job ${output.id} (${output.humanSchedule}). ${where}. Auto-expires after ${DEFAULT_MAX_AGE_DAYS} days. Use CronDelete to cancel sooner.`
-        : `Scheduled one-shot task ${output.id} (${output.humanSchedule}). ${where}. It will fire once then auto-delete.`,
+        ? `Scheduled recurring job ${output.id} (${output.humanSchedule}). Persisted to server. Use CronDelete to cancel.`
+        : `Scheduled one-shot task ${output.id} (${output.humanSchedule}). It will fire once then auto-delete.`,
     }
   },
   renderToolUseMessage: renderCreateToolUseMessage,

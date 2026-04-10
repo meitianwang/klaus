@@ -278,7 +278,10 @@ export class CronScheduler {
       }
     }
 
-    const sessionKey = `cron:${task.id}`;
+    // Use web:{userId}:cron-{taskId} for user tasks so extractUserId() resolves correctly
+    const sessionKey = task.userId
+      ? `web:${task.userId}:cron-${task.id}`
+      : `cron:${task.id}`;
     const startedAt = Date.now();
     this.running.add(task.id);
 
@@ -409,8 +412,10 @@ export class CronScheduler {
       task.deliver.mode !== "none" &&
       task.deliver.mode !== "webhook";
     const hasWebhook = task.webhookUrl || task.deliver?.mode === "webhook";
+    // User-level tasks without explicit deliver config: auto-deliver to user's web chat
+    const autoDeliverToUser = !hasChannelDeliver && !hasWebhook && !!task.userId;
 
-    if (!hasChannelDeliver && !hasWebhook) {
+    if (!hasChannelDeliver && !hasWebhook && !autoDeliverToUser) {
       return { delivered: false, deliveryStatus: "not-requested" };
     }
 
@@ -420,6 +425,9 @@ export class CronScheduler {
       // Channel announce delivery
       if (hasChannelDeliver) {
         await this.deliverResult(task, reply);
+      } else if (autoDeliverToUser) {
+        // Auto-deliver to user's web chat
+        await this.deliverToUser(task, reply);
       }
       // Webhook delivery
       if (hasWebhook) {
@@ -531,6 +539,20 @@ export class CronScheduler {
     await deliverFn(to, message);
     this.lastActiveChannel = channel;
     console.log(`[Cron] Task "${task.id}" delivered to ${channel}:${to}`);
+  }
+
+  // --- Delivery: auto-deliver to user's web chat
+
+  private async deliverToUser(task: CronTask, reply: string): Promise<void> {
+    const deliverFn = this.deliverers.get("web");
+    if (!deliverFn) {
+      console.warn(`[Cron] Task "${task.id}": web deliverer not available for user delivery`);
+      return;
+    }
+    const label = task.name ?? task.id;
+    const message = `[定时任务: ${label}]\n\n${reply}`;
+    await deliverFn(task.userId!, message);
+    console.log(`[Cron] Task "${task.id}" delivered to user ${task.userId}`);
   }
 
   // --- Delivery: webhook (HTTP POST)

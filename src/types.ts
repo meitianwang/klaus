@@ -73,6 +73,7 @@ export interface CronRunLogConfig {
 
 export interface CronTask {
   readonly id: string;
+  readonly userId?: string;
   readonly name?: string;
   readonly description?: string;
   readonly schedule: string | CronScheduleType;
