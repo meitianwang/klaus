@@ -5,7 +5,10 @@ import { type Command, getCommandName, isCommandEnabled } from '../commands.js'
 const selectableUserMessagesFilter = (_msg?: any) => true
 type SpinnerMode = 'requesting' | 'thinking' | 'responding' | 'tool-use' | 'tool-input' | 'idle'
 import type { QuerySource } from '../constants/querySource.js'
-import { expandPastedTextRefs, parseReferences } from '../history.js'
+// Klaus: history.ts removed — inline no-op stubs for pasted-text reference helpers
+function expandPastedTextRefs(input: string, _pastedContents: Record<number, any>): string { return input }
+type ParsedRef = { id: number; type: string }
+function parseReferences(_input: string): ParsedRef[] { return [] }
 import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
 import type { IDESelection } from '../hooks/useIdeSelection.js'
 import type { AppState } from '../state/AppState.js'

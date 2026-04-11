@@ -53,7 +53,10 @@ import type { AppState } from '../../state/AppState.js'
 import type { PluginError } from '../../types/plugin.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { getAllowedChannels } from '../../bootstrap/state.js'
-import { useNotifications } from '../../context/notifications.js'
+/** Stub after context/notifications.js was removed. */
+const useNotifications = () => ({
+  addNotification: (_notif: { key: string; priority: string; text: string; color?: string; timeoutMs?: number }) => {},
+})
 import {
   useAppState,
   useAppStateStore,

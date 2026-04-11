@@ -21,7 +21,15 @@ export type ToolInputJSONSchema = {
   }
 }
 
-import type { Notification } from './context/notifications.js'
+/** Minimal Notification type — inlined after context/notifications.js was removed. */
+export type Notification = {
+  key: string
+  priority: 'high' | 'low' | string
+  text: string
+  color?: string
+  timeoutMs?: number
+}
+
 import type {
   MCPServerConnection,
   ServerResource,

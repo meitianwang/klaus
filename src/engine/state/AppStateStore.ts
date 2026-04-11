@@ -1,4 +1,4 @@
-import type { Notification } from '../context/notifications.js'
+import type { Notification } from '../Tool.js'
 import type { TodoList } from '../utils/todo/types.js'
 import type { Command } from '../commands.js'
 import type { ChannelPermissionCallbacks } from '../services/mcp/channelPermissions.js'

@@ -1,7 +1,8 @@
 import { promises as fsp } from 'fs'
 import { getSdkAgentProgressSummariesEnabled } from '../../bootstrap/state.js'
 import { getSystemPrompt } from '../../constants/prompts.js'
-import { isCoordinatorMode } from '../../coordinator/coordinatorMode.js'
+// coordinator mode removed — always false in Klaus
+const isCoordinatorMode = (): boolean => false
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { ToolUseContext } from '../../Tool.js'
 import { registerAsyncAgent } from '../../tasks/LocalAgentTask/LocalAgentTask.js'

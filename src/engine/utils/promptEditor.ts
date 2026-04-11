@@ -1,8 +1,7 @@
-import {
-  expandPastedTextRefs,
-  formatPastedTextRef,
-  getPastedTextRefNumLines,
-} from '../history.js'
+// Klaus: history.ts removed — inline no-op stubs for pasted-text reference helpers
+function expandPastedTextRefs(input: string, _pastedContents: Record<number, any>): string { return input }
+function formatPastedTextRef(id: number, numLines: number): string { return `[Pasted Text #${id} (${numLines} lines)]` }
+function getPastedTextRefNumLines(content: string): number { return content.split('\n').length }
 const instances: Map<NodeJS.WriteStream, any> = new Map()
 import type { PastedContent } from './config.js'
 import { classifyGuiEditor, getExternalEditor } from './editor.js'

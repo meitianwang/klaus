@@ -6,7 +6,8 @@ import {
   FORK_BOILERPLATE_TAG,
   FORK_DIRECTIVE_PREFIX,
 } from '../../constants/xml.js'
-import { isCoordinatorMode } from '../../coordinator/coordinatorMode.js'
+// coordinator mode removed — always false in Klaus
+const isCoordinatorMode = (): boolean => false
 import type {
   AssistantMessage,
   Message as MessageType,

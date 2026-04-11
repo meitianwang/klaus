@@ -1,6 +1,3 @@
-import { getHistory } from '../../history.js'
-import { logForDebugging } from '../debug.js'
-
 /**
  * Result of shell history completion lookup
  */
@@ -28,28 +25,8 @@ async function getShellHistoryCommands(): Promise<string[]> {
     return shellHistoryCache
   }
 
+  // Klaus: history.ts removed — CLI session history not used
   const commands: string[] = []
-  const seen = new Set<string>()
-
-  try {
-    // Read history entries and filter for bash commands
-    for await (const entry of getHistory()) {
-      if (entry.display && entry.display.startsWith('!')) {
-        // Remove the '!' prefix to get the actual command
-        const command = entry.display.slice(1).trim()
-        if (command && !seen.has(command)) {
-          seen.add(command)
-          commands.push(command)
-        }
-      }
-      // Limit to 50 most recent unique commands
-      if (commands.length >= 50) {
-        break
-      }
-    }
-  } catch (error) {
-    logForDebugging(`Failed to read shell history: ${error}`)
-  }
 
   shellHistoryCache = commands
   shellHistoryCacheTimestamp = now

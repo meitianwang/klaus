@@ -142,7 +142,7 @@ import {
   TASK_BUDGETS_BETA_HEADER,
 } from '../../constants/betas.js'
 import type { QuerySource } from '../../constants/querySource.js'
-import type { Notification } from '../../context/notifications.js'
+import type { Notification } from '../../Tool.js'
 import { addToTotalSessionCost } from '../../cost-tracker.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import type { AgentId } from '../../types/ids.js'

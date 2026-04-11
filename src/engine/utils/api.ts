@@ -5,7 +5,9 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { createHash } from 'crypto'
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '../constants/prompts.js'
-import { getSystemContext, getUserContext } from '../context.js'
+/** Stubs after context.js was removed. */
+const getUserContext = async (): Promise<{ [k: string]: string }> => ({})
+const getSystemContext = async (): Promise<{ [k: string]: string }> => ({})
 import { isAnalyticsDisabled } from '../services/analytics/config.js'
 import {
   checkStatsigFeatureGate_CACHED_MAY_BE_STALE,

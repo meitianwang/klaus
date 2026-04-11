@@ -47,10 +47,9 @@ import {
 import memoize from 'lodash-es/memoize.js'
 import { basename, dirname, join, relative, resolve, sep } from 'path'
 import { getInlinePlugins } from '../../bootstrap/state.js'
-import {
-  BUILTIN_MARKETPLACE_NAME,
-  getBuiltinPlugins,
-} from '../../plugins/builtinPlugins.js'
+// Klaus: plugins/builtinPlugins.js removed — no built-in plugin system
+const BUILTIN_MARKETPLACE_NAME = '__builtin__'
+function getBuiltinPlugins(): { enabled: never[]; disabled: never[] } { return { enabled: [], disabled: [] } }
 import type {
   LoadedPlugin,
   PluginComponent,

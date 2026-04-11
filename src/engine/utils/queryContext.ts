@@ -11,7 +11,9 @@
 
 import type { Command } from '../commands.js'
 import { getSystemPrompt } from '../constants/prompts.js'
-import { getSystemContext, getUserContext } from '../context.js'
+/** Stubs after context.js was removed. */
+const getUserContext = async (): Promise<{ [k: string]: string }> => ({})
+const getSystemContext = async (): Promise<{ [k: string]: string }> => ({})
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type { AppState } from '../state/AppStateStore.js'
 import type { Tools, ToolUseContext } from '../Tool.js'

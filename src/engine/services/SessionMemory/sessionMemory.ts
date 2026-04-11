@@ -8,7 +8,9 @@ import { writeFile } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import { getSystemPrompt } from '../../constants/prompts.js'
-import { getSystemContext, getUserContext } from '../../context.js'
+/** Stubs after context.js was removed. */
+const getUserContext = async (): Promise<{ [k: string]: string }> => ({})
+const getSystemContext = async (): Promise<{ [k: string]: string }> => ({})
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { Tool, ToolUseContext } from '../../Tool.js'
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
