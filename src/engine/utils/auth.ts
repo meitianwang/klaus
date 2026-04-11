@@ -40,7 +40,6 @@ import {
   clearAwsIniCache,
   isValidAwsStsOutput,
 } from './aws.js'
-import { AwsAuthStatusManager } from './awsAuthStatusManager.js'
 import { clearBetasCaches } from './betas.js'
 import {
   type AccountInfo,
@@ -661,9 +660,6 @@ const AWS_AUTH_REFRESH_TIMEOUT_MS = 3 * 60 * 1000
 
 export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
   logForDebugging('Running AWS auth refresh command')
-  // Start tracking authentication status
-  const authStatusManager = AwsAuthStatusManager.getInstance()
-  authStatusManager.startAuthentication()
 
   return new Promise(resolve => {
     const refreshProc = exec(awsAuthRefresh, {
@@ -672,9 +668,6 @@ export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
     refreshProc.stdout!.on('data', data => {
       const output = data.toString().trim()
       if (output) {
-        // Add output to status manager for UI display
-        authStatusManager.addOutput(output)
-        // Also log for debugging
         logForDebugging(output, { level: 'debug' })
       }
     })
@@ -682,7 +675,6 @@ export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
     refreshProc.stderr!.on('data', data => {
       const error = data.toString().trim()
       if (error) {
-        authStatusManager.setError(error)
         logForDebugging(error, { level: 'error' })
       }
     })
@@ -690,7 +682,6 @@ export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
     refreshProc.on('close', (code, signal) => {
       if (code === 0) {
         logForDebugging('AWS auth refresh completed successfully')
-        authStatusManager.endAuthentication(true)
         void resolve(true)
       } else {
         const timedOut = signal === 'SIGTERM'
@@ -703,7 +694,6 @@ export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
             )
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message)
-        authStatusManager.endAuthentication(false)
         void resolve(false)
       }
     })
@@ -928,10 +918,6 @@ const GCP_AUTH_REFRESH_TIMEOUT_MS = 3 * 60 * 1000
 
 export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
   logForDebugging('Running GCP auth refresh command')
-  // Start tracking authentication status. AwsAuthStatusManager is cloud-provider-agnostic
-  // despite the name — print.ts emits its updates as generic SDK 'auth_status' messages.
-  const authStatusManager = AwsAuthStatusManager.getInstance()
-  authStatusManager.startAuthentication()
 
   return new Promise(resolve => {
     const refreshProc = exec(gcpAuthRefresh, {
@@ -940,9 +926,6 @@ export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
     refreshProc.stdout!.on('data', data => {
       const output = data.toString().trim()
       if (output) {
-        // Add output to status manager for UI display
-        authStatusManager.addOutput(output)
-        // Also log for debugging
         logForDebugging(output, { level: 'debug' })
       }
     })
@@ -950,7 +933,6 @@ export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
     refreshProc.stderr!.on('data', data => {
       const error = data.toString().trim()
       if (error) {
-        authStatusManager.setError(error)
         logForDebugging(error, { level: 'error' })
       }
     })
@@ -958,7 +940,6 @@ export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
     refreshProc.on('close', (code, signal) => {
       if (code === 0) {
         logForDebugging('GCP auth refresh completed successfully')
-        authStatusManager.endAuthentication(true)
         void resolve(true)
       } else {
         const timedOut = signal === 'SIGTERM'
@@ -971,7 +952,6 @@ export function refreshGcpAuth(gcpAuthRefresh: string): Promise<boolean> {
             )
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.error(message)
-        authStatusManager.endAuthentication(false)
         void resolve(false)
       }
     })
