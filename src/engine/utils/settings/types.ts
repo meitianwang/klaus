@@ -23,10 +23,10 @@ export {
   type HooksSettings,
   type HttpHook,
   type PromptHook,
-} from '../../schemas/hooks.js'
+} from '../../hooks-schema.js'
 
 // Also import for use within this file
-import { type HookCommand, HooksSchema } from '../../schemas/hooks.js'
+import { type HookCommand, HooksSchema } from '../../hooks-schema.js'
 import { count } from '../array.js'
 
 /**
