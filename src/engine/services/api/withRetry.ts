@@ -40,10 +40,9 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../analytics/index.js'
-import {
-  checkMockRateLimitError,
-  isMockRateLimitError,
-} from '../rateLimitMocking.js'
+// rateLimitMocking removed — Klaus doesn't use ant-only mock rate limits
+const checkMockRateLimitError = (_model: any, _fast: any) => null
+const isMockRateLimitError = (_error: any) => false
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
 

@@ -94,11 +94,10 @@ import {
 } from '../../utils/systemPromptType.js'
 import { tokenCountFromLastAPIResponse } from '../../utils/tokens.js'
 import { getDynamicConfig_BLOCKS_ON_INIT } from '../analytics/growthbook.js'
-import {
-  currentLimits,
-  extractQuotaStatusFromError,
-  extractQuotaStatusFromHeaders,
-} from '../claudeAiLimits.js'
+// claudeAiLimits removed — Klaus doesn't use claude.ai subscription limits
+const currentLimits = { isUsingOverage: false }
+const extractQuotaStatusFromHeaders = (_headers: any) => {}
+const extractQuotaStatusFromError = (_error: any) => {}
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */

@@ -16,10 +16,9 @@ import {
   preferThirdPartyAuthentication,
   getScopedAnthropicApiKey,
 } from '../bootstrap/state.js'
-import {
-  getMockSubscriptionType,
-  shouldUseMockSubscription,
-} from '../services/mockRateLimits.js'
+// mockRateLimits removed — Klaus doesn't use ant-only mock subscriptions
+const shouldUseMockSubscription = () => false
+const getMockSubscriptionType = (): null => null
 import {
   isOAuthTokenExpired,
   refreshOAuthToken,

@@ -43,12 +43,11 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../analytics/index.js'
-import {
-  type ClaudeAILimits,
-  getRateLimitErrorMessage,
-  type OverageDisabledReason,
-} from '../claudeAiLimits.js'
-import { shouldProcessRateLimits } from '../rateLimitMocking.js' // Used for /mock-limits command
+// claudeAiLimits/rateLimitMocking removed — Klaus doesn't use claude.ai subscription limits
+type ClaudeAILimits = Record<string, unknown>
+type OverageDisabledReason = string
+const getRateLimitErrorMessage = (_limits: any, _model: any): string | null => null
+const shouldProcessRateLimits = (_isSubscriber: any) => false
 import { extractConnectionErrorDetails, formatAPIError } from './errorUtils.js'
 
 export const API_ERROR_MESSAGE_PREFIX = 'API Error'

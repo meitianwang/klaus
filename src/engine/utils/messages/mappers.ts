@@ -12,7 +12,18 @@ import type {
   SDKMessage,
   SDKRateLimitInfo,
 } from '../../entrypoints/agentSdkTypes.js'
-import type { ClaudeAILimits } from '../../services/claudeAiLimits.js'
+type ClaudeAILimits = {
+  status?: 'allowed' | 'allowed_warning' | 'rejected'
+  resetsAt?: number
+  rateLimitType?: SDKRateLimitInfo['rateLimitType']
+  utilization?: number
+  overageStatus?: SDKRateLimitInfo['overageStatus']
+  overageResetsAt?: number
+  overageDisabledReason?: SDKRateLimitInfo['overageDisabledReason']
+  isUsingOverage?: boolean
+  surpassedThreshold?: number
+  [key: string]: unknown
+}
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../../tools/ExitPlanModeTool/constants.js'
 import type {
   AssistantMessage,
@@ -222,7 +233,7 @@ export function localCommandOutputToSDKAssistantMessage(
 export function toSDKRateLimitInfo(
   limits: ClaudeAILimits | undefined,
 ): SDKRateLimitInfo | undefined {
-  if (!limits) {
+  if (!limits || !limits.status) {
     return undefined
   }
   return {
