@@ -523,17 +523,6 @@ const PluginManifestOutputStylesSchema = lazySchema(() =>
   }),
 )
 
-// Helper validators for LSP config
-const nonEmptyString = lazySchema(() => z.string().min(1))
-const fileExtension = lazySchema(() =>
-  z
-    .string()
-    .min(2)
-    .refine(ext => ext.startsWith('.'), {
-      message: 'File extensions must start with dot (e.g., ".ts", not "ts")',
-    }),
-)
-
 /**
  * Schema for MCP server configurations in plugin manifest
  *
@@ -702,41 +691,9 @@ const PluginManifestChannelsSchema = lazySchema(() =>
   }),
 )
 
+
 /**
- * Schema for individual LSP server configuration.
- */
-export const LspServerConfigSchema = lazySchema(() =>
-  z.strictObject({
-    command: z
-      .string()
-      .min(1)
-      .refine(
-        cmd => {
-          // Commands with spaces should use args array instead
-          if (cmd.includes(' ') && !cmd.startsWith('/')) {
-            return false
-          }
-          return true
-        },
-        {
-          message:
-            'Command should not contain spaces. Use args array for arguments.',
-        },
-      )
-      .describe(
-        'Command to execute the LSP server (e.g., "typescript-language-server")',
-      ),
-    args: z
-      .array(nonEmptyString())
-      .optional()
-      .describe('Command-line arguments to pass to the server'),
-    extensionToLanguage: z
-      .record(fileExtension(), nonEmptyString())
-      .refine(record => Object.keys(record).length > 0, {
-        message: 'extensionToLanguage must have at least one mapping',
-      })
-      .describe(
-        'Mapping from file extension to LSP language ID. File extensions and languages are derived from this mapping.',
+ * Schema for a single user-configurable option in plugin manifest userConfig.
       ),
     transport: z
       .enum(['stdio', 'socket'])
@@ -784,38 +741,6 @@ export const LspServerConfigSchema = lazySchema(() =>
       .nonnegative()
       .optional()
       .describe('Maximum number of restart attempts before giving up'),
-  }),
-)
-
-/**
- * Schema for LSP server declarations in plugin manifest.
- * Supports multiple formats:
- * - String: path to .lsp.json file
- * - Object: inline server configs { "serverName": {...} }
- * - Array: mix of strings and objects
- */
-const PluginManifestLspServerSchema = lazySchema(() =>
-  z.object({
-    lspServers: z.union([
-      RelativeJSONPath().describe(
-        'Path to .lsp.json configuration file relative to plugin root',
-      ),
-      z
-        .record(z.string(), LspServerConfigSchema())
-        .describe('LSP server configurations keyed by server name'),
-      z
-        .array(
-          z.union([
-            RelativeJSONPath().describe('Path to LSP configuration file'),
-            z
-              .record(z.string(), LspServerConfigSchema())
-              .describe('Inline LSP server configurations'),
-          ]),
-        )
-        .describe(
-          'Array of LSP server configurations (paths or inline definitions)',
-        ),
-    ]),
   }),
 )
 
@@ -875,7 +800,7 @@ const PluginManifestSettingsSchema = lazySchema(() =>
  * Unknown top-level fields are silently stripped (zod default) rather than
  * rejected. This keeps plugin loading resilient to custom/future top-level
  * fields that plugin authors may add. Nested config objects (userConfig
- * options, channels, lspServers) remain strict — unknown keys inside those
+ * options, channels) remain strict — unknown keys inside those
  * still fail, since a typo there is more likely to be an author mistake
  * than a vendor extension. Type mismatches and other validation errors
  * still fail at all levels. For developer feedback on unknown top-level
@@ -891,7 +816,6 @@ export const PluginManifestSchema = lazySchema(() =>
     ...PluginManifestOutputStylesSchema().partial().shape,
     ...PluginManifestChannelsSchema().partial().shape,
     ...PluginManifestMcpServerSchema().partial().shape,
-    ...PluginManifestLspServerSchema().partial().shape,
     ...PluginManifestSettingsSchema().partial().shape,
     ...PluginManifestUserConfigSchema().partial().shape,
   }),

@@ -1,8 +1,7 @@
 /**
  * Plugin-hint recommendations.
  *
- * Companion to lspRecommendation.ts: where LSP recommendations are triggered
- * by file edits, plugin hints are triggered by CLIs/SDKs emitting a
+ * Plugin hints are triggered by CLIs/SDKs emitting a
  * `<claude-code-hint />` tag to stderr (detected by the Bash/PowerShell tools).
  *
  * State persists in GlobalConfig.claudeCodeHints — a show-once record per
