@@ -68,10 +68,7 @@ const getCachedMCConfigForFRC = feature('CACHED_MICROCOMPACT')
     ).getCachedMCConfig
   : null
 
-const proactiveModule =
-  feature('PROACTIVE') || feature('KAIROS')
-    ? require('../proactive/index.js')
-    : null
+const proactiveModule: any = null
 const BRIEF_PROACTIVE_SECTION: string | null =
   feature('KAIROS') || feature('KAIROS_BRIEF')
     ? (

@@ -23,8 +23,6 @@ const CLEAR_TAB_STATUS = '\x1b]21337;\x07'
 const CLEAR_TERMINAL_TITLE = '\x1b]0;\x07'
 const supportsTabStatus = () => false
 const wrapForMultiplexer = (s: string) => s
-import { shutdownDatadog } from '../services/analytics/datadog.js'
-import { shutdown1PEventLogging } from '../services/analytics/firstPartyEventLogger.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -35,7 +33,7 @@ import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCurrentSessionTitle, sessionIdExists } from './sessionStorage.js'
-import { sleep } from './sleep.js'
+
 import { profileReport } from './startupProfiler.js'
 
 /**
@@ -492,17 +490,7 @@ export async function gracefulShutdown(
     })
   }
 
-  // Flush analytics — capped at 500ms. Previously unbounded: the 1P exporter
-  // awaits all pending axios POSTs (10s each), eating the full failsafe budget.
-  // Lost analytics on slow networks are acceptable; a hanging exit is not.
-  try {
-    await Promise.race([
-      Promise.all([shutdown1PEventLogging(), shutdownDatadog()]),
-      sleep(500),
-    ])
-  } catch {
-    // Ignore analytics shutdown errors
-  }
+  // Analytics flush removed — Klaus uses local SQLite sink only (no network flush needed).
 
   if (options?.finalMessage) {
     try {

@@ -16,7 +16,7 @@ import {
   getDynamicSkills,
 } from './skills/loadSkillsDir.js'
 import { getBundledSkills } from './skills/bundledSkills.js'
-import { getBuiltinPluginSkillCommands } from './plugins/builtinPlugins.js'
+
 import {
   getPluginCommands,
   clearPluginCommandCache,
@@ -84,16 +84,14 @@ async function getSkills(cwd: string): Promise<{
   skillDirCommands: Command[]
   pluginSkills: Command[]
   bundledSkills: Command[]
-  builtinPluginSkills: Command[]
 }> {
-  const [skillDirCommands, pluginSkills, bundledSkills, builtinPluginSkills] =
+  const [skillDirCommands, pluginSkills, bundledSkills] =
     await Promise.all([
       getSkillDirCommands(cwd),
       getPluginSkills(),
       Promise.resolve(getBundledSkills()),
-      getBuiltinPluginSkillCommands(),
     ])
-  return { skillDirCommands, pluginSkills, bundledSkills, builtinPluginSkills }
+  return { skillDirCommands, pluginSkills, bundledSkills }
 }
 
 /**
@@ -113,7 +111,7 @@ function commandsCacheKey(cwd: string): string {
  */
 const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   const [
-    { skillDirCommands, pluginSkills, bundledSkills, builtinPluginSkills },
+    { skillDirCommands, pluginSkills, bundledSkills },
     pluginCommands,
     workflowCommands,
   ] = await Promise.all([
@@ -124,7 +122,6 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
 
   return [
     ...bundledSkills,
-    ...builtinPluginSkills,
     ...skillDirCommands,
     ...workflowCommands,
     ...pluginCommands,
