@@ -32,7 +32,7 @@ export type { CanUseToolFn } from "./hooks/useCanUseTool.js";
 export type { ThinkingConfig } from "./utils/thinking.js";
 
 // App state
-export type { AppState } from "./state/AppStateStore.js";
+export type { AppState } from "./state/AppState.js";
 
 // System prompt utilities
 export {

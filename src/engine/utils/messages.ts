@@ -23,7 +23,8 @@ import {
 import { sanitizeToolNameForAnalytics } from '../services/analytics/metadata.js'
 import type { AgentId } from '../types/ids.js'
 import { NO_CONTENT_MESSAGE } from '../constants/messages.js'
-import { OUTPUT_STYLE_CONFIG } from '../constants/outputStyles.js'
+// outputStyles removed — Klaus doesn't use terminal output styles
+const OUTPUT_STYLE_CONFIG: Record<string, { name: string } | null> = {}
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import {
   checkStatsigFeatureGate_CACHED_MAY_BE_STALE,

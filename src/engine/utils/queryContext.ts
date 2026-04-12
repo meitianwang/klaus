@@ -15,7 +15,7 @@ import { getSystemPrompt } from '../constants/prompts.js'
 const getUserContext = async (): Promise<{ [k: string]: string }> => ({})
 const getSystemContext = async (): Promise<{ [k: string]: string }> => ({})
 import type { MCPServerConnection } from '../services/mcp/types.js'
-import type { AppState } from '../state/AppStateStore.js'
+import type { AppState } from '../state/AppState.js'
 import type { Tools, ToolUseContext } from '../Tool.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import type { Message } from '../types/message.js'

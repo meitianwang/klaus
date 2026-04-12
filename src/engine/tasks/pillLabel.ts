@@ -1,4 +1,5 @@
-import { DIAMOND_FILLED, DIAMOND_OPEN } from '../constants/figures.js'
+const DIAMOND_FILLED = '\u25c6' // ◆
+const DIAMOND_OPEN = '\u25c7' // ◇
 import { count } from '../utils/array.js'
 import type { BackgroundTaskState } from './types.js'
 

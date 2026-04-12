@@ -1,6 +1,6 @@
 import memoize from 'lodash-es/memoize.js'
 import { basename } from 'path'
-import type { OutputStyleConfig } from '../../constants/outputStyles.js'
+type OutputStyleConfig = { name: string; description: string; prompt: string; source: string; keepCodingInstructions?: boolean; forceForPlugin?: boolean }
 import { getPluginErrorMessage } from '../../types/plugin.js'
 import { logForDebugging } from '../debug.js'
 import {

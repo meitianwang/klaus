@@ -2,7 +2,8 @@ import { execa } from 'execa'
 import { readFile, realpath } from 'fs/promises'
 import { homedir } from 'os'
 import { delimiter, join, posix, win32 } from 'path'
-import { checkGlobalInstallPermissions } from './autoUpdater.js'
+// autoUpdater removed — Klaus doesn't do CLI auto-updates
+const checkGlobalInstallPermissions = async () => ({ hasPermissions: true })
 import { isInBundledMode } from './bundledMode.js'
 import {
   formatAutoUpdaterDisabledReason,

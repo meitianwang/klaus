@@ -26,7 +26,8 @@ import {
 } from '../utils/model/model.js'
 import { getSkillToolCommands } from '../commands.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
-import { getOutputStyleConfig } from './outputStyles.js'
+// outputStyles removed — Klaus doesn't use terminal output styles
+const getOutputStyleConfig = async (): Promise<OutputStyleConfig | null> => null
 import type {
   MCPServerConnection,
   ConnectedMCPServer,
@@ -80,7 +81,7 @@ const briefToolModule =
     ? (require('../tools/BriefTool/BriefTool.js') as typeof import('../tools/BriefTool/BriefTool.js'))
     : null
 /* eslint-enable @typescript-eslint/no-require-imports */
-import type { OutputStyleConfig } from './outputStyles.js'
+type OutputStyleConfig = { name: string; prompt: string; keepCodingInstructions?: boolean }
 import { CYBER_RISK_INSTRUCTION } from './cyberRiskInstruction.js'
 
 export const CLAUDE_CODE_DOCS_MAP_URL =

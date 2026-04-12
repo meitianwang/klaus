@@ -34,7 +34,9 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../../services/analytics/index.js'
-import { getMaxVersion, shouldSkipVersion } from '../autoUpdater.js'
+// autoUpdater removed — Klaus doesn't do CLI auto-updates
+const getMaxVersion = async (): Promise<string | null> => null
+const shouldSkipVersion = (_version: string): boolean => false
 import { registerCleanup } from '../cleanupRegistry.js'
 import { getGlobalConfig, saveGlobalConfig } from '../config.js'
 import { logForDebugging } from '../debug.js'

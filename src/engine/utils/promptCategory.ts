@@ -1,8 +1,6 @@
 import type { QuerySource } from '../constants/querySource.js'
-import {
-  DEFAULT_OUTPUT_STYLE_NAME,
-  OUTPUT_STYLE_CONFIG,
-} from '../constants/outputStyles.js'
+const DEFAULT_OUTPUT_STYLE_NAME = 'default'
+const OUTPUT_STYLE_CONFIG: Record<string, unknown> = {}
 import { getSettings_DEPRECATED } from './settings/settings.js'
 
 /**
