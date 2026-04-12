@@ -363,16 +363,16 @@ export class UserStore {
         throw new Error("invite_code_required");
       }
       this.stmtInsertUser.run({
-        id,
-        email: email.toLowerCase().trim(),
-        passwordHash,
-        displayName: displayName.trim(),
-        role: isFirst ? "admin" : "user",
-        googleId: null,
-        inviteCode,
-        createdAt: now,
-        lastLoginAt: now,
-        isActive: 1,
+        "@id": id,
+        "@email": email.toLowerCase().trim(),
+        "@passwordHash": passwordHash,
+        "@displayName": displayName.trim(),
+        "@role": isFirst ? "admin" : "user",
+        "@googleId": null,
+        "@inviteCode": inviteCode,
+        "@createdAt": now,
+        "@lastLoginAt": now,
+        "@isActive": 1,
       });
     });
     insertUser();
@@ -433,16 +433,16 @@ export class UserStore {
         throw new Error("invite_code_required");
       }
       this.stmtInsertUser.run({
-        id,
-        email: email.toLowerCase().trim(),
-        passwordHash: "", // No password for Google-only users
-        displayName: displayName.trim(),
-        role: isFirst ? "admin" : "user",
-        googleId,
-        inviteCode: inviteCode ?? "",
-        createdAt: now,
-        lastLoginAt: now,
-        isActive: 1,
+        "@id": id,
+        "@email": email.toLowerCase().trim(),
+        "@passwordHash": "", // No password for Google-only users
+        "@displayName": displayName.trim(),
+        "@role": isFirst ? "admin" : "user",
+        "@googleId": googleId,
+        "@inviteCode": inviteCode ?? "",
+        "@createdAt": now,
+        "@lastLoginAt": now,
+        "@isActive": 1,
       });
     });
     insertUser();
@@ -529,12 +529,12 @@ export class UserStore {
     const expiresAt = now + this.sessionMaxAgeMs;
 
     this.stmtInsertSession.run({
-      token,
-      userId,
-      createdAt: now,
-      expiresAt,
-      ip,
-      userAgent: userAgent.slice(0, 500),
+      "@token": token,
+      "@userId": userId,
+      "@createdAt": now,
+      "@expiresAt": expiresAt,
+      "@ip": ip,
+      "@userAgent": userAgent.slice(0, 500),
     });
 
     return { token, userId, createdAt: now, expiresAt, ip, userAgent };

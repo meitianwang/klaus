@@ -150,7 +150,7 @@ export class InviteStore {
   create(label: string = ""): InviteCode {
     const code = randomBytes(16).toString("hex"); // 32 hex chars
     const createdAt = Date.now();
-    this.stmtInsert.run({ code, label, createdAt, isActive: 1 });
+    this.stmtInsert.run({ "@code": code, "@label": label, "@createdAt": createdAt, "@isActive": 1 });
     return {
       code,
       label,
@@ -168,7 +168,7 @@ export class InviteStore {
 
   /** Mark an invite code as consumed. Records who used it and when. */
   consume(code: string, usedBy: string): boolean {
-    this.stmtConsume.run({ code, usedBy, usedAt: Date.now() });
+    this.stmtConsume.run({ "@code": code, "@usedBy": usedBy, "@usedAt": Date.now() });
     return this.lastChanges() > 0;
   }
 
