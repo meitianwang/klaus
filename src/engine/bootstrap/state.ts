@@ -84,7 +84,6 @@ type State = {
   flagSettingsPath: string | undefined
   flagSettingsInline: Record<string, unknown> | null
   allowedSettingSources: SettingSource[]
-  sessionIngressToken: string | null | undefined
   oauthTokenFromFd: string | null | undefined
   apiKeyFromFd: string | null | undefined
   // Telemetry state
@@ -166,12 +165,6 @@ type State = {
   registeredHooks: Partial<Record<HookEvent, RegisteredHookMatcher[]>> | null
   // Cache for plan slugs: sessionId -> wordSlug
   planSlugCache: Map<string, string>
-  // Track teleported session for reliability logging
-  teleportedSessionInfo: {
-    isTeleported: boolean
-    hasLoggedFirstMessage: boolean
-    sessionId: string | null
-  } | null
   // Track invoked skills for preservation across compaction
   // Keys are composite: `${agentId ?? ''}:${skillName}` to prevent cross-agent overwrites
   invokedSkills: Map<
@@ -306,7 +299,6 @@ function getInitialState(): State {
     clientType: 'cli',
     sessionSource: undefined,
     questionPreviewFormat: undefined,
-    sessionIngressToken: undefined,
     oauthTokenFromFd: undefined,
     apiKeyFromFd: undefined,
     flagSettingsPath: undefined,
@@ -375,8 +367,6 @@ function getInitialState(): State {
     registeredHooks: null,
     // Cache for plan slugs
     planSlugCache: new Map(),
-    // Track teleported session for reliability logging
-    teleportedSessionInfo: null,
     // Track invoked skills for preservation across compaction
     invokedSkills: new Map(),
     // Track slow operations for dev bar display
@@ -1143,14 +1133,6 @@ export function setFlagSettingsInline(
   STATE.flagSettingsInline = settings
 }
 
-export function getSessionIngressToken(): string | null | undefined {
-  return STATE.sessionIngressToken
-}
-
-export function setSessionIngressToken(token: string | null): void {
-  STATE.sessionIngressToken = token
-}
-
 export function getOauthTokenFromFd(): string | null | undefined {
   return STATE.oauthTokenFromFd
 }
@@ -1458,31 +1440,6 @@ export function getPlanSlugCache(): Map<string, string> {
 
 export function getSessionCreatedTeams(): Set<string> {
   return STATE.sessionCreatedTeams
-}
-
-// Teleported session tracking for reliability logging
-export function setTeleportedSessionInfo(info: {
-  sessionId: string | null
-}): void {
-  STATE.teleportedSessionInfo = {
-    isTeleported: true,
-    hasLoggedFirstMessage: false,
-    sessionId: info.sessionId,
-  }
-}
-
-export function getTeleportedSessionInfo(): {
-  isTeleported: boolean
-  hasLoggedFirstMessage: boolean
-  sessionId: string | null
-} | null {
-  return STATE.teleportedSessionInfo
-}
-
-export function markFirstTeleportMessageLogged(): void {
-  if (STATE.teleportedSessionInfo) {
-    STATE.teleportedSessionInfo.hasLoggedFirstMessage = true
-  }
 }
 
 // Invoked skills tracking for preservation across compaction

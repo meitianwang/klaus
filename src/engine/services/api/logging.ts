@@ -9,8 +9,6 @@ import {
   consumePostCompaction,
   getIsNonInteractiveSession,
   getLastApiCompletionTimestamp,
-  getTeleportedSessionInfo,
-  markFirstTeleportMessageLogged,
   setLastApiCompletionTimestamp,
 } from '../../bootstrap/state.js'
 import type { QueryChainTracking } from '../../Tool.js'
@@ -381,18 +379,6 @@ export function logAPIError({
     error: errStr,
     attempt,
   })
-
-  // Log first error for teleported sessions (reliability tracking)
-  const teleportInfo = getTeleportedSessionInfo()
-  if (teleportInfo?.isTeleported && !teleportInfo.hasLoggedFirstMessage) {
-    logEvent('tengu_teleport_first_message_error', {
-      session_id:
-        teleportInfo.sessionId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      error_type:
-        errorType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    })
-    markFirstTeleportMessageLogged()
-  }
 }
 
 function logAPISuccess({
@@ -775,14 +761,4 @@ export function logAPISuccessAndDuration({
     requestSetupMs,
     attemptStartTimes,
   })
-
-  // Log first successful message for teleported sessions (reliability tracking)
-  const teleportInfo = getTeleportedSessionInfo()
-  if (teleportInfo?.isTeleported && !teleportInfo.hasLoggedFirstMessage) {
-    logEvent('tengu_teleport_first_message_success', {
-      session_id:
-        teleportInfo.sessionId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    })
-    markFirstTeleportMessageLogged()
-  }
 }
