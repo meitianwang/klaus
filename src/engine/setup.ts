@@ -38,7 +38,7 @@ import {
 } from './utils/hooks/hooksConfigSnapshot.js'
 import { hasWorktreeCreateHook } from './utils/hooks.js'
 import { logError } from './utils/log.js'
-import { getRecentActivity } from './utils/logoV2Utils.js'
+
 import { lockCurrentVersion } from './utils/nativeInstaller/index.js'
 import type { PermissionMode } from './utils/permissions/PermissionMode.js'
 import { getPlanSlug } from './utils/plans.js'
@@ -316,16 +316,12 @@ export async function setup(
   void prefetchApiKeyFromApiKeyHelperIfSafe(getIsNonInteractiveSession()) // Prefetch safely - only executes if trust already confirmed
   profileCheckpoint('setup_after_prefetch')
 
-  // Pre-fetch data for Logo v2 - await to ensure it's ready before logo renders.
-  // --bare / SIMPLE: skip — release notes are interactive-UI display data,
-  // and getRecentActivity() reads up to 10 session JSONL files.
+  // Pre-fetch release notes check (skip recent activity - UI only)
+  // --bare / SIMPLE: skip — release notes are interactive-UI display data.
   if (!isBareMode()) {
-    const { hasReleaseNotes } = await checkForReleaseNotes(
+    await checkForReleaseNotes(
       getGlobalConfig().lastReleaseNotesSeen,
     )
-    if (hasReleaseNotes) {
-      await getRecentActivity()
-    }
   }
 
   // If permission mode is set to bypass, verify we're in a safe environment

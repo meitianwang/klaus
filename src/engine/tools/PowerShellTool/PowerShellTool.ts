@@ -8,7 +8,7 @@ import { z } from 'zod/v4';
 import { getKairosActive } from '../../bootstrap/state.js';
 import { TOOL_SUMMARY_MAX_LENGTH } from '../../constants/toolLimits.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
-import type { SetToolJSXFn, Tool, ToolCallProgress, ValidationResult } from '../../Tool.js';
+import type { Tool, ToolCallProgress, ValidationResult } from '../../Tool.js';
 import { buildTool, type ToolDef } from '../../Tool.js';
 import { backgroundExistingForegroundTask, markTaskNotified, registerForeground, spawnShellTask, unregisterForeground } from '../../tasks/LocalShellTask/LocalShellTask.js';
 import type { AgentId } from '../../types/ids.js';
@@ -41,8 +41,6 @@ import { powershellToolHasPermission } from './powershellPermissions.js';
 import { getDefaultTimeoutMs, getMaxTimeoutMs, getPrompt } from './prompt.js';
 import { hasSyncSecurityConcerns, isReadOnlyCommand, resolveToCanonical } from './readOnlyValidation.js';
 import { POWERSHELL_TOOL_NAME } from './toolName.js';
-import { renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
-
 // Never use os.EOL for terminal output — \r\n on Windows breaks Ink rendering
 const EOL = '\n';
 
@@ -374,11 +372,6 @@ export const PowerShellTool = buildTool({
   async checkPermissions(input: PowerShellToolInput, context: Parameters<Tool['checkPermissions']>[1]): Promise<PermissionResult> {
     return await powershellToolHasPermission(input, context);
   },
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-  renderToolUseQueuedMessage,
-  renderToolResultMessage,
-  renderToolUseErrorMessage,
   mapToolResultToToolResultBlockParam({
     interrupted,
     stdout,
@@ -446,7 +439,6 @@ export const PowerShellTool = buildTool({
     const {
       abortController,
       setAppState,
-      setToolJSX
     } = toolUseContext;
     const isMainThread = !toolUseContext.agentId;
     let progressCounter = 0;
@@ -457,7 +449,6 @@ export const PowerShellTool = buildTool({
         // Use the always-shared task channel so async agents' background
         // shell tasks are actually registered (and killable on agent exit).
         setAppState: toolUseContext.setAppStateForTasks ?? setAppState,
-        setToolJSX,
         preventCwdChanges: !isMainThread,
         isMainThread,
         toolUseId: toolUseContext.toolUseId,
@@ -652,7 +643,6 @@ export const PowerShellTool = buildTool({
         }
       };
     } finally {
-      if (setToolJSX) setToolJSX(null);
     }
   },
   isResultTruncated(output: Out): boolean {
@@ -663,7 +653,6 @@ async function* runPowerShellCommand({
   input,
   abortController,
   setAppState,
-  setToolJSX,
   preventCwdChanges,
   isMainThread,
   toolUseId,
@@ -672,7 +661,6 @@ async function* runPowerShellCommand({
   input: PowerShellToolInput;
   abortController: AbortController;
   setAppState: (f: (prev: AppState) => AppState) => void;
-  setToolJSX?: SetToolJSXFn;
   preventCwdChanges?: boolean;
   isMainThread?: boolean;
   toolUseId?: string;
@@ -953,8 +941,8 @@ async function* runPowerShellCommand({
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
 
-      // Show backgrounding UI hint after threshold
-      if (!isBackgroundTasksDisabled && backgroundShellId === undefined && elapsedSeconds >= PROGRESS_THRESHOLD_MS / 1000 && setToolJSX) {
+      // Register foreground task for backgrounding support
+      if (!isBackgroundTasksDisabled && backgroundShellId === undefined && elapsedSeconds >= PROGRESS_THRESHOLD_MS / 1000) {
         if (!foregroundTaskId) {
           foregroundTaskId = registerForeground({
             command,
@@ -963,12 +951,6 @@ async function* runPowerShellCommand({
             agentId
           }, setAppState, toolUseId);
         }
-        setToolJSX({
-          jsx: null,
-          shouldHidePromptInput: false,
-          shouldContinueAnimation: true,
-          showSpinner: true
-        });
       }
       yield {
         type: 'progress',

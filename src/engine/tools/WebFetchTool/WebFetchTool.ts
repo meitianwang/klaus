@@ -8,12 +8,6 @@ import { getRuleByContentsForTool } from '../../utils/permissions/permissions.js
 import { isPreapprovedHost } from './preapproved.js'
 import { DESCRIPTION, WEB_FETCH_TOOL_NAME } from './prompt.js'
 import {
-  getToolUseSummary,
-  renderToolResultMessage,
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-} from './UI.js'
-import {
   applyPromptToMarkdown,
   type FetchedContent,
   getURLMarkdownContent,
@@ -81,9 +75,8 @@ export const WebFetchTool = buildTool({
   userFacingName() {
     return 'Fetch'
   },
-  getToolUseSummary,
   getActivityDescription(input) {
-    const summary = getToolUseSummary(input)
+    const summary = input?.url ?? null
     return summary ? `Fetching ${summary}` : 'Fetching web page'
   },
   get inputSchema(): InputSchema {
@@ -202,9 +195,6 @@ ${DESCRIPTION}`
     }
     return { result: true }
   },
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-  renderToolResultMessage,
   async call(
     { url, prompt },
     { abortController, options: { isNonInteractiveSession } },

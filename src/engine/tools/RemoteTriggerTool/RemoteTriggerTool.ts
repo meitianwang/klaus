@@ -13,8 +13,6 @@ import {
 import { lazySchema } from '../../utils/lazySchema.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { DESCRIPTION, PROMPT, REMOTE_TRIGGER_TOOL_NAME } from './prompt.js'
-import { renderToolResultMessage, renderToolUseMessage } from './UI.js'
-
 const inputSchema = lazySchema(() =>
   z.strictObject({
     action: z.enum(['list', 'get', 'create', 'update', 'run']),
@@ -156,6 +154,4 @@ export const RemoteTriggerTool = buildTool({
       content: `HTTP ${output.status}\n${output.json}`,
     }
   },
-  renderToolUseMessage,
-  renderToolResultMessage,
 } satisfies ToolDef<InputSchema, Output>)

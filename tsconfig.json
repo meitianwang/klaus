@@ -25,9 +25,6 @@
       "image-processor-napi": ["./src/engine/shims/pkg-image-processor-napi.ts"],
       "audio-capture-napi": ["./src/engine/shims/pkg-audio-capture-napi.ts"],
       "url-handler-napi": ["./src/engine/shims/pkg-url-handler-napi.ts"],
-      "src/components/MessageSelector.js": ["./src/engine/components/MessageSelector.ts"],
-      "src/components/IdeOnboardingDialog.js": ["./src/engine/components/IdeOnboardingDialog.ts"],
-      "src/components/*": ["./src/engine/shims/empty-module.ts"],
       "src/constants/*": ["./src/engine/constants/*"],
       "src/utils/*": ["./src/engine/utils/*"]
     }

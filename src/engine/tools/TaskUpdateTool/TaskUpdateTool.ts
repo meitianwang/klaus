@@ -117,9 +117,6 @@ export const TaskUpdateTool = buildTool({
     if (input.subject) parts.push(input.subject)
     return parts.join(' ')
   },
-  renderToolUseMessage() {
-    return null
-  },
   async call(
     {
       taskId,

@@ -59,9 +59,6 @@ export const TaskListTool = buildTool({
   isReadOnly() {
     return true
   },
-  renderToolUseMessage() {
-    return null
-  },
   async call() {
     const taskListId = getTaskListId()
 

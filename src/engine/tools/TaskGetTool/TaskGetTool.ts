@@ -67,9 +67,6 @@ export const TaskGetTool = buildTool({
   toAutoClassifierInput(input) {
     return input.taskId
   },
-  renderToolUseMessage() {
-    return null
-  },
   async call({ taskId }) {
     const taskListId = getTaskListId()
 

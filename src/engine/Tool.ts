@@ -92,7 +92,7 @@ import type { AgentId } from './types/ids.js'
 import type { DeepImmutable } from './types/utils.js'
 import type { AttributionState } from './utils/commitAttribution.js'
 import type { FileHistoryState } from './utils/fileHistory.js'
-import type { Theme, ThemeName } from './utils/theme.js'
+
 
 export type QueryChainTracking = {
   chainId: string
@@ -106,19 +106,6 @@ export type ValidationResult =
       message: string
       errorCode: number
     }
-
-export type SetToolJSXFn = (
-  args: {
-    jsx: React.ReactNode | null
-    shouldHidePromptInput: boolean
-    shouldContinueAnimation?: true
-    showSpinner?: boolean
-    isLocalJSXCommand?: boolean
-    isImmediate?: boolean
-    /** Set to true to clear a local JSX command (e.g., from its onDone callback) */
-    clearLocalJSX?: boolean
-  } | null,
-) => void
 
 // Import tool permission types from centralized location to break import cycles
 import type { ToolPermissionRulesBySource } from './types/permissions.js'
@@ -207,7 +194,6 @@ export type ToolUseContext = {
     params: ElicitRequestURLParams,
     signal: AbortSignal,
   ) => Promise<ElicitResult>
-  setToolJSX?: SetToolJSXFn
   addNotification?: (notif: Notification) => void
   /** Append a UI-only system message to the REPL message list. Stripped at the
    *  normalizeMessagesForAPI boundary — the Exclude<> makes that type-enforced. */
@@ -241,7 +227,6 @@ export type ToolUseContext = {
   setStreamMode?: (mode: SpinnerMode) => void
   onCompactProgress?: (event: CompactProgressEvent) => void
   setSDKStatus?: (status: SDKStatus) => void
-  openMessageSelector?: () => void
   updateFileHistoryState: (
     updater: (prev: FileHistoryState) => FileHistoryState,
   ) => void
@@ -530,9 +515,6 @@ export type Tool<
     allowedAgentTypes?: string[]
   }): Promise<string>
   userFacingName(input: Partial<z.infer<Input>> | undefined): string
-  userFacingNameBackgroundColor?(
-    input: Partial<z.infer<Input>> | undefined,
-  ): keyof Theme | undefined
   /**
    * Transparent wrappers (e.g. REPL) delegate all rendering to their progress
    * handler, which emits native-looking blocks for each inner tool call.
@@ -567,26 +549,6 @@ export type Tool<
     toolUseID: string,
   ): ToolResultBlockParam
   /**
-   * Optional. When omitted, the tool result renders nothing (same as returning
-   * null). Omit for tools whose results are surfaced elsewhere (e.g., TodoWrite
-   * updates the todo panel, not the transcript).
-   */
-  renderToolResultMessage?(
-    content: Output,
-    progressMessagesForMessage: ProgressMessage<P>[],
-    options: {
-      style?: 'condensed'
-      theme: ThemeName
-      tools: Tools
-      verbose: boolean
-      isTranscriptMode?: boolean
-      isBriefOnly?: boolean
-      /** Original tool_use input, when available. Useful for compact result
-       * summaries that reference what was requested (e.g. "Sent to #foo"). */
-      input?: unknown
-    },
-  ): React.ReactNode
-  /**
    * Flattened text of what renderToolResultMessage shows IN TRANSCRIPT
    * MODE (verbose=true, isTranscriptMode=true). For transcript search
    * indexing: the index counts occurrences in this string, the highlight
@@ -606,100 +568,12 @@ export type Tool<
    */
   extractSearchText?(out: Output): string
   /**
-   * Render the tool use message. Note that `input` is partial because we render
-   * the message as soon as possible, possibly before tool parameters have fully
-   * streamed in.
-   */
-  renderToolUseMessage(
-    input: Partial<z.infer<Input>>,
-    options: { theme: ThemeName; verbose: boolean; commands?: Command[] },
-  ): React.ReactNode
-  /**
    * Returns true when the non-verbose rendering of this output is truncated
    * (i.e., clicking to expand would reveal more content). Gates
    * click-to-expand in fullscreen — only messages where verbose actually
    * shows more get a hover/click affordance. Unset means never truncated.
    */
   isResultTruncated?(output: Output): boolean
-  /**
-   * Renders an optional tag to display after the tool use message.
-   * Used for additional metadata like timeout, model, resume ID, etc.
-   * Returns null to not display anything.
-   */
-  renderToolUseTag?(input: Partial<z.infer<Input>>): React.ReactNode
-  /**
-   * Optional. When omitted, no progress UI is shown while the tool runs.
-   */
-  renderToolUseProgressMessage?(
-    progressMessagesForMessage: ProgressMessage<P>[],
-    options: {
-      tools: Tools
-      verbose: boolean
-      terminalSize?: { columns: number; rows: number }
-      inProgressToolCallCount?: number
-      isTranscriptMode?: boolean
-    },
-  ): React.ReactNode
-  renderToolUseQueuedMessage?(): React.ReactNode
-  /**
-   * Optional. When omitted, falls back to <FallbackToolUseRejectedMessage />.
-   * Only define this for tools that need custom rejection UI (e.g., file edits
-   * that show the rejected diff).
-   */
-  renderToolUseRejectedMessage?(
-    input: z.infer<Input>,
-    options: {
-      columns: number
-      messages: Message[]
-      style?: 'condensed'
-      theme: ThemeName
-      tools: Tools
-      verbose: boolean
-      progressMessagesForMessage: ProgressMessage<P>[]
-      isTranscriptMode?: boolean
-    },
-  ): React.ReactNode
-  /**
-   * Optional. When omitted, falls back to <FallbackToolUseErrorMessage />.
-   * Only define this for tools that need custom error UI (e.g., search tools
-   * that show "File not found" instead of the raw error).
-   */
-  renderToolUseErrorMessage?(
-    result: ToolResultBlockParam['content'],
-    options: {
-      progressMessagesForMessage: ProgressMessage<P>[]
-      tools: Tools
-      verbose: boolean
-      isTranscriptMode?: boolean
-    },
-  ): React.ReactNode
-
-  /**
-   * Renders multiple parallel instances of this tool as a group.
-   * @returns React node to render, or null to fall back to individual rendering
-   */
-  /**
-   * Renders multiple tool uses as a group (non-verbose mode only).
-   * In verbose mode, individual tool uses render at their original positions.
-   * @returns React node to render, or null to fall back to individual rendering
-   */
-  renderGroupedToolUse?(
-    toolUses: Array<{
-      param: ToolUseBlockParam
-      isResolved: boolean
-      isError: boolean
-      isInProgress: boolean
-      progressMessages: ProgressMessage<P>[]
-      result?: {
-        param: ToolResultBlockParam
-        output: unknown
-      }
-    }>,
-    options: {
-      shouldAnimate: boolean
-      tools: Tools
-    },
-  ): React.ReactNode | null
 }
 
 /**

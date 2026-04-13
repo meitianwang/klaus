@@ -19,14 +19,6 @@ import type { PermissionDecision } from '../../utils/permissions/PermissionResul
 import { jsonParse, jsonStringify } from '../../utils/slowOperations.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from './constants.js'
 import { DESCRIPTION, PROMPT } from './prompt.js'
-import {
-  getToolUseSummary,
-  renderToolResultMessage,
-  renderToolUseErrorMessage,
-  renderToolUseMessage,
-  renderToolUseRejectedMessage,
-} from './UI.js'
-
 export const inputSchema = lazySchema(() =>
   z.strictObject({
     notebook_path: z
@@ -101,9 +93,8 @@ export const NotebookEditTool = buildTool({
   userFacingName() {
     return 'Edit Notebook'
   },
-  getToolUseSummary,
   getActivityDescription(input) {
-    const summary = getToolUseSummary(input)
+    const summary = input?.notebook_path ?? null
     return summary ? `Editing notebook ${summary}` : 'Editing notebook'
   },
   get inputSchema(): InputSchema {
@@ -169,10 +160,6 @@ export const NotebookEditTool = buildTool({
         }
     }
   },
-  renderToolUseMessage,
-  renderToolUseRejectedMessage,
-  renderToolUseErrorMessage,
-  renderToolResultMessage,
   async validateInput(
     { notebook_path, cell_type, cell_id, edit_mode = 'replace' },
     toolUseContext: ToolUseContext,

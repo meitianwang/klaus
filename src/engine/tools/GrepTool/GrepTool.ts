@@ -23,13 +23,6 @@ import { semanticBoolean } from '../../utils/semanticBoolean.js'
 import { semanticNumber } from '../../utils/semanticNumber.js'
 import { plural } from '../../utils/stringUtils.js'
 import { GREP_TOOL_NAME, getDescription } from './prompt.js'
-import {
-  getToolUseSummary,
-  renderToolResultMessage,
-  renderToolUseErrorMessage,
-  renderToolUseMessage,
-} from './UI.js'
-
 const inputSchema = lazySchema(() =>
   z.strictObject({
     pattern: z
@@ -169,9 +162,8 @@ export const GrepTool = buildTool({
   userFacingName() {
     return 'Search'
   },
-  getToolUseSummary,
   getActivityDescription(input) {
-    const summary = getToolUseSummary(input)
+    const summary = input?.pattern ?? null
     return summary ? `Searching for ${summary}` : 'Searching'
   },
   get inputSchema(): InputSchema {
@@ -241,9 +233,6 @@ export const GrepTool = buildTool({
   async prompt() {
     return getDescription()
   },
-  renderToolUseMessage,
-  renderToolUseErrorMessage,
-  renderToolResultMessage,
   // SearchResultSummary shows content (mode=content) or filenames.join.
   // numFiles/numLines/numMatches are chrome ("Found 3 files") — fine to
   // skip (under-count, not phantom). Glob reuses this via UI.tsx:65.

@@ -12,8 +12,6 @@ import {
   isDurableCronEnabled,
   isKairosCronEnabled,
 } from './prompt.js'
-import { renderListResultMessage, renderListToolUseMessage } from './UI.js'
-
 const inputSchema = lazySchema(() => z.strictObject({}))
 type InputSchema = ReturnType<typeof inputSchema>
 
@@ -96,6 +94,4 @@ export const CronListTool = buildTool({
           : 'No scheduled jobs.',
     }
   },
-  renderToolUseMessage: renderListToolUseMessage,
-  renderToolResultMessage: renderListResultMessage,
 } satisfies ToolDef<InputSchema, ListOutput>)

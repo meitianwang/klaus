@@ -157,21 +157,6 @@ export const AskUserQuestionTool: Tool<InputSchema, Output> = buildTool({
       updatedInput: input
     };
   },
-  renderToolUseMessage() {
-    return null;
-  },
-  renderToolUseProgressMessage() {
-    return null;
-  },
-  renderToolResultMessage(_data, _toolUseID) {
-    return null;
-  },
-  renderToolUseRejectedMessage() {
-    return null;
-  },
-  renderToolUseErrorMessage() {
-    return null;
-  },
   async call({
     questions,
     answers = {},

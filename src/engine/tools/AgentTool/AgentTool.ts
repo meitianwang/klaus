@@ -54,8 +54,6 @@ import type { AgentDefinition } from './loadAgentsDir.js';
 import { filterAgentsByMcpRequirements, hasRequiredMcpServers, isBuiltInAgent } from './loadAgentsDir.js';
 import { getPrompt } from './prompt.js';
 import { runAgent } from './runAgent.js';
-import { renderGroupedAgentToolUse, renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseRejectedMessage, renderToolUseTag, userFacingName, userFacingNameBackgroundColor } from './UI.js';
-
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule = null;
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -869,18 +867,6 @@ export const AgentTool = buildTool({
           while (true) {
             const elapsed = Date.now() - agentStartTime;
 
-            // Show background hint after threshold (but task is already registered)
-            // Skip if background tasks are disabled
-            if (!isBackgroundTasksDisabled && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
-              backgroundHintShown = true;
-              toolUseContext.setToolJSX({
-                jsx: null,
-                shouldHidePromptInput: false,
-                shouldContinueAnimation: true,
-                showSpinner: true
-              });
-            }
-
             // Race between next message and background signal
             // If background tasks are disabled, just await the next message directly
             const nextMessagePromise = agentIterator.next();
@@ -1149,10 +1135,6 @@ export const AgentTool = buildTool({
           // Store the error to handle after cleanup
           syncAgentError = toError(error);
         } finally {
-          // Clear the background hint UI
-          if (toolUseContext.setToolJSX) {
-            toolUseContext.setToolJSX(null);
-          }
 
           // Stop foreground summarization. Idempotent — if already stopped at
           // the backgrounding transition, this is a no-op. The backgrounded
@@ -1274,8 +1256,6 @@ export const AgentTool = buildTool({
   isConcurrencySafe() {
     return true;
   },
-  userFacingName,
-  userFacingNameBackgroundColor,
   getActivityDescription(input) {
     return input?.description ?? 'Running task';
   },
@@ -1378,13 +1358,6 @@ duration_ms: ${data.totalDurationMs}</usage>`
       status: string;
     }).status}`);
   },
-  renderToolResultMessage,
-  renderToolUseMessage,
-  renderToolUseTag,
-  renderToolUseProgressMessage,
-  renderToolUseRejectedMessage,
-  renderToolUseErrorMessage,
-  renderGroupedToolUse: renderGroupedAgentToolUse
 } satisfies ToolDef<InputSchema, Output, Progress>);
 function resolveTeamName(input: {
   team_name?: string;

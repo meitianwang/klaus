@@ -70,27 +70,6 @@ export const SyntheticOutputTool = buildTool({
       updatedInput: input,
     }
   },
-  // Minimal UI implementations - this tool is for non-interactive SDK/CLI use
-  renderToolUseMessage(input: Record<string, unknown>) {
-    const keys = Object.keys(input)
-    if (keys.length === 0) return null
-    if (keys.length <= 3) {
-      return keys.map(k => `${k}: ${jsonStringify(input[k])}`).join(', ')
-    }
-    return `${keys.length} fields: ${keys.slice(0, 3).join(', ')}…`
-  },
-  renderToolUseRejectedMessage() {
-    return 'Structured output rejected'
-  },
-  renderToolUseErrorMessage() {
-    return 'Structured output error'
-  },
-  renderToolUseProgressMessage() {
-    return null
-  },
-  renderToolResultMessage(output: string) {
-    return output
-  },
   mapToolResultToToolResultBlockParam(content: string, toolUseID: string) {
     return {
       tool_use_id: toolUseID,

@@ -3,7 +3,6 @@
  * Extracted from TeammateTool to allow reuse by AgentTool.
  */
 
-import React from 'react'
 import {
   getChromeFlagOverride,
   getFlagSettingsPath,
@@ -26,13 +25,11 @@ import { errorMessage } from '../../utils/errors.js'
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
 import { parseUserSpecifiedModel } from '../../utils/model/model.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
-import { isTmuxAvailable } from '../../utils/swarm/backends/detection.js'
 import {
   detectAndGetBackend,
   getBackendByType,
   isInProcessEnabled,
   markInProcessFallback,
-  resetBackendDetection,
 } from '../../utils/swarm/backends/registry.js'
 import { getTeammateModeFromSnapshot } from '../../utils/swarm/backends/teammateModeSnapshot.js'
 import type { BackendType } from '../../utils/swarm/backends/types.js'
@@ -43,7 +40,6 @@ import {
   TEAMMATE_COMMAND_ENV_VAR,
   TMUX_COMMAND,
 } from '../../utils/swarm/constants.js'
-import { It2SetupPrompt } from '../../utils/swarm/It2SetupPrompt.js'
 import { startInProcessTeammate } from '../../utils/swarm/inProcessRunner.js'
 import {
   type InProcessSpawnConfig,
@@ -339,40 +335,9 @@ async function handleSpawnSplitPane(
   // Detect the appropriate backend and check if setup is needed
   let detectionResult = await detectAndGetBackend()
 
-  // If in iTerm2 but it2 isn't set up, prompt the user
-  if (detectionResult.needsIt2Setup && context.setToolJSX) {
-    const tmuxAvailable = await isTmuxAvailable()
-
-    // Show the setup prompt and wait for user decision
-    const setupResult = await new Promise<
-      'installed' | 'use-tmux' | 'cancelled'
-    >(resolve => {
-      context.setToolJSX!({
-        jsx: React.createElement(It2SetupPrompt as any, {
-          onDone: resolve,
-          tmuxAvailable,
-        }),
-        shouldHidePromptInput: true,
-      })
-    })
-
-    // Clear the JSX
-    context.setToolJSX(null)
-
-    if (setupResult === 'cancelled') {
-      throw new Error('Teammate spawn cancelled - iTerm2 setup required')
-    }
-
-    // If they installed it2 or chose tmux, clear cached detection and re-fetch
-    // so the local detectionResult matches the backend that will actually
-    // spawn the pane.
-    // - 'installed': re-detect to pick up the ITermBackend (it2 is now available)
-    // - 'use-tmux': re-detect so needsIt2Setup is false (preferTmux is now saved)
-    //   and subsequent spawns skip this prompt
-    if (setupResult === 'installed' || setupResult === 'use-tmux') {
-      resetBackendDetection()
-      detectionResult = await detectAndGetBackend()
-    }
+  // If in iTerm2 but it2 isn't set up, fail (no interactive UI available)
+  if (detectionResult.needsIt2Setup) {
+    throw new Error('Teammate spawn cancelled - iTerm2 setup required')
   }
 
   // Check if we're inside tmux to determine session naming

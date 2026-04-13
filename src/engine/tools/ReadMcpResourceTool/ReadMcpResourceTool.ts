@@ -13,12 +13,6 @@ import {
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { isOutputLineTruncated } from '../../utils/terminal.js'
 import { DESCRIPTION, PROMPT } from './prompt.js'
-import {
-  renderToolResultMessage,
-  renderToolUseMessage,
-  userFacingName,
-} from './UI.js'
-
 export const inputSchema = lazySchema(() =>
   z.object({
     server: z.string().describe('The MCP server name'),
@@ -142,9 +136,6 @@ export const ReadMcpResourceTool = buildTool({
       data: { contents },
     }
   },
-  renderToolUseMessage,
-  userFacingName,
-  renderToolResultMessage,
   isResultTruncated(output: Output): boolean {
     return isOutputLineTruncated(jsonStringify(output))
   },

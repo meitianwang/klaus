@@ -9,7 +9,7 @@ import { getKairosActive } from '../../bootstrap/state.js';
 import { TOOL_SUMMARY_MAX_LENGTH } from '../../constants/toolLimits.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { notifyVscodeFileUpdated } from '../../services/mcp/vscodeSdkMcp.js';
-import type { SetToolJSXFn, ToolCallProgress, ToolUseContext, ValidationResult } from '../../Tool.js';
+import type { ToolCallProgress, ToolUseContext, ValidationResult } from '../../Tool.js';
 import { buildTool, type ToolDef } from '../../Tool.js';
 import { backgroundExistingForegroundTask, markTaskNotified, registerForeground, spawnShellTask, unregisterForeground } from '../../tasks/LocalShellTask/LocalShellTask.js';
 import type { AgentId } from '../../types/ids.js';
@@ -38,7 +38,7 @@ import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { TaskOutput } from '../../utils/task/TaskOutput.js';
 import { isOutputLineTruncated } from '../../utils/terminal.js';
 import { buildLargeToolResultMessage, ensureToolResultsDir, generatePreview, getToolResultPath, PREVIEW_SIZE_BYTES } from '../../utils/toolResultStorage.js';
-import { userFacingName as fileEditUserFacingName } from '../FileEditTool/UI.js';
+
 import { trackGitOperations } from '../shared/gitOperationTracking.js';
 import { bashToolHasPermission, commandHasAnyCd, matchWildcardPattern, permissionRuleExtractPrefix } from './bashPermissions.js';
 import { interpretCommandResult } from './commandSemantics.js';
@@ -47,7 +47,6 @@ import { checkReadOnlyConstraints } from './readOnlyValidation.js';
 import { parseSedEditCommand } from './sedEditParser.js';
 import { shouldUseSandbox } from './shouldUseSandbox.js';
 import { BASH_TOOL_NAME } from './toolName.js';
-import { renderToolResultMessage, renderToolUseErrorMessage, renderToolUseMessage, renderToolUseProgressMessage, renderToolUseQueuedMessage } from './UI.js';
 import { buildImageToolResult, isImageOutput, resetCwdIfOutsideProject, resizeShellImageOutput, stdErrAppendShellResetMessage, stripEmptyLines } from './utils.js';
 const EOL = '\n';
 
@@ -489,10 +488,7 @@ export const BashTool = buildTool({
     if (input.command) {
       const sedInfo = parseSedEditCommand(input.command);
       if (sedInfo) {
-        return (fileEditUserFacingName as ((...args: any[]) => any) | undefined)?.({
-          file_path: sedInfo.filePath,
-          old_string: 'x'
-        });
+        return 'Edit';
       }
     }
     // Env var FIRST: shouldUseSandbox → splitCommand_DEPRECATED → shell-quote's
@@ -539,10 +535,6 @@ export const BashTool = buildTool({
   async checkPermissions(input, context): Promise<PermissionResult> {
     return bashToolHasPermission(input, context);
   },
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-  renderToolUseQueuedMessage,
-  renderToolResultMessage,
   // BashToolResultMessage shows <OutputLine content={stdout}> + stderr.
   // UI never shows persistedOutputPath wrapper, backgroundInfo — those are
   // model-facing (mapToolResult... below).
@@ -631,7 +623,6 @@ export const BashTool = buildTool({
       abortController,
       getAppState,
       setAppState,
-      setToolJSX
     } = toolUseContext;
     const stdoutAccumulator = new EndTruncatingAccumulator();
     let stderrForShellReset = '';
@@ -649,7 +640,6 @@ export const BashTool = buildTool({
         // Use the always-shared task channel so async agents' background
         // bash tasks are actually registered (and killable on agent exit).
         setAppState: toolUseContext.setAppStateForTasks ?? setAppState,
-        setToolJSX,
         preventCwdChanges,
         isMainThread,
         toolUseId: toolUseContext.toolUseId,
@@ -719,7 +709,6 @@ export const BashTool = buildTool({
       }
       wasInterrupted = result.interrupted;
     } finally {
-      if (setToolJSX) setToolJSX(null);
     }
 
     // Get final string from accumulator
@@ -818,7 +807,6 @@ export const BashTool = buildTool({
       data
     };
   },
-  renderToolUseErrorMessage,
   isResultTruncated(output: Out): boolean {
     return isOutputLineTruncated(output.stdout) || isOutputLineTruncated(output.stderr);
   }
@@ -827,7 +815,6 @@ async function* runShellCommand({
   input,
   abortController,
   setAppState,
-  setToolJSX,
   preventCwdChanges,
   isMainThread,
   toolUseId,
@@ -836,7 +823,6 @@ async function* runShellCommand({
   input: BashToolInput;
   abortController: AbortController;
   setAppState: (f: (prev: AppState) => AppState) => void;
-  setToolJSX?: SetToolJSXFn;
   preventCwdChanges?: boolean;
   isMainThread?: boolean;
   toolUseId?: string;
@@ -1105,9 +1091,9 @@ async function* runShellCommand({
       const elapsed = Date.now() - startTime;
       const elapsedSeconds = Math.floor(elapsed / 1000);
 
-      // Show minimal backgrounding UI if available
+      // Register foreground task for backgrounding support
       // Skip if background tasks are disabled
-      if (!isBackgroundTasksDisabled && backgroundShellId === undefined && elapsedSeconds >= PROGRESS_THRESHOLD_MS / 1000 && setToolJSX) {
+      if (!isBackgroundTasksDisabled && backgroundShellId === undefined && elapsedSeconds >= PROGRESS_THRESHOLD_MS / 1000) {
         // Register this command as a foreground task so it can be backgrounded via Ctrl+B
         if (!foregroundTaskId) {
           foregroundTaskId = registerForeground({
@@ -1117,12 +1103,6 @@ async function* runShellCommand({
             agentId
           }, setAppState, toolUseId);
         }
-        setToolJSX({
-          jsx: null,
-          shouldHidePromptInput: false,
-          shouldContinueAnimation: true,
-          showSpinner: true
-        });
       }
       yield {
         type: 'progress',

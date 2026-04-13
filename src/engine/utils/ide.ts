@@ -29,7 +29,7 @@ import { getPlatform } from './platform.js'
 import { lt } from './semver.js'
 
 // Lazy: IdeOnboardingDialog.tsx pulls React/ink; only needed in interactive onboarding path
-const ideOnboardingDialog = () => ({ showIdeOnboarding: async () => {}, hasIdeOnboardingDialogBeenShown: () => true })
+
 
 import { createAbortController } from './abortController.js'
 import { logForDebugging } from './debug.js'
@@ -1319,26 +1319,11 @@ export async function initializeIdeIntegration(
                 // If we installed and don't yet have an IDE, search again.
                 void findAvailableIDE().then(onIdeDetected)
               }
-
-              if (
-                !isAlreadyInstalled &&
-                status?.installed === true &&
-                !ideOnboardingDialog().hasIdeOnboardingDialogBeenShown()
-              ) {
-                onShowIdeOnboarding()
-              }
             })
         })
       } else if (isJetBrainsIde(ideType)) {
         // Always check installation to populate the sync cache used by status notices
-        void isIDEExtensionInstalled(ideType).then(async installed => {
-          if (
-            installed &&
-            !ideOnboardingDialog().hasIdeOnboardingDialogBeenShown()
-          ) {
-            onShowIdeOnboarding()
-          }
-        })
+        void isIDEExtensionInstalled(ideType)
       }
     }
   }

@@ -59,9 +59,6 @@ export const TodoWriteTool = buildTool({
     // No permission checks required for todo operations
     return { behavior: 'allow', updatedInput: input }
   },
-  renderToolUseMessage() {
-    return null
-  },
   async call({ todos }, context) {
     const appState = context.getAppState()
     const todoKey = context.agentId ?? getSessionId()

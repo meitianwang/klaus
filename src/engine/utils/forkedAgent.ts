@@ -436,10 +436,8 @@ export function createSubagentContext(
 
     // UI callbacks - undefined for subagents (can't control parent UI)
     addNotification: undefined,
-    setToolJSX: undefined,
     setStreamMode: undefined,
     setSDKStatus: undefined,
-    openMessageSelector: undefined,
 
     // Fields that can be overridden or copied from parent
     options: overrides?.options ?? parentContext.options,

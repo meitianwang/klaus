@@ -15,13 +15,6 @@ import { getMainLoopModel, getSmallFastModel } from '../../utils/model/model.js'
 import { jsonParse, jsonStringify } from '../../utils/slowOperations.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getWebSearchPrompt, WEB_SEARCH_TOOL_NAME } from './prompt.js'
-import {
-  getToolUseSummary,
-  renderToolResultMessage,
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-} from './UI.js'
-
 const inputSchema = lazySchema(() =>
   z.strictObject({
     query: z.string().min(2).describe('The search query to use'),
@@ -160,9 +153,8 @@ export const WebSearchTool = buildTool({
   userFacingName() {
     return 'Web Search'
   },
-  getToolUseSummary,
   getActivityDescription(input) {
-    const summary = getToolUseSummary(input)
+    const summary = input?.query ?? null
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
@@ -223,9 +215,6 @@ export const WebSearchTool = buildTool({
   async prompt() {
     return getWebSearchPrompt()
   },
-  renderToolUseMessage,
-  renderToolUseProgressMessage,
-  renderToolResultMessage,
   extractSearchText() {
     // renderToolResultMessage shows only "Did N searches in Xs" chrome —
     // the results[] content never appears on screen. Heuristic would index

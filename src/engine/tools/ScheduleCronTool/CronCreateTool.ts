@@ -14,8 +14,6 @@ import {
   isKairosCronEnabled,
   isDurableCronEnabled,
 } from './prompt.js'
-import { renderCreateResultMessage, renderCreateToolUseMessage } from './UI.js'
-
 const MAX_JOBS = 50
 
 const inputSchema = lazySchema(() =>
@@ -143,6 +141,4 @@ export const CronCreateTool = buildTool({
         : `Scheduled one-shot task ${output.id} (${output.humanSchedule}). It will fire once then auto-delete.`,
     }
   },
-  renderToolUseMessage: renderCreateToolUseMessage,
-  renderToolResultMessage: renderCreateResultMessage,
 } satisfies ToolDef<InputSchema, CreateOutput>)

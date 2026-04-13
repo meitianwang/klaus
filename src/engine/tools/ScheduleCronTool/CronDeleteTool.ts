@@ -11,8 +11,6 @@ import {
   isDurableCronEnabled,
   isKairosCronEnabled,
 } from './prompt.js'
-import { renderDeleteResultMessage, renderDeleteToolUseMessage } from './UI.js'
-
 const inputSchema = lazySchema(() =>
   z.strictObject({
     id: z.string().describe('Job ID returned by CronCreate.'),
@@ -91,6 +89,4 @@ export const CronDeleteTool = buildTool({
       content: `Cancelled job ${output.id}.`,
     }
   },
-  renderToolUseMessage: renderDeleteToolUseMessage,
-  renderToolResultMessage: renderDeleteResultMessage,
 } satisfies ToolDef<InputSchema, DeleteOutput>)

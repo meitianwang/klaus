@@ -32,8 +32,6 @@ import {
 import { generateWordSlug } from '../../utils/words.js'
 import { TEAM_CREATE_TOOL_NAME } from './constants.js'
 import { getPrompt } from './prompt.js'
-import { renderToolUseMessage } from './UI.js'
-
 const inputSchema = lazySchema(() =>
   z.strictObject({
     team_name: z.string().describe('Name for the new team to create.'),
@@ -236,5 +234,4 @@ export const TeamCreateTool: Tool<InputSchema, Output> = buildTool({
     }
   },
 
-  renderToolUseMessage,
 } satisfies ToolDef<InputSchema, Output>)

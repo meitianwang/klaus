@@ -74,9 +74,6 @@ export const TaskCreateTool = buildTool({
   toAutoClassifierInput(input) {
     return input.subject
   },
-  renderToolUseMessage() {
-    return null
-  },
   async call({ subject, description, activeForm, metadata }, context) {
     const taskId = await createTask(getTaskListId(), {
       subject,

@@ -432,9 +432,6 @@ export const ToolSearchTool = buildTool({
 
     return buildSearchResult(matches, query, deferredTools.length)
   },
-  renderToolUseMessage() {
-    return null
-  },
   userFacingName: () => '',
   /**
    * Returns a tool_result with tool_reference blocks.

@@ -61,14 +61,6 @@ import {
   outputSchema,
 } from './types.js'
 import {
-  getToolUseSummary,
-  renderToolResultMessage,
-  renderToolUseErrorMessage,
-  renderToolUseMessage,
-  renderToolUseRejectedMessage,
-  userFacingName,
-} from './UI.js'
-import {
   areFileEditsInputsEquivalent,
   findActualString,
   getPatchForEdit,
@@ -93,10 +85,8 @@ export const FileEditTool = buildTool({
   async prompt() {
     return getEditToolDescription()
   },
-  userFacingName,
-  getToolUseSummary,
   getActivityDescription(input) {
-    const summary = getToolUseSummary(input)
+    const summary = input?.file_path ?? null
     return summary ? `Editing ${summary}` : 'Editing file'
   },
   get inputSchema() {
@@ -129,10 +119,6 @@ export const FileEditTool = buildTool({
       appState.toolPermissionContext,
     )
   },
-  renderToolUseMessage,
-  renderToolResultMessage,
-  renderToolUseRejectedMessage,
-  renderToolUseErrorMessage,
   async validateInput(input: FileEditInput, toolUseContext: ToolUseContext) {
     const { file_path, old_string, new_string, replace_all = false } = input
     // Use expandPath for consistent path normalization (especially on Windows
