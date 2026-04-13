@@ -9,7 +9,7 @@ import type { ValidationResult } from '../../Tool.js'
 
 import { getCwd } from '../../utils/cwd.js'
 import { getErrnoCode } from '../../utils/errors.js'
-import { IMAGE_EXTENSION_REGEX } from '../../utils/imagePaste.js'
+const IMAGE_EXTENSION_REGEX = /\.(png|jpe?g|gif|webp|bmp|ico|svg|tiff?)$/i
 import { expandPath } from '../../utils/path.js'
 
 export type ResolvedAttachment = {

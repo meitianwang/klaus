@@ -7,7 +7,7 @@ import {
   logEvent,
 } from './services/analytics/index.js'
 import { getCwd } from './utils/cwd.js'
-import { checkForReleaseNotes } from './utils/releaseNotes.js'
+
 import { setCwd } from './utils/Shell.js'
 import { initSinks } from './utils/sinks.js'
 import {
@@ -314,14 +314,6 @@ export async function setup(
 
   void prefetchApiKeyFromApiKeyHelperIfSafe(getIsNonInteractiveSession()) // Prefetch safely - only executes if trust already confirmed
   profileCheckpoint('setup_after_prefetch')
-
-  // Pre-fetch release notes check (skip recent activity - UI only)
-  // --bare / SIMPLE: skip — release notes are interactive-UI display data.
-  if (!isBareMode()) {
-    await checkForReleaseNotes(
-      getGlobalConfig().lastReleaseNotesSeen,
-    )
-  }
 
   // If permission mode is set to bypass, verify we're in a safe environment
   if (

@@ -64,7 +64,7 @@ import type {
 import type { QueueOperationMessage } from '../types/messageQueueTypes.js'
 import { uniq } from './array.js'
 import { registerCleanup } from './cleanupRegistry.js'
-import { updateSessionName } from './concurrentSessions.js'
+
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
@@ -2827,7 +2827,6 @@ export async function saveAgentName(
   // Cache for current session only (for immediate visibility)
   if (sessionId === getSessionId()) {
     getProject().currentSessionAgentName = agentName
-    void updateSessionName(agentName)
   }
   logEvent('tengu_agent_name_set', {
     source:
