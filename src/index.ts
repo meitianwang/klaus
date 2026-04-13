@@ -75,6 +75,10 @@ async function start(): Promise<void> {
   // Initialize agent session manager
   const agentManager = new AgentSessionManager(settingsStore);
 
+  // Initialize autoDream (background memory consolidation)
+  const { initAutoDream } = await import("./engine/services/autoDream/autoDream.js");
+  initAutoDream();
+
   // Initialize MCP connections (uses engine's getAllMcpConfigs + getMcpToolsCommandsAndResources)
   await agentManager.initMcp();
 

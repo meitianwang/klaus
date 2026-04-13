@@ -111,6 +111,10 @@ interface SessionEntry {
   contentReplacementState: ContentReplacementState;
   /** AppState reference — used to abort in-process teammates on session cleanup. */
   appState?: AppState;
+  /** Tool call count this session — used by skill nudge to decide when to trigger. */
+  toolCallCount: number;
+  /** Whether skill nudge has already fired for this session. */
+  skillNudgeFired: boolean;
 }
 
 // ============================================================================
@@ -139,6 +143,8 @@ function emptyMcpState(): McpUserState {
 export class AgentSessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly store: SettingsStore;
+  /** In-memory throttle for skill audit — avoids stat on every query. */
+  private static readonly _lastAuditCheck = new Map<string, number>();
   private readonly maxSessions: number;
   // Per-user MCP state — each user owns independent connections, tools, and resources.
   private readonly _mcpByUser = new Map<string, McpUserState>();
@@ -669,6 +675,17 @@ export class AgentSessionManager {
             const msg = ev as AssistantMessage;
             session.messages.push(msg);
             onEvent({ type: "message_complete", message: msg });
+            // Track skill usage from tool_use blocks in the assistant message
+            if (Array.isArray(msg.message?.content)) {
+              for (const block of msg.message.content) {
+                if (block.type === "tool_use" && block.name === "Skill") {
+                  const skillName = (block.input as any)?.skill ?? "unknown";
+                  void import("./skill-tracker.js").then(({ recordSkillUsage }) => {
+                    void recordSkillUsage(join(homedir(), '.klaus', 'users', userId), skillName, sessionKey);
+                  });
+                }
+              }
+            }
             break;
           }
 
@@ -678,9 +695,11 @@ export class AgentSessionManager {
             if (Array.isArray(ev.message?.content)) {
               for (const block of ev.message.content) {
                 if (block.type === "tool_result") {
+                  const toolName = block.toolName ?? "";
+                  session.toolCallCount++;
                   onEvent({
                     type: "tool_end",
-                    toolName: block.toolName ?? "",
+                    toolName,
                     toolCallId: block.tool_use_id ?? "",
                     isError: block.is_error ?? false,
                   });
@@ -748,7 +767,24 @@ export class AgentSessionManager {
       // Emit reliable "done" signal — the frontend uses this to unblock the UI
       onEvent?.({ type: "done" });
 
-      console.log(`[Query] Generator finished. Messages: ${session.messages.length}`);
+      // --- Self-evolution hooks (fire-and-forget) ---
+      // Skill Nudge: auto-create skills after complex sessions (once per session)
+      if (session.toolCallCount >= 10 && !session.skillNudgeFired) {
+        session.skillNudgeFired = true;
+        void import("./skill-nudge.js").then(({ runSkillNudge }) => {
+          void runSkillNudge(userId, join(homedir(), '.klaus', 'users', userId));
+        });
+      }
+      // Skill Audit: periodic cleanup of unused skills (throttled to once per hour in-memory)
+      if (!AgentSessionManager._lastAuditCheck.has(userId) ||
+          Date.now() - AgentSessionManager._lastAuditCheck.get(userId)! > 3_600_000) {
+        AgentSessionManager._lastAuditCheck.set(userId, Date.now());
+        void import("./skill-audit.js").then(({ maybeRunSkillAudit }) => {
+          void maybeRunSkillAudit(userId, join(homedir(), '.klaus', 'users', userId));
+        });
+      }
+
+      console.log(`[Query] Generator finished. Messages: ${session.messages.length}, toolCalls: ${session.toolCallCount}`);
 
       return extractFinalText(session.messages);
 
@@ -773,6 +809,10 @@ export class AgentSessionManager {
     if (mcpState && mcpState.tools.length > 0) {
       tools.push(...mcpState.tools);
     }
+
+    // Self-evolution tools
+    const { SessionSearchTool } = await import("./tools/session-search.js");
+    tools.push(SessionSearchTool);
 
     return tools;
   }
@@ -915,6 +955,8 @@ export class AgentSessionManager {
       isRunning: false,
       messageQueue: new MessageQueueManager(),
       contentReplacementState: createContentReplacementState(),
+      toolCallCount: 0,
+      skillNudgeFired: false,
     };
     this.sessions.set(sessionKey, entry);
     return entry;
