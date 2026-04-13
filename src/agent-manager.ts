@@ -327,6 +327,7 @@ export class AgentSessionManager {
     text: string,
     onEvent?: EngineEventCallback,
     sendEvent?: (userId: string, event: import("./gateway/protocol.js").WsEvent) => void,
+    media?: readonly import("./message.js").MediaFile[],
   ): Promise<string | null> {
     const session = await this.getOrCreate(sessionKey);
     session.isRunning = true;
@@ -408,11 +409,16 @@ export class AgentSessionManager {
         };
       }
 
+      // Prepend @-mentions for uploaded images so the engine's existing
+      // processAtMentionedFiles → FileReadTool pipeline handles them natively
+      // (resize, compress, inject as simulated tool_use/tool_result pairs).
+      const inputText = prependImageMentions(text, media);
+
       const attachmentMessages: Message[] = await runWithUserScope(
         userScope,
         async () => toArray(
           getAttachmentMessages(
-            text,
+            inputText,
             toolUseContext as any,
             null,
             [],
@@ -440,7 +446,7 @@ export class AgentSessionManager {
       // Add user message
       const userMessage: Message = {
         type: "user",
-        message: { role: "user", content: text },
+        message: { role: "user", content: inputText },
         uuid: randomUUID(),
         timestamp: new Date().toISOString(),
       } as Message;
@@ -1209,4 +1215,20 @@ function extractFinalText(messages: Message[]): string | null {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Image support — prepend @-mentions for uploaded images so the engine's
+// processAtMentionedFiles → FileReadTool pipeline handles them natively.
+// ---------------------------------------------------------------------------
+
+function prependImageMentions(
+  text: string,
+  media?: readonly import("./message.js").MediaFile[],
+): string {
+  const images = media?.filter((m) => m.type === "image" && m.path);
+  if (!images || images.length === 0) return text;
+
+  const mentions = images.map((img) => `@${img.path}`).join(" ");
+  return text ? `${mentions} ${text}` : mentions;
 }
