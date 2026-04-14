@@ -30,7 +30,8 @@ import type { Command } from "./engine/commands.js";
 // SkillTool removed from engine — define type locally
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { extractUserId, ensureUserDirs } from "./user-dirs.js";
+import { extractUserId, ensureUserDirs, getUserWorkspaceDir } from "./user-dirs.js";
+import { runWithCwdOverride } from "./engine/utils/cwd.js";
 import { initContextCollapse, resetContextCollapse } from "./engine/services/contextCollapse/index.js";
 import type { ContextCollapseStats } from "./engine/services/contextCollapse/index.js";
 import { MessageQueueManager } from "./engine/services/messageQueue.js";
@@ -65,6 +66,8 @@ import {
   registerLeaderToolUseConfirmQueue,
   unregisterLeaderToolUseConfirmQueue,
 } from "./engine/utils/swarm/leaderPermissionBridge.js";
+import { getAgentDefinitionsWithOverrides } from "./engine/tools/AgentTool/loadAgentsDir.js";
+import type { AgentDefinitionsResult } from "./engine/tools/AgentTool/loadAgentsDir.js";
 
 // ============================================================================
 // Engine Event type (replaces AgentEvent from klaus-agent)
@@ -382,8 +385,15 @@ export class AgentSessionManager {
         anthropicBaseUrl: baseUrl ?? null,
       };
 
+      // Load agent definitions via engine (built-ins + custom .claude/agents/*.md files).
+      // Run inside userScope so ALS-scoped claudeConfigHomeDirOverride is active,
+      // ensuring per-user agent directories are scanned correctly.
+      const agentDefinitions = await runWithUserScope(userScope, () =>
+        getAgentDefinitionsWithOverrides(join(homedir(), '.klaus', 'users', userId))
+      );
+
       // Build ToolUseContext
-      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, apiKey, baseUrl);
+      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, agentDefinitions, apiKey, baseUrl);
 
       // Store appState reference on session for cleanup
       session.appState = toolUseContext.getAppState();
@@ -567,7 +577,10 @@ export class AgentSessionManager {
       // Run the entire query loop inside user scope — ALS propagates through
       // all awaits in the for-await loop, so engine code always sees this user's
       // dirs, MCP config, API credentials, and memory path.
-      return await runWithUserScope(userScope, async () => {
+      // Wrap with per-user workspace cwd so BashTool, sub-agents, and in-process
+      // teammates all inherit the same isolated workspace (ALS propagates through
+      // all nested async calls including spawnTeammate → inProcessRunner).
+      return await runWithCwdOverride(getUserWorkspaceDir(userId), () => runWithUserScope(userScope, async () => {
 
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
 
@@ -788,7 +801,7 @@ export class AgentSessionManager {
 
       return extractFinalText(session.messages);
 
-      }); // end runWithUserScope
+      })); // end runWithUserScope + runWithCwdOverride
     } finally {
       unregisterLeaderToolUseConfirmQueue();
       session.isRunning = false;
@@ -1124,6 +1137,7 @@ export class AgentSessionManager {
     tools: any[],
     model: string,
     thinkingConfig: ThinkingConfig,
+    agentDefinitions: AgentDefinitionsResult,
     apiKey?: string,
     baseURL?: string,
   ): ToolUseContext {
@@ -1181,7 +1195,7 @@ export class AgentSessionManager {
         mcpClients: this.getMcpState(userId).clients,
         mcpResources: this.getMcpState(userId).resources,
         isNonInteractiveSession: isBypass, // interactive when permissions are enabled (WebSocket approval)
-        agentDefinitions: { agents: [], errors: [], activeAgents: [], allowedAgentTypes: undefined, allAgents: [] },
+        agentDefinitions,
         // Hooks disabled: Klaus uses WebSocket-based permission approval
         // instead of claude-code's CLI hooks. PreToolUse hooks block tool
         // execution with stopReason=undefined in this context.
