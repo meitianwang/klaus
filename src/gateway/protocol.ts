@@ -100,6 +100,28 @@ export type WsEvent =
       readonly type: "teammate_killed";
       readonly agentId: string;
       readonly sessionId?: string;
+    }
+  | {
+      /** Server → browser: a background agent enqueued a task-notification;
+       *  browser should auto-deliver it when no active request is in flight. */
+      readonly type: "notification_ready";
+      readonly sessionKey: string;
+    }
+  | {
+      /** Server → browser: an in-process agent made progress (tool call). */
+      readonly type: "agent_progress";
+      readonly agentId: string;
+      readonly agentName: string;
+      readonly toolUseCount: number;
+      readonly sessionId?: string;
+    }
+  | {
+      /** Server → browser: an in-process agent completed (or failed). */
+      readonly type: "agent_done";
+      readonly agentId: string;
+      readonly agentName: string;
+      readonly status: "completed" | "failed" | "killed";
+      readonly sessionId?: string;
     };
 
 export type GatewayRpcResponseEnvelope = {

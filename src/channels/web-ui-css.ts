@@ -346,6 +346,42 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 }
 @keyframes blink{50%{opacity:0}}
 
+/* ─── Agent Panel ─── */
+#agent-panel{
+  max-width:720px;width:100%;margin:0 auto;padding:0 16px 4px;
+}
+#agent-panel-header{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 10px;border-radius:var(--radius-md);
+  background:var(--bg-elevated);border:1px solid var(--border);
+  font-size:12px;cursor:pointer;user-select:none;
+}
+#agent-panel-toggle{font-size:10px;color:var(--muted);transition:transform 0.15s}
+#agent-panel-title{font-weight:600;color:var(--text)}
+#agent-panel-count{color:var(--muted);flex:1}
+#agent-panel-close{
+  background:none;border:none;cursor:pointer;color:var(--muted);
+  font-size:16px;padding:0 2px;line-height:1;
+}
+#agent-panel-close:hover{color:var(--text)}
+#agent-panel-body{
+  display:flex;flex-direction:column;gap:2px;
+  padding:4px 0 0;
+}
+#agent-panel.collapsed #agent-panel-body{display:none}
+#agent-panel.collapsed #agent-panel-toggle{transform:rotate(-90deg)}
+.agent-row{
+  display:flex;align-items:center;gap:8px;
+  padding:4px 10px;font-size:12px;
+  border-left:2px solid var(--border);
+}
+.agent-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+}
+.agent-name{font-weight:500;color:var(--text)}
+.agent-status{color:var(--muted);flex:1}
+.agent-dot.running{animation:blink 1s infinite}
+
 /* ─── Input Area ─── */
 #input-wrapper{
   max-width:720px;width:100%;margin:0 auto;padding:0 16px 20px;

@@ -381,6 +381,77 @@ export function getChatMainJs(): string {
     collapseStatsEl.textContent = text;
   }
 
+  // ---------------------------------------------------------------------------
+  // Agent Panel — shows background agent progress (Agent-Team / Sub-Agent)
+  // ---------------------------------------------------------------------------
+  var agentPanel = {
+    team: null,          // { name } | null
+    agents: new Map(),   // agentId → { name, color, status, toolUseCount }
+    collapsed: false,
+  };
+  // Sessions that have a pending notification_ready but were busy — deliver after done
+  var pendingDelivery = new Set();
+
+  var AGENT_COLOR_MAP = {
+    blue: '#3b82f6', green: '#22c55e', yellow: '#eab308',
+    red: '#ef4444', purple: '#a855f7', cyan: '#06b6d4',
+    orange: '#f97316', pink: '#ec4899',
+  };
+
+  var agentPanelEl = document.getElementById("agent-panel");
+  var agentPanelBody = document.getElementById("agent-panel-body");
+  var agentPanelTitle = document.getElementById("agent-panel-title");
+  var agentPanelCount = document.getElementById("agent-panel-count");
+  var agentPanelToggle = document.getElementById("agent-panel-toggle");
+  document.getElementById("agent-panel-close").onclick = function() {
+    agentPanel.team = null; agentPanel.agents.clear();
+    if (agentPanelEl) agentPanelEl.style.display = "none";
+  };
+  document.getElementById("agent-panel-header").onclick = function(e) {
+    if (e.target === document.getElementById("agent-panel-close")) return;
+    agentPanel.collapsed = !agentPanel.collapsed;
+    if (agentPanelEl) agentPanelEl.classList.toggle("collapsed", agentPanel.collapsed);
+  };
+
+  function renderAgentPanel() {
+    if (!agentPanelEl) return;
+    var runningCount = 0;
+    agentPanel.agents.forEach(function(a) { if (a.status === "running") runningCount++; });
+    if (!agentPanel.team && agentPanel.agents.size === 0) {
+      agentPanelEl.style.display = "none"; return;
+    }
+    agentPanelEl.style.display = "";
+    if (agentPanelTitle) agentPanelTitle.textContent = agentPanel.team ? agentPanel.team.name : "Agents";
+    if (agentPanelCount) agentPanelCount.textContent = runningCount > 0 ? runningCount + " running" : agentPanel.agents.size + " agent(s)";
+    if (!agentPanelBody) return;
+    agentPanelBody.innerHTML = "";
+    agentPanel.agents.forEach(function(agent, id) {
+      var row = document.createElement("div");
+      row.className = "agent-row";
+      var dot = document.createElement("span");
+      dot.className = "agent-dot" + (agent.status === "running" ? " running" : "");
+      var color = AGENT_COLOR_MAP[agent.color] || AGENT_COLOR_MAP.blue;
+      dot.style.background = color;
+      dot.style.borderColor = color;
+      var name = document.createElement("span");
+      name.className = "agent-name";
+      name.textContent = agent.name;
+      var status = document.createElement("span");
+      status.className = "agent-status";
+      if (agent.status === "running") {
+        status.textContent = "running · " + agent.toolUseCount + " tool call" + (agent.toolUseCount === 1 ? "" : "s");
+      } else if (agent.status === "completed") {
+        status.textContent = "done";
+      } else if (agent.status === "failed") {
+        status.textContent = "failed";
+      } else {
+        status.textContent = "idle";
+      }
+      row.appendChild(dot); row.appendChild(name); row.appendChild(status);
+      agentPanelBody.appendChild(row);
+    });
+  }
+
   function connectWs() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(proto + "//" + location.host + "/api/ws");
@@ -444,6 +515,45 @@ export function getChatMainJs(): string {
         return;
       }
       if (data.type === "context_collapse") { updateCollapseStats(data); return; }
+      if (data.type === "notification_ready") {
+        // Server says a background agent completed and enqueued a notification.
+        // Auto-deliver unless we're currently processing a user message.
+        var sk = data.sessionKey;
+        if (!busy) {
+          if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "deliver_notifications", sessionKey: sk }));
+        } else {
+          pendingDelivery.add(sk);
+        }
+        return;
+      }
+      if (data.type === "team_created") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        agentPanel.team = { name: data.teamName };
+        renderAgentPanel();
+        return;
+      }
+      if (data.type === "teammate_spawned") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        agentPanel.agents.set(data.agentId, { name: data.name, color: data.color || "blue", status: "idle", toolUseCount: 0 });
+        renderAgentPanel();
+        return;
+      }
+      if (data.type === "agent_progress") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        var ag = agentPanel.agents.get(data.agentId);
+        if (ag) { ag.status = "running"; ag.toolUseCount = data.toolUseCount; }
+        renderAgentPanel();
+        return;
+      }
+      if (data.type === "agent_done") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        var ag2 = agentPanel.agents.get(data.agentId);
+        if (ag2) { ag2.status = data.status; }
+        renderAgentPanel();
+        // Auto-remove after 5s
+        setTimeout(function() { agentPanel.agents.delete(data.agentId); renderAgentPanel(); }, 5000);
+        return;
+      }
       if (data.type === "session_lifecycle") {
         if (data.sessionId && data.sessionId !== currentSessionId) return;
         if (data.event === "requesting") {
@@ -454,6 +564,14 @@ export function getChatMainJs(): string {
           if (isStreaming) { finalizeStreamingMessage(""); }
           finalizeThinking(); finalizeToolContainer();
           busy = false; updateBtn();
+          // Drain any pending notification deliveries
+          if (pendingDelivery.size > 0) {
+            var toDeliver = Array.from(pendingDelivery);
+            pendingDelivery.clear();
+            toDeliver.forEach(function(sk2) {
+              if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "deliver_notifications", sessionKey: sk2 }));
+            });
+          }
           return;
         }
         if (data.event === "compact") {

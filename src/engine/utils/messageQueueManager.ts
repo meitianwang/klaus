@@ -70,6 +70,35 @@ const queueChanged = createSignal()
 
 const userQueueStorage = new AsyncLocalStorage<QueuedCommand[]>()
 
+// ============================================================================
+// Per-user queue change notifiers (Klaus multi-user mode)
+//
+// Allows the Klaus server layer to subscribe to task-notification enqueue
+// events on a specific user queue so it can push a WebSocket event to the
+// browser instead of relying on React's useSyncExternalStore.
+// ============================================================================
+
+const queueNotifiers = new Map<QueuedCommand[], () => void>()
+
+/**
+ * Register a callback that fires whenever a task-notification is enqueued
+ * into the given queue.  Pass the same array reference that was used in
+ * runWithUserCommandQueue so the WeakMap lookup succeeds.
+ */
+export function registerQueueChangeNotifier(
+  queue: QueuedCommand[],
+  cb: () => void,
+): void {
+  queueNotifiers.set(queue, cb)
+}
+
+/**
+ * Unregister the notifier for a queue (e.g. when a session is disposed).
+ */
+export function unregisterQueueChangeNotifier(queue: QueuedCommand[]): void {
+  queueNotifiers.delete(queue)
+}
+
 /** Return the active queue: per-user ALS queue if inside a user context, else global. */
 function getQueue(): QueuedCommand[] {
   return userQueueStorage.getStore() ?? commandQueue
@@ -175,6 +204,11 @@ export function enqueuePendingNotification(command: QueuedCommand): void {
     'enqueue',
     typeof command.value === 'string' ? command.value : undefined,
   )
+  // Notify Klaus server layer so it can push a WebSocket event to the browser
+  if (command.mode === 'task-notification') {
+    const q = getQueue()
+    queueNotifiers.get(q)?.()
+  }
 }
 
 const PRIORITY_ORDER: Record<QueuePriority, number> = {

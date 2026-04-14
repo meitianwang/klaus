@@ -85,6 +85,7 @@ import {
 import {
   isValidGatewaySessionId,
   isValidGatewayUserId,
+  parseWebSessionKey,
   type GatewayRpcResponseEnvelope,
   type WsEvent,
 } from "../gateway/protocol.js";
@@ -654,6 +655,11 @@ type ClientWsMessage =
       decision: "allow" | "deny";
       updatedInput?: Record<string, unknown>;
       acceptedSuggestionIndices?: number[];
+    }
+  | {
+      /** Browser → server: auto-deliver queued task-notifications for a session. */
+      type: "deliver_notifications";
+      sessionKey: string;
     };
 
 function handleWsMessage(
@@ -747,6 +753,30 @@ function handleWsMessage(
         parsed.updatedInput,
         parsed.acceptedSuggestionIndices,
       );
+      break;
+    }
+    case "deliver_notifications": {
+      // Browser asks us to drain the task-notification queue for a session.
+      // Call agentManager.chat() with DELIVERY_SENTINEL — it inserts a hidden
+      // isMeta trigger message so the query loop auto-delivers pending notifications.
+      const { sessionKey } = parsed;
+      if (!agentManagerRef) break;
+      const wsSession = parseWebSessionKey(sessionKey);
+      if (!wsSession) break;
+      import("../agent-manager.js").then(({ DELIVERY_SENTINEL }) => {
+        const forwarder = gateway.createAgentEventForwarder({
+          userId: wsSession.userId,
+          sessionId: wsSession.sessionId,
+        });
+        void agentManagerRef!.chat(
+          sessionKey,
+          DELIVERY_SENTINEL,
+          forwarder,
+          sendWsEvent,
+        ).catch(err => {
+          console.error("[Web] deliver_notifications error:", err);
+        });
+      });
       break;
     }
     default:

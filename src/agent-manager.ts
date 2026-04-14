@@ -68,8 +68,18 @@ import {
 } from "./engine/utils/swarm/leaderPermissionBridge.js";
 import { getAgentDefinitionsWithOverrides } from "./engine/tools/AgentTool/loadAgentsDir.js";
 import type { AgentDefinitionsResult } from "./engine/tools/AgentTool/loadAgentsDir.js";
-import { runWithUserCommandQueue } from "./engine/utils/messageQueueManager.js";
+import {
+  runWithUserCommandQueue,
+  registerQueueChangeNotifier,
+  unregisterQueueChangeNotifier,
+} from "./engine/utils/messageQueueManager.js";
 import type { QueuedCommand } from "./engine/types/textInputTypes.js";
+
+/**
+ * Sentinel text passed to chat() to trigger automatic delivery of queued
+ * task-notifications without showing a user message in the conversation.
+ */
+export const DELIVERY_SENTINEL = '\x00deliver';
 
 // ============================================================================
 // Engine Event type (replaces AgentEvent from klaus-agent)
@@ -414,6 +424,7 @@ export class AgentSessionManager {
 
       // Wrap setAppState to detect team events and forward to WebSocket
       if (sendEvent) {
+        const sessionId = parseWebSessionKey(sessionKey)?.sessionId;
         const origSetAppState = toolUseContext.setAppState;
         toolUseContext.setAppState = (f: any) => {
           const prev = toolUseContext.getAppState();
@@ -421,17 +432,44 @@ export class AgentSessionManager {
           const next = toolUseContext.getAppState();
           // Detect team creation
           if (!prev.teamContext && next.teamContext) {
-            sendEvent(userId, { type: "team_created", teamName: next.teamContext.teamName });
+            sendEvent(userId, { type: "team_created", teamName: next.teamContext.teamName, sessionId });
           }
-          // Detect new in-process teammate tasks
+          // Detect new in-process teammate tasks + progress + completion
           if (next.tasks) {
             for (const [id, task] of Object.entries(next.tasks) as [string, any][]) {
-              if (!prev.tasks?.[id] && task.type === "in_process_teammate") {
+              const prevTask = prev.tasks?.[id] as any;
+              if (task.type !== "in_process_teammate") continue;
+
+              // New task spawned
+              if (!prevTask) {
                 sendEvent(userId, {
                   type: "teammate_spawned",
                   agentId: task.identity?.agentId ?? id,
                   name: task.identity?.agentName ?? "agent",
                   color: task.identity?.color,
+                  sessionId,
+                });
+              }
+
+              // Tool call progress
+              if ((prevTask?.toolCallCount ?? 0) !== (task.toolCallCount ?? 0)) {
+                sendEvent(userId, {
+                  type: "agent_progress",
+                  agentId: task.identity?.agentId ?? id,
+                  agentName: task.identity?.agentName ?? "agent",
+                  toolUseCount: task.toolCallCount ?? 0,
+                  sessionId,
+                });
+              }
+
+              // Task completed or failed
+              if (prevTask && !prevTask.result && !prevTask.error && (task.result || task.error)) {
+                sendEvent(userId, {
+                  type: "agent_done",
+                  agentId: task.identity?.agentId ?? id,
+                  agentName: task.identity?.agentName ?? "agent",
+                  status: task.error ? "failed" : "completed",
+                  sessionId,
                 });
               }
             }
@@ -473,14 +511,28 @@ export class AgentSessionManager {
         session.messages.push(contextMessage);
       }
 
-      // Add user message
-      const userMessage: Message = {
-        type: "user",
-        message: { role: "user", content: inputText },
-        uuid: randomUUID(),
-        timestamp: new Date().toISOString(),
-      } as Message;
-      session.messages.push(userMessage);
+      // Add user message (or a hidden meta message for notification delivery)
+      if (text === DELIVERY_SENTINEL) {
+        // Notification delivery: inject an invisible trigger message so the query
+        // loop drains the pending task-notification queue without leaking a
+        // user-visible message into the conversation.
+        const metaMessage: Message = {
+          type: "user",
+          message: { role: "user", content: "" },
+          uuid: randomUUID(),
+          isMeta: true,
+          timestamp: new Date().toISOString(),
+        } as Message;
+        session.messages.push(metaMessage);
+      } else {
+        const userMessage: Message = {
+          type: "user",
+          message: { role: "user", content: inputText },
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+        } as Message;
+        session.messages.push(userMessage);
+      }
 
       // Inject attachment messages after user message
       for (const attachMsg of attachmentMessages) {
@@ -598,6 +650,16 @@ export class AgentSessionManager {
       // never visible to other users' query turns (cross-user contamination fix).
       const userQueue = this._commandQueueByUser.get(userId) ?? [];
       this._commandQueueByUser.set(userId, userQueue);
+      // Register queue change notifier — fires when a background agent enqueues
+      // a task-notification, so we can push notification_ready to the browser.
+      const parsed = parseWebSessionKey(sessionKey);
+      if (parsed && sendEvent) {
+        registerQueueChangeNotifier(userQueue, () => {
+          if (!session.isRunning) {
+            sendEvent(userId, { type: "notification_ready", sessionKey });
+          }
+        });
+      }
       return await runWithUserCommandQueue(userQueue, () => runWithCwdOverride(getUserWorkspaceDir(userId), () => runWithUserScope(userScope, async () => {
 
       console.log(`[Query] Starting query with ${session.messages.length} messages, model=${model}`);
@@ -822,6 +884,9 @@ export class AgentSessionManager {
       }))); // end runWithUserScope + runWithCwdOverride + runWithUserCommandQueue
     } finally {
       unregisterLeaderToolUseConfirmQueue();
+      // Unregister per-user queue notifier so stale callbacks don't accumulate
+      const uq = this._commandQueueByUser.get(extractUserId(sessionKey));
+      if (uq) unregisterQueueChangeNotifier(uq);
       session.isRunning = false;
     }
   }

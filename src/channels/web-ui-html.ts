@@ -48,6 +48,15 @@ export function getChatBodyHtml(): string {
       <div class="welcome-chips" id="welcome-chips"></div>
     </div>
     <div id="messages"></div>
+    <div id="agent-panel" style="display:none">
+      <div id="agent-panel-header">
+        <span id="agent-panel-toggle">▼</span>
+        <span id="agent-panel-title"></span>
+        <span id="agent-panel-count"></span>
+        <button id="agent-panel-close" title="Close">×</button>
+      </div>
+      <div id="agent-panel-body"></div>
+    </div>
     <div id="input-wrapper">
       <div id="slash-menu" class="slash-menu hidden"></div>
       <div id="input-area">
