@@ -2,7 +2,7 @@ import SwiftUI
 
 /// SF Symbol-based status icon for the menu bar.
 struct StatusIcon: View {
-    let status: DaemonProcessManager.Status
+    let status: EngineProcess.Status
     let isPaused: Bool
 
     var body: some View {
@@ -15,12 +15,14 @@ struct StatusIcon: View {
             return "pause.circle.fill"
         }
         switch status {
-        case .stopped:
+        case .idle:
             return "circle"
         case .starting:
             return "circle.dotted"
-        case .running, .attachedExisting:
+        case .running:
             return "circle.fill"
+        case .stopping:
+            return "circle.dotted"
         case .failed:
             return "exclamationmark.circle.fill"
         }
@@ -31,14 +33,25 @@ struct StatusIcon: View {
             return .secondary
         }
         switch status {
-        case .stopped:
+        case .idle:
             return .secondary
-        case .starting:
+        case .starting, .stopping:
             return .orange
-        case .running, .attachedExisting:
+        case .running:
             return .green
         case .failed:
             return .red
         }
+    }
+}
+
+/// Animated wrapper for the menu bar icon.
+struct AnimatedStatusIcon: View {
+    let status: EngineProcess.Status
+    let isPaused: Bool
+    let isWorking: Bool
+
+    var body: some View {
+        StatusIcon(status: status, isPaused: isPaused)
     }
 }

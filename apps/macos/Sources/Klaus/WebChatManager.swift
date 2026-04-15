@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
-import WebKit
 
-/// Manages the Web Chat panel/window lifecycle.
+/// Manages the Chat panel/window lifecycle.
+/// Previously used WKWebView to load daemon's web UI; now hosts NativeChatView directly.
 @MainActor
 final class WebChatManager {
     static let shared = WebChatManager()
 
-    private var panel: WebChatPanel?
+    private var panel: NativeChatPanel?
     var onPanelVisibilityChanged: ((Bool) -> Void)?
 
     func toggle(anchorFrame: NSRect? = nil) {
@@ -20,19 +20,18 @@ final class WebChatManager {
 
     func show(anchorFrame: NSRect? = nil) {
         if panel == nil {
-            panel = WebChatPanel()
+            panel = NativeChatPanel()
         }
         guard let panel else { return }
 
         // Position below the menu bar icon if anchor provided
         if let anchor = anchorFrame {
-            let panelSize = NSSize(width: 420, height: 640)
+            let panelSize = NSSize(width: 800, height: 640)
             let x = anchor.midX - panelSize.width / 2
             let y = anchor.minY - panelSize.height - 4
             panel.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: panelSize), display: true)
         }
 
-        panel.loadChat()
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         onPanelVisibilityChanged?(true)
@@ -48,23 +47,12 @@ final class WebChatManager {
     }
 }
 
-// MARK: - Chat Panel (NSPanel)
+// MARK: - Native Chat Panel (NSPanel hosting SwiftUI)
 
-final class WebChatPanel: NSPanel {
-    private let webView: WKWebView
-    private var hasLoaded = false
-
+final class NativeChatPanel: NSPanel {
     init() {
-        let config = WKWebViewConfiguration()
-        config.preferences.isElementFullscreenEnabled = true
-        // Allow local storage
-        config.websiteDataStore = .default()
-
-        webView = WKWebView(frame: .zero, configuration: config)
-        webView.isInspectable = true
-
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 640),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -77,38 +65,10 @@ final class WebChatPanel: NSPanel {
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isReleasedWhenClosed = false
-        minSize = NSSize(width: 320, height: 400)
+        minSize = NSSize(width: 560, height: 400)
 
-        contentView = webView
-    }
-
-    func loadChat() {
-        guard !hasLoaded else { return }
-        hasLoaded = true
-
-        // Read local token for cookie-free auth
-        let token = readLocalToken() ?? ""
-        let port = defaultDaemonPort
-        let urlString = "http://localhost:\(port)/?local_token=\(token)"
-
-        if let url = URL(string: urlString) {
-            let request = URLRequest(url: url)
-            webView.load(request)
-        }
-    }
-
-    func reload() {
-        hasLoaded = false
-        loadChat()
-    }
-
-    private func readLocalToken() -> String? {
-        let path = KlausPaths.localTokenFile
-        guard FileManager.default.fileExists(atPath: path),
-              let content = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return nil
-        }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hostingView = NSHostingView(rootView: NativeChatView())
+        contentView = hostingView
     }
 
     override func close() {

@@ -3,7 +3,6 @@ import Foundation
 // MARK: - Identifiers
 
 let appBundleId = "ai.klaus.mac"
-let daemonLaunchdLabel = "ai.klaus.daemon"
 
 // MARK: - Defaults Keys
 
@@ -16,10 +15,12 @@ let talkEnabledKey = "klaus.talkEnabled"
 let canvasEnabledKey = "klaus.canvasEnabled"
 let peekabooBridgeEnabledKey = "klaus.peekabooBridgeEnabled"
 
-// MARK: - Networking
+// MARK: - Engine
 
-let defaultDaemonPort = 3000
-let healthCheckTimeoutSeconds: TimeInterval = 5
+let engineStartTimeoutSeconds: TimeInterval = 30
+let engineModelOverrideKey = "klaus.engineModelOverride"
+let engineWorkingDirKey = "klaus.engineWorkingDir"
+let enginePermissionModeKey = "klaus.enginePermissionMode"
 
 // MARK: - Voice Wake
 

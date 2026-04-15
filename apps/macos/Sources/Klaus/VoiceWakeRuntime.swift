@@ -242,17 +242,8 @@ actor VoiceWakeForwarder {
 
         logger.info("Forwarding voice text: \(text, privacy: .public)")
 
-        do {
-            _ = try await DaemonConnection.shared.request(
-                method: "voice.send",
-                params: [
-                    "text": prefixed,
-                    "sessionKey": options.sessionKey,
-                    "thinking": options.thinking,
-                ]
-            )
-        } catch {
-            logger.error("Failed to forward voice text: \(error.localizedDescription)")
+        await MainActor.run {
+            EngineProcess.shared.sendUserMessage(prefixed)
         }
     }
 }
@@ -392,30 +383,18 @@ actor TalkModeRuntime {
         phase = .thinking
         onPhaseChange?(.thinking)
 
-        // Send to daemon and get response
-        do {
-            let response = try await DaemonConnection.shared.request(
-                method: "voice.send",
-                params: [
-                    "text": trimmed,
-                    "sessionKey": "talk",
-                    "thinking": "low",
-                ]
-            )
+        // Send to engine — response arrives via stdout stream
+        await MainActor.run {
+            EngineProcess.shared.sendUserMessage(trimmed)
+        }
 
-            if let result = response.result, let reply = result["reply"] as? String {
-                onResponse?(reply)
-                await speakResponse(reply)
-            } else {
-                // No reply, go back to listening
-                phase = .listening
-                onPhaseChange?(.listening)
-                if let recognizer = speechRecognizer {
-                    startListening(recognizer: recognizer)
-                }
-            }
+        // For talk mode, we go back to listening after sending
+        // The engine will respond via the stream which can trigger TTS
+        do {
+            // Brief pause to allow engine to begin processing
+            try await Task.sleep(for: .milliseconds(100))
         } catch {
-            logger.error("Talk mode request failed: \(error.localizedDescription)")
+            logger.error("Talk mode send failed: \(error.localizedDescription)")
             phase = .listening
             onPhaseChange?(.listening)
             if let recognizer = speechRecognizer {

@@ -11,7 +11,7 @@ struct SessionInfo: Identifiable, Sendable {
     let updatedAt: Date
 }
 
-/// Manages session list injection into the menu bar.
+/// Manages session state — single active session backed by the CC engine.
 @MainActor
 final class MenuSessionsInjector {
     static let shared = MenuSessionsInjector()
@@ -19,33 +19,40 @@ final class MenuSessionsInjector {
     private let logger = Logger(subsystem: "ai.klaus", category: "sessions")
     private(set) var sessions: [SessionInfo] = []
 
-    func refresh() async {
-        do {
-            let response = try await DaemonConnection.shared.request(method: "sessions.list")
-            guard let result = response.result,
-                  let list = result["sessions"] as? [[String: Any]] else {
-                sessions = []
-                return
-            }
+    /// Refresh session info from the engine process.
+    func refresh() {
+        let engine = EngineProcess.shared
+        if let sid = engine.sessionId {
+            sessions = [SessionInfo(
+                id: sid,
+                sessionKey: sid,
+                model: engine.model,
+                updatedAt: Date()
+            )]
+        } else {
+            sessions = []
+        }
+    }
 
-            sessions = list.compactMap { dict in
-                guard let key = dict["sessionKey"] as? String else { return nil }
-                let model = dict["model"] as? String
-                let updatedAt: Date
-                if let ts = dict["updatedAt"] as? Double {
-                    updatedAt = Date(timeIntervalSince1970: ts / 1000)
-                } else {
-                    updatedAt = Date()
-                }
-                return SessionInfo(
-                    id: key,
-                    sessionKey: key,
-                    model: model,
-                    updatedAt: updatedAt
-                )
+    /// Start a new session (restarts engine without --resume).
+    func newSession() {
+        EngineProcess.shared.stop()
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            await MainActor.run {
+                EngineProcess.shared.start()
             }
-        } catch {
-            logger.error("Failed to refresh sessions: \(error.localizedDescription)")
+        }
+    }
+
+    /// Resume a specific session.
+    func resumeSession(_ sessionId: String) {
+        EngineProcess.shared.stop()
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            await MainActor.run {
+                EngineProcess.shared.start(resumeSessionId: sessionId)
+            }
         }
     }
 }

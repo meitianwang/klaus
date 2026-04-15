@@ -27,16 +27,10 @@ final class HeartbeatStore {
 
     func start() {
         guard subscriptionTask == nil else { return }
-        subscriptionTask = Task {
-            await DaemonConnection.shared.onPush { [weak self] event in
-                guard event.type == "heartbeat" else { return }
-                Task { @MainActor in
-                    self?.handleHeartbeat(event.payload)
-                }
-            }
-            isReceiving = true
-            logger.info("Heartbeat subscription started")
-        }
+        // In engine mode, heartbeats are not needed — the engine process
+        // lifecycle is directly managed. Keep the interface for compatibility.
+        isReceiving = true
+        logger.info("Heartbeat monitoring started (engine mode — no-op)")
     }
 
     func stop() {
@@ -76,20 +70,9 @@ final class UsageCostStore {
     private(set) var usage = UsageData()
 
     func refresh() async {
-        do {
-            let response = try await DaemonConnection.shared.request(method: "usage.get")
-            if let result = response.result {
-                usage = UsageData(
-                    totalTokens: result["totalTokens"] as? Int ?? 0,
-                    inputTokens: result["inputTokens"] as? Int ?? 0,
-                    outputTokens: result["outputTokens"] as? Int ?? 0,
-                    estimatedCostUSD: result["estimatedCostUSD"] as? Double ?? 0,
-                    sessionCount: result["sessionCount"] as? Int ?? 0
-                )
-            }
-        } catch {
-            // Usage endpoint may not exist yet — silently ignore
-        }
+        // In engine mode, usage data comes from the result message
+        // which includes total_cost_usd. We don't poll a daemon endpoint.
+        // Usage is tracked per-session by the engine.
     }
 }
 
@@ -133,61 +116,7 @@ struct CostUsageMenuView: View {
 
 // MARK: - Animated Status Icon
 
-/// Animated menu bar icon with working/idle/paused/error states.
-struct AnimatedStatusIcon: View {
-    let status: DaemonProcessManager.Status
-    let isPaused: Bool
-    let isWorking: Bool
-
-    @State private var animationPhase: CGFloat = 0
-
-    var body: some View {
-        ZStack {
-            // Base icon
-            Image(systemName: baseIconName)
-                .foregroundStyle(baseColor)
-
-            // Working animation overlay
-            if isWorking && !isPaused {
-                Circle()
-                    .trim(from: 0, to: 0.7)
-                    .stroke(Color.blue, lineWidth: 1.5)
-                    .frame(width: 12, height: 12)
-                    .rotationEffect(.degrees(animationPhase * 360))
-                    .onAppear {
-                        withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
-                            animationPhase = 1.0
-                        }
-                    }
-                    .onDisappear {
-                        animationPhase = 0
-                    }
-            }
-        }
-    }
-
-    private var baseIconName: String {
-        if isPaused { return "pause.circle.fill" }
-        switch status {
-        case .stopped: return "circle"
-        case .starting: return "circle.dotted"
-        case .running, .attachedExisting:
-            return isWorking ? "circle.fill" : "circle.fill"
-        case .failed: return "exclamationmark.circle.fill"
-        }
-    }
-
-    private var baseColor: Color {
-        if isPaused { return .secondary }
-        switch status {
-        case .stopped: return .secondary
-        case .starting: return .orange
-        case .running, .attachedExisting:
-            return isWorking ? .blue : .green
-        case .failed: return .red
-        }
-    }
-}
+// AnimatedStatusIcon is now defined in StatusIcon.swift
 
 // MARK: - Canvas A2UI Bridge
 
@@ -239,18 +168,9 @@ final class CanvasA2UIBridge {
         }
     }
 
-    /// Subscribe to daemon push events for canvas updates.
+    /// In engine mode, canvas events would come through the engine's stdout stream.
+    /// For now, canvas actions are triggered by direct API calls from the engine.
     func startListening() {
-        Task {
-            await DaemonConnection.shared.onPush { [weak self] event in
-                guard event.type == "canvas" else { return }
-                let payload = event.payload
-                guard let command = payload["command"] as? String else { return }
-                let sessionKey = payload["sessionKey"] as? String ?? "default"
-                Task { @MainActor in
-                    await self?.handleAction(command: command, payload: payload, sessionKey: sessionKey)
-                }
-            }
-        }
+        logger.info("Canvas A2UI bridge started (engine mode)")
     }
 }

@@ -8,21 +8,21 @@ import SwiftUI
 struct KlausApp: App {
     @NSApplicationDelegateAdaptor(KlausAppDelegate.self) private var delegate
     @State private var state = AppState.shared
-    private let daemonManager = DaemonProcessManager.shared
+    private let engine = EngineProcess.shared
     @State private var isMenuPresented = false
 
     private static let logger = Logger(subsystem: "ai.klaus", category: "app")
 
     init() {
-        DaemonEnvironment.shared.refresh()
+        EngineEnvironment.shared.refresh()
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContentView(state: state, daemonManager: daemonManager)
+            MenuContentView(state: state, engine: engine)
         } label: {
             AnimatedStatusIcon(
-                status: daemonManager.status,
+                status: engine.status,
                 isPaused: state.isPaused,
                 isWorking: state.isWorking
             )
@@ -30,12 +30,36 @@ struct KlausApp: App {
         .menuBarExtraStyle(.menu)
         .menuBarExtraAccess(isPresented: $isMenuPresented)
         .onChange(of: state.isPaused) { _, paused in
-            daemonManager.setActive(!paused)
+            if paused {
+                engine.stop()
+            } else {
+                engine.start()
+            }
         }
 
         Settings {
             SettingsRootView(state: state)
                 .frame(width: 600, height: 520)
+        }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Chat") {
+                    WebChatManager.shared.show()
+                }
+                .keyboardShortcut("n")
+
+                Button("Toggle Chat Panel") {
+                    WebChatManager.shared.toggle()
+                }
+                .keyboardShortcut("o")
+            }
+
+            CommandGroup(after: .sidebar) {
+                Button("Interrupt") {
+                    EngineProcess.shared.interrupt()
+                }
+                .keyboardShortcut(".", modifiers: [.command])
+            }
         }
     }
 }
@@ -50,24 +74,24 @@ final class KlausAppDelegate: NSObject, NSApplicationDelegate {
             NSApplication.shared.setActivationPolicy(.accessory)
         }
 
+        // Attach permission prompt controller
+        PermissionPromptController.shared.attach()
+
+        // Start engine if not paused
         if !AppState.shared.isPaused {
-            DaemonProcessManager.shared.start()
+            let model = AppState.shared.modelOverride.isEmpty ? nil : AppState.shared.modelOverride
+            let cwd = AppState.shared.workingDirectory.isEmpty ? nil : AppState.shared.workingDirectory
+            let perm = AppState.shared.permissionMode
+            EngineProcess.shared.start(cwd: cwd, modelOverride: model, permissionMode: perm)
         }
 
-        // Start all subsystems
-        ControlChannel.shared.start()
-        ExecApprovalsSocket.shared.start()
-        HeartbeatStore.shared.start()
+        // Start subsystems
         CanvasA2UIBridge.shared.startListening()
         ConfigFileWatcher.shared.start()
         ConfigFileWatcher.shared.onChange = {
-            // Reload config-dependent state
-            DaemonEnvironment.shared.refresh()
+            EngineEnvironment.shared.refresh()
         }
         OnboardingController.shared.showIfNeeded()
-
-        // Refresh usage on launch
-        Task { await UsageCostStore.shared.refresh() }
 
         // Start voice wake if enabled
         if AppState.shared.voiceWakeEnabled {
@@ -84,13 +108,11 @@ final class KlausAppDelegate: NSObject, NSApplicationDelegate {
             VoicePushToTalk.shared.start()
         }
 
-        Self.logger.info("Klaus macOS app launched")
+        Self.logger.info("Klaus macOS app launched (engine mode)")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        ControlChannel.shared.stop()
-        ExecApprovalsSocket.shared.stop()
-        HeartbeatStore.shared.stop()
+        EngineProcess.shared.stop()
         ConfigFileWatcher.shared.stop()
         VoicePushToTalk.shared.stop()
         Task { await PeekabooBridgeHostCoordinator.shared.stop() }

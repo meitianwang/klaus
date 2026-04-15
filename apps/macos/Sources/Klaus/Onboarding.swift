@@ -125,24 +125,24 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 CheckRow(
-                    label: "Node.js",
-                    detail: DaemonEnvironment.shared.status.nodeVersion ?? "not found",
-                    ok: DaemonEnvironment.shared.status.nodeAvailable
+                    label: "Bun Runtime",
+                    detail: EngineEnvironment.shared.status.bunVersion ?? "not found",
+                    ok: EngineEnvironment.shared.status.bunAvailable
                 )
 
                 CheckRow(
-                    label: "Klaus CLI",
-                    detail: DaemonEnvironment.shared.status.klausBinaryPath ?? "not found",
-                    ok: DaemonEnvironment.shared.status.klausAvailable
+                    label: "CC Engine",
+                    detail: EngineEnvironment.shared.status.enginePath ?? "not found",
+                    ok: EngineEnvironment.shared.status.engineAvailable
                 )
             }
 
-            if !DaemonEnvironment.shared.status.klausAvailable {
+            if !EngineEnvironment.shared.status.bunAvailable {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Install Klaus CLI:")
+                        Text("Install Bun:")
                             .font(.headline)
-                        Text("npm install -g klaus-ai")
+                        Text("curl -fsSL https://bun.sh/install | bash")
                             .font(.system(.body, design: .monospaced))
                             .textSelection(.enabled)
                     }
@@ -151,7 +151,7 @@ struct OnboardingView: View {
             }
 
             Button("Re-check") {
-                DaemonEnvironment.shared.refresh()
+                EngineEnvironment.shared.refresh()
             }
 
             Spacer()

@@ -52,10 +52,26 @@ final class AppState {
         }
     }
 
+    // MARK: - Engine Config (persisted)
+
+    var modelOverride: String {
+        didSet { UserDefaults.standard.set(modelOverride, forKey: engineModelOverrideKey) }
+    }
+
+    var workingDirectory: String {
+        didSet { UserDefaults.standard.set(workingDirectory, forKey: engineWorkingDirKey) }
+    }
+
+    var permissionMode: String {
+        didSet { UserDefaults.standard.set(permissionMode, forKey: enginePermissionModeKey) }
+    }
+
     // MARK: - Runtime (not persisted)
 
     var isWorking = false
-    var daemonVersion: String?
+    var engineSessionId: String?
+    var engineModel: String?
+    var engineVersion: String?
 
     // MARK: - Init
 
@@ -69,6 +85,9 @@ final class AppState {
         self.talkEnabled = defaults.bool(forKey: talkEnabledKey)
         self.canvasEnabled = defaults.bool(forKey: canvasEnabledKey)
         self.peekabooBridgeEnabled = defaults.bool(forKey: peekabooBridgeEnabledKey)
+        self.modelOverride = defaults.string(forKey: engineModelOverrideKey) ?? ""
+        self.workingDirectory = defaults.string(forKey: engineWorkingDirKey) ?? ""
+        self.permissionMode = defaults.string(forKey: enginePermissionModeKey) ?? "default"
     }
 
     private func applyDockIconVisibility() {

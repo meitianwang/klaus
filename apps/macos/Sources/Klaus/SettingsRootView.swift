@@ -11,9 +11,9 @@ struct SettingsRootView: View {
                     Label("General", systemImage: "gearshape")
                 }
 
-            ChannelsSettingsView()
+            MCPSettingsView()
                 .tabItem {
-                    Label("Channels", systemImage: "antenna.radiowaves.left.and.right")
+                    Label("MCP", systemImage: "server.rack")
                 }
 
             VoiceWakeSettingsView(state: state)
@@ -28,7 +28,7 @@ struct SettingsRootView: View {
 
             InstancesSettingsView()
                 .tabItem {
-                    Label("Instances", systemImage: "server.rack")
+                    Label("Engine", systemImage: "cpu")
                 }
 
             SessionsSettingsView()
@@ -72,24 +72,90 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Daemon") {
+            Section("Engine") {
                 LabeledContent("Status") {
-                    Text(DaemonProcessManager.shared.status.displayText)
-                        .foregroundStyle(DaemonProcessManager.shared.status.isActive ? .green : .secondary)
+                    Text(EngineProcess.shared.status.displayText)
+                        .foregroundStyle(EngineProcess.shared.status.isActive ? .green : .secondary)
                 }
 
-                Toggle("Launch at Login", isOn: .constant(DaemonLaunchAgentManager.shared.isInstalled))
-                    .onChange(of: DaemonLaunchAgentManager.shared.isInstalled) { _, installed in
-                        Task {
-                            if installed {
-                                _ = await DaemonLaunchAgentManager.shared.uninstall()
-                            } else {
-                                _ = await DaemonLaunchAgentManager.shared.install()
-                            }
-                        }
+                if let model = EngineProcess.shared.model {
+                    LabeledContent("Model") {
+                        Text(model)
                     }
+                }
+
+                if let version = EngineProcess.shared.engineVersion {
+                    LabeledContent("Engine Version") {
+                        Text(version)
+                    }
+                }
+
+                LabeledContent("Bun") {
+                    Text(EngineEnvironment.shared.status.bunVersion ?? "not found")
+                        .foregroundStyle(EngineEnvironment.shared.status.bunAvailable ? Color.primary : Color.red)
+                }
 
                 Toggle("Show Dock Icon", isOn: $state.showDockIcon)
+            }
+
+            Section("Model") {
+                Picker("Model", selection: $state.modelOverride) {
+                    Text("Default").tag("")
+                    Divider()
+                    Text("claude-opus-4-6").tag("claude-opus-4-6")
+                    Text("claude-sonnet-4-6").tag("claude-sonnet-4-6")
+                    Text("claude-haiku-4-5").tag("claude-haiku-4-5")
+                }
+                .onChange(of: state.modelOverride) { _, _ in
+                    // Model change takes effect on next engine restart
+                }
+
+                HStack {
+                    TextField("Working Directory", text: $state.workingDirectory)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Browse") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = false
+                        panel.canChooseDirectories = true
+                        panel.allowsMultipleSelection = false
+                        if panel.runModal() == .OK, let url = panel.url {
+                            state.workingDirectory = url.path
+                        }
+                    }
+                }
+
+                Button("Restart Engine with New Settings") {
+                    EngineProcess.shared.stop()
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        await MainActor.run {
+                            let model = state.modelOverride.isEmpty ? nil : state.modelOverride
+                            let cwd = state.workingDirectory.isEmpty ? nil : state.workingDirectory
+                            EngineProcess.shared.start(cwd: cwd, modelOverride: model)
+                        }
+                    }
+                }
+            }
+
+            Section("Permissions") {
+                Picker("Permission Mode", selection: $state.permissionMode) {
+                    Text("Default — ask before tools").tag("default")
+                    Text("Plan — read-only, no edits").tag("plan")
+                    Text("Accept Edits — auto-approve file changes").tag("acceptEdits")
+                    Text("YOLO — auto-approve everything").tag("bypassPermissions")
+                }
+                .pickerStyle(.radioGroup)
+            }
+
+            Section("Config Files") {
+                Button("Open ~/.claude/settings.json") {
+                    let path = KlausPaths.claudeConfigDir + "/settings.json"
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
+                Button("Open ~/.claude/CLAUDE.md") {
+                    let path = KlausPaths.claudeConfigDir + "/CLAUDE.md"
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
             }
 
             Section("Features") {
@@ -156,13 +222,11 @@ struct SessionsSettingsView: View {
     private func loadSessions() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let response = try await DaemonConnection.shared.request(method: "sessions.list")
-            if let result = response.result,
-               let list = result["sessions"] as? [[String: Any]] {
-                sessions = list
-            }
-        } catch {
+        // In engine mode, session info comes from EngineProcess
+        let engine = EngineProcess.shared
+        if let sid = engine.sessionId {
+            sessions = [["sessionKey": sid, "model": engine.model ?? "unknown"]]
+        } else {
             sessions = []
         }
     }
@@ -219,15 +283,9 @@ struct CronSettingsView: View {
     private func loadTasks() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let response = try await DaemonConnection.shared.request(method: "cron.list")
-            if let result = response.result,
-               let list = result["tasks"] as? [[String: Any]] {
-                tasks = list
-            }
-        } catch {
-            tasks = []
-        }
+        // Cron tasks are managed by the engine internally via ~/.claude/
+        // In engine mode, we show a placeholder directing users to the config
+        tasks = []
     }
 }
 
@@ -280,7 +338,7 @@ struct DebugSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Daemon Log")
+            Text("Engine Log")
                 .font(.headline)
 
             HStack {
@@ -342,7 +400,7 @@ struct AboutSettingsView: View {
 
             Divider()
 
-            Text("Daemon: \(AppState.shared.daemonVersion ?? "unknown")")
+            Text("Engine: \(EngineProcess.shared.engineVersion ?? "unknown")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -355,69 +413,80 @@ struct AboutSettingsView: View {
 
 // MARK: - Channels
 
-struct ChannelsSettingsView: View {
-    @State private var channels: [[String: Any]] = []
+struct MCPSettingsView: View {
+    @State private var servers: [(name: String, config: [String: Any])] = []
     @State private var isLoading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Active Channels")
+                Text("MCP Servers")
                     .font(.headline)
                 Spacer()
-                Button("Refresh") { Task { await loadChannels() } }
+                Button("Refresh") { loadServers() }
+                Button("Edit mcp.json") {
+                    let path = KlausPaths.claudeConfigDir + "/mcp.json"
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                }
             }
 
-            if isLoading {
-                ProgressView().frame(maxWidth: .infinity, alignment: .center)
-            } else if channels.isEmpty {
-                Text("No channels configured")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+            if servers.isEmpty {
+                VStack(spacing: 8) {
+                    Text("No MCP servers configured")
+                        .foregroundStyle(.secondary)
+                    Text("Add servers to ~/.claude/mcp.json")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 20)
             } else {
                 List {
-                    ForEach(Array(channels.enumerated()), id: \.offset) { _, ch in
-                        HStack {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .foregroundStyle(.blue)
-                            Text(ch["id"] as? String ?? "unknown")
-                                .font(.body.monospaced())
-                            Spacer()
-                            if let port = ch["port"] as? Int {
-                                Text(":\(port)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    ForEach(Array(servers.enumerated()), id: \.offset) { _, server in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "server.rack")
+                                    .foregroundStyle(.blue)
+                                Text(server.name)
+                                    .font(.body.weight(.medium))
+                                Spacer()
+                                if let command = server.config["command"] as? String {
+                                    Text(command)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let args = server.config["args"] as? [String] {
+                                Text(args.joined(separator: " "))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
                             }
                         }
                     }
                 }
             }
 
-            Text("Manage channels via config.yaml or `klaus setup`")
+            Text("MCP servers are managed via ~/.claude/mcp.json. Changes take effect on engine restart.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding()
-        .task { await loadChannels() }
+        .onAppear { loadServers() }
     }
 
-    private func loadChannels() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            let response = try await DaemonConnection.shared.request(method: "config.get")
-            if let result = response.result,
-               let config = result["config"] as? [String: Any] {
-                let channelRaw = config["channel"]
-                if let arr = channelRaw as? [String] {
-                    channels = arr.map { ["id": $0] }
-                } else if let str = channelRaw as? String {
-                    channels = [["id": str]]
-                }
-            }
-        } catch {
-            channels = []
+    private func loadServers() {
+        let path = KlausPaths.claudeConfigDir + "/mcp.json"
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mcpServers = json["mcpServers"] as? [String: Any] else {
+            servers = []
+            return
         }
+        servers = mcpServers.compactMap { (name, value) in
+            guard let config = value as? [String: Any] else { return nil }
+            return (name: name, config: config)
+        }.sorted(by: { $0.name < $1.name })
     }
 }
 
@@ -567,25 +636,35 @@ struct InstancesSettingsView: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
 
-            Text("Daemon Instance")
+            Text("Engine Instance")
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                LabeledContent("Status") {
-                    Text(DaemonProcessManager.shared.status.displayText)
+                LabeledContent("Engine Status") {
+                    Text(EngineProcess.shared.status.displayText)
                 }
-                LabeledContent("PID File") {
-                    Text(KlausPaths.pidFile)
+                if let model = EngineProcess.shared.model {
+                    LabeledContent("Model") {
+                        Text(model)
+                    }
+                }
+                if let version = EngineProcess.shared.engineVersion {
+                    LabeledContent("Engine Version") {
+                        Text(version)
+                    }
+                }
+                LabeledContent("Bun Path") {
+                    Text(EngineEnvironment.shared.status.bunPath ?? "not found")
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
-                LabeledContent("Config") {
-                    Text(KlausPaths.configFile)
+                LabeledContent("Engine Path") {
+                    Text(EngineEnvironment.shared.status.enginePath ?? "not found")
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
-                LabeledContent("Database") {
-                    Text(KlausPaths.dbFile)
+                LabeledContent("Config Dir") {
+                    Text(KlausPaths.claudeConfigDir)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
                 }
@@ -593,10 +672,6 @@ struct InstancesSettingsView: View {
                     Text(KlausPaths.logFile)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
-                }
-                LabeledContent("Launch Agent") {
-                    Text(DaemonLaunchAgentManager.shared.isInstalled ? "Installed" : "Not installed")
-                        .foregroundStyle(DaemonLaunchAgentManager.shared.isInstalled ? .green : .secondary)
                 }
             }
             .frame(maxWidth: 400)
@@ -671,14 +746,15 @@ struct SkillsSettingsView: View {
     private func loadSkills() async {
         isLoading = true
         defer { isLoading = false }
-        do {
-            let response = try await DaemonConnection.shared.request(method: "skills.list")
-            if let result = response.result,
-               let list = result["skills"] as? [[String: Any]] {
-                skills = list
-            }
-        } catch {
+        // Skills are managed by the CC engine via ~/.claude/skills/
+        // Scan the skills directory for installed skills
+        let skillsDir = KlausPaths.claudeConfigDir + "/skills"
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: skillsDir),
+              let entries = try? fm.contentsOfDirectory(atPath: skillsDir) else {
             skills = []
+            return
         }
+        skills = entries.filter { !$0.hasPrefix(".") }.map { ["name": $0] }
     }
 }

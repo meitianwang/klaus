@@ -2,60 +2,66 @@ import AppKit
 import SwiftUI
 
 /// Menu bar menu content — status, controls, quick actions.
-/// Matches OpenClaw's MenuContentView with all feature toggles.
 struct MenuContentView: View {
     let state: AppState
-    let daemonManager: DaemonProcessManager
+    let engine: EngineProcess
 
     var body: some View {
         // Status header
         Section {
             Label {
-                Text(daemonManager.status.displayText)
+                Text(engine.status.displayText)
             } icon: {
-                StatusIcon(status: daemonManager.status, isPaused: state.isPaused)
+                StatusIcon(status: engine.status, isPaused: state.isPaused)
             }
 
-            if HeartbeatStore.shared.isReceiving,
-               let hb = HeartbeatStore.shared.lastHeartbeat {
+            if let model = engine.model {
                 Label {
-                    Text("Last heartbeat: \(hb.timestamp, style: .relative) ago")
+                    Text(model)
                         .font(.caption)
                 } icon: {
-                    Image(systemName: "heart.fill")
-                        .foregroundStyle(.pink)
+                    Image(systemName: "cpu")
+                        .foregroundStyle(.secondary)
                 }
             }
         }
 
         Divider()
 
-        // Daemon controls
+        // Engine controls
         Section {
             if state.isPaused {
-                Button("Resume") {
+                Button(L10n.resume) {
                     state.isPaused = false
-                    daemonManager.setActive(true)
+                    engine.start()
                 }
             } else {
-                Button("Pause") {
+                Button(L10n.pause) {
                     state.isPaused = true
-                    daemonManager.stop()
+                    engine.stop()
                 }
             }
 
-            if !daemonManager.status.isActive && !state.isPaused {
-                Button("Start Daemon") {
-                    daemonManager.start()
+            if !engine.status.isActive && !state.isPaused {
+                Button(L10n.startEngine) {
+                    engine.start()
                 }
             }
 
-            if daemonManager.status.isActive {
-                Button("Restart Daemon") {
-                    daemonManager.stop()
+            if engine.status.isActive {
+                Button(L10n.restartEngine) {
+                    engine.stop()
                     Task {
                         try? await Task.sleep(for: .milliseconds(500))
-                        await MainActor.run { daemonManager.start() }
+                        await MainActor.run { engine.start() }
+                    }
+                }
+
+                Button(L10n.newSession) {
+                    engine.stop()
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        await MainActor.run { engine.start() }
                     }
                 }
             }
@@ -95,17 +101,10 @@ struct MenuContentView: View {
 
         // Quick actions
         Section {
-            Button("Open Chat Panel") {
+            Button(L10n.openChatPanel) {
                 WebChatManager.shared.show()
             }
             .keyboardShortcut("o")
-
-            Button("Open in Browser") {
-                let port = defaultDaemonPort
-                if let url = URL(string: "http://localhost:\(port)") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
         }
 
         // Usage
@@ -125,7 +124,7 @@ struct MenuContentView: View {
             }
             .keyboardShortcut(",")
 
-            Button("Quit Klaus") {
+            Button(L10n.quitKlaus) {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

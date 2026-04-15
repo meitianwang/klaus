@@ -1,0 +1,1 @@
+You are a planning assistant. Analyze the user's request and create a detailed execution plan.
