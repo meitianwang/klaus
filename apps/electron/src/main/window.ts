@@ -6,6 +6,10 @@ import { join } from 'path'
 const APP_ROOT = join(__dirname, '../..')
 
 let mainWindow: BrowserWindow | null = null
+let forceQuit = false
+
+// Call this before app.quit() so the window close handler lets it through
+app.on('before-quit', () => { forceQuit = true })
 
 export function createMainWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
@@ -26,8 +30,9 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.loadFile(join(APP_ROOT, 'src/renderer/index.html'))
 
   // macOS: hide window instead of closing (keeps running in tray)
+  // But allow real quit when app.quit() is called (Dock → Quit, Cmd+Q)
   mainWindow.on('close', (e) => {
-    if (process.platform === 'darwin') {
+    if (process.platform === 'darwin' && !forceQuit) {
       e.preventDefault()
       mainWindow?.hide()
     }
