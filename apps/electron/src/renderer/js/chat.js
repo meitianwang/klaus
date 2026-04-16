@@ -34,10 +34,29 @@ const dropOverlay = document.getElementById('drop-overlay')
 const slashMenu = document.getElementById('slash-menu')
 const agentPanelEl = document.getElementById('agent-panel')
 
-// --- Markdown ---
+// --- Markdown + Syntax Highlighting ---
 let renderMarkdown
 if (typeof marked !== 'undefined') {
-  marked.setOptions({ breaks: true, gfm: true })
+  const renderer = new marked.Renderer()
+  // Security: escape raw HTML
+  renderer.html = function(text) { return escapeHtml(typeof text === 'object' ? text.text || text.raw || '' : text) }
+  // Links open in new tab
+  renderer.link = function(token) {
+    const href = typeof token === 'object' ? token.href : token
+    const text = typeof token === 'object' ? token.text : arguments[1]
+    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${text || href}</a>`
+  }
+  // Code blocks with hljs
+  renderer.code = function(token) {
+    const code = typeof token === 'object' ? token.text : token
+    const lang = typeof token === 'object' ? token.lang : arguments[1]
+    let highlighted = escapeHtml(code)
+    if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+      try { highlighted = hljs.highlight(code, { language: lang }).value } catch {}
+    }
+    return `<pre><code class="language-${lang || ''}">${highlighted}</code></pre>`
+  }
+  marked.setOptions({ breaks: true, gfm: true, renderer })
   renderMarkdown = (text) => marked.parse(text)
 } else {
   renderMarkdown = (text) => {
@@ -224,15 +243,24 @@ function navigateSlashMenu(dir) {
 
 // ==================== Message rendering ====================
 
+const fileSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>'
+const imgSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
+
 function appendUserMsg(text) {
   const group = document.createElement('div')
   group.className = 'msg-group user'
-  // Parse file badges
   let html = escapeHtml(text)
-  const fileSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>'
+  // File badges
   html = html.replace(/\[Files?: (.+?)\]/g, (_, names) =>
     names.split(',').map(n => `<span class="file-badge">${fileSvg} ${escapeHtml(n.trim())}</span>`).join(' '))
-  html = html.replace(/\[Pasted image\]/g, `<span class="file-badge">${fileSvg} image</span>`)
+  html = html.replace(/\[Pasted image\]/g, `<span class="file-badge">${imgSvg} image</span>`)
+  // Image badges from history
+  html = html.replace(/\[图片: (.+?)\]/g, (_, name) => `<span class="file-badge">${imgSvg} ${escapeHtml(name)}</span>`)
+  html = html.replace(/\[图片\]/g, `<span class="file-badge">${imgSvg} image</span>`)
+  html = html.replace(/\[文件: (.+?)\]/g, (_, name) => `<span class="file-badge">${fileSvg} ${escapeHtml(name)}</span>`)
+  // Uploaded image paths → render actual images
+  html = html.replace(/@(\/[^\s]+\.(png|jpg|jpeg|gif|webp))/gi, (_, path) =>
+    `<img src="file://${escapeHtml(path)}" style="max-height:200px;border-radius:8px;margin:4px 0;display:block">`)
   group.innerHTML = `<div class="msg user">${html}</div>`
   messagesEl.appendChild(group)
   scrollToBottom()
@@ -537,6 +565,11 @@ klaus.on.chatEvent((event) => {
       else if (event.mode === 'responding') finalizeThinking()
       else if (event.mode === 'tool-use') finalizeStream()
       break
+    case 'context_collapse_stats': {
+      const el = document.getElementById('collapse-stats')
+      if (el) { el.style.display = ''; el.textContent = `${event.collapsedSpans} collapsed · ${event.stagedSpans} staged` }
+      break
+    }
     case 'api_error': appendError(event.error); break
     case 'api_retry': appendError(`Retrying (${event.attempt}/${event.maxRetries})...`); break
     // Agent events

@@ -87,6 +87,24 @@ export function registerIpcHandlers(
   ipcMain.handle('skills:install', async (_e, { name }) => skills.install(name))
   ipcMain.handle('skills:uninstall', async (_e, { name }) => skills.uninstall(name))
   ipcMain.handle('skills:toggle', async (_e, { name, enabled }) => skills.toggle(name, enabled))
+  ipcMain.handle('skills:upload', async (_e, { name, buffer }) => {
+    const { join } = require('path')
+    const { homedir } = require('os')
+    const { mkdirSync, writeFileSync } = require('fs')
+    const skillsDir = join(homedir(), '.klaus', '.claude', 'skills')
+    // If it's a .md file, create dir with skill name and save SKILL.md
+    const isMarkdown = name.endsWith('.md')
+    const skillName = isMarkdown ? name.replace(/\.md$/, '').replace(/[^a-zA-Z0-9_-]/g, '-') : name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '-')
+    const skillDir = join(skillsDir, skillName)
+    mkdirSync(skillDir, { recursive: true })
+    if (isMarkdown) {
+      writeFileSync(join(skillDir, 'SKILL.md'), Buffer.from(buffer))
+    } else {
+      // Save ZIP — would need extraction, for now save raw
+      writeFileSync(join(skillDir, name), Buffer.from(buffer))
+    }
+    return { ok: true, name: skillName }
+  })
 
   // --- Channels ---
   ipcMain.handle('channels:list', async () => channels.list())

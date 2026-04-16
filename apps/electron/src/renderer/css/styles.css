@@ -306,6 +306,14 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   flex-shrink: 0;
 }
 
+.collapse-stats {
+  font-size: 11px;
+  color: var(--fg-quaternary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+
 #status {
   font-size: 12px;
   font-weight: 500;

@@ -6,6 +6,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self';">
   <title>Klaus</title>
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="vendor/highlight-dark.css">
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/highlight.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -58,6 +61,7 @@
     <div id="main">
       <div id="header">
         <div class="header-right">
+          <span id="collapse-stats" class="collapse-stats" style="display:none"></span>
           <span id="status" class="init" data-i18n="initializing">Initializing...</span>
         </div>
       </div>
@@ -116,7 +120,8 @@
             </button>
             <div class="settings-sidebar-title">Settings</div>
             <div class="settings-sidebar-nav">
-              <button class="settings-nav-item active" data-stab="models">Models</button>
+              <button class="settings-nav-item active" data-stab="profile">Profile</button>
+              <button class="settings-nav-item" data-stab="models">Models</button>
               <button class="settings-nav-item" data-stab="prompts">Prompts</button>
               <button class="settings-nav-item" data-stab="channels">Channels</button>
               <button class="settings-nav-item" data-stab="skills">Skills</button>

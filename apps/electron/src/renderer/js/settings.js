@@ -3,7 +3,7 @@
 
 const settingsApi = window.klaus.settings
 let settingsVisible = false
-let currentSettingsTab = 'models'
+let currentSettingsTab = 'profile'
 let skillsView = 'installed' // installed | market | enabled | disabled
 
 function toggleSettings() {
@@ -18,6 +18,7 @@ function loadSettingsTab(tab) {
   document.querySelectorAll('.settings-nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.stab === tab))
   const content = document.getElementById('settings-content')
   switch (tab) {
+    case 'profile': loadProfileTab(content); break
     case 'models': loadModelsTab(content); break
     case 'prompts': loadPromptsTab(content); break
     case 'channels': loadChannelsTab(content); break
@@ -26,6 +27,49 @@ function loadSettingsTab(tab) {
     case 'cron': loadCronTab(content); break
     case 'preferences': loadPreferencesTab(content); break
   }
+}
+
+// ==================== Profile ====================
+async function loadProfileTab(container) {
+  const displayName = await settingsApi.kv.get('display_name') || 'User'
+  const email = await settingsApi.kv.get('email') || 'user@local'
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="settings-profile-header" style="display:flex;gap:16px;margin-bottom:20px;align-items:center">
+      <div class="sidebar-avatar" style="width:56px;height:56px;font-size:22px;cursor:pointer;position:relative" id="profile-avatar-wrap">
+        ${displayName.charAt(0).toUpperCase()}
+        <input type="file" id="profile-avatar-input" accept="image/*" hidden>
+      </div>
+      <div>
+        <div style="font-size:16px;font-weight:600;color:var(--fg)" id="profile-name-display">${esc(displayName)}</div>
+        <div style="font-size:13px;color:var(--fg-tertiary)">${esc(email)}</div>
+      </div>
+    </div>
+    <div class="settings-field">
+      <label class="settings-field-label">Display name</label>
+      <input class="settings-field-input" type="text" id="profile-name-input" value="${esc(displayName)}">
+    </div>
+    <button class="settings-btn-save" id="profile-save-btn">Save</button>
+    <span id="profile-save-status" style="margin-left:8px;font-size:12px;color:var(--fg-tertiary)"></span>
+  </div>`
+
+  document.getElementById('profile-avatar-wrap')?.addEventListener('click', () => {
+    document.getElementById('profile-avatar-input')?.click()
+  })
+  document.getElementById('profile-save-btn')?.addEventListener('click', async () => {
+    const name = document.getElementById('profile-name-input')?.value?.trim()
+    if (name) {
+      await settingsApi.kv.set('display_name', name)
+      document.getElementById('profile-name-display').textContent = name
+      document.getElementById('profile-save-status').textContent = 'Saved!'
+      setTimeout(() => document.getElementById('profile-save-status').textContent = '', 2000)
+      // Update sidebar
+      const sidebarName = document.querySelector('.sidebar-username')
+      if (sidebarName) sidebarName.textContent = name
+      const avatar = document.querySelector('.sidebar-avatar')
+      if (avatar) avatar.textContent = name.charAt(0).toUpperCase()
+    }
+  })
 }
 
 // ==================== Models ====================
@@ -83,7 +127,13 @@ async function loadChannelsTab(container) {
     { id: 'qq', name: 'QQ', icon: '💬', inputs: [['app_id','App ID'],['client_secret','Client Secret']] },
     { id: 'telegram', name: 'Telegram', icon: '✈️', inputs: [['bot_token','Bot Token']] },
   ]
-  container.innerHTML = `<div class="settings-section"><h3>IM Channels</h3><p class="hint-text">Connect messaging platforms to Klaus.</p><div class="ch-grid">${chDefs.map(ch => {
+  container.innerHTML = `<div class="settings-section"><h3>IM Channels</h3><p class="hint-text">Connect messaging platforms to Klaus.</p>
+    <div style="margin-bottom:12px;font-size:12px;color:var(--fg-tertiary)">
+      <details><summary style="cursor:pointer;font-weight:500">Feishu Permissions JSON (click to copy)</summary>
+        <pre id="feishu-perms-json" style="background:var(--bg-surface);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:4px" onclick="navigator.clipboard.writeText(this.textContent).then(()=>showToast('Copied!'))">[{"name":"im:message","desc":"Read messages"},{"name":"im:message:send_as_bot","desc":"Send messages as bot"},{"name":"im:chat","desc":"Access chat info"}]</pre>
+      </details>
+    </div>
+    <div class="ch-grid">${chDefs.map(ch => {
     const state = channels.find(c => c.id === ch.id)
     const connected = state?.connected
     return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? '<span class="s-badge s-badge-green">Connected</span>' : '<span class="s-badge s-badge-gray">Off</span>'}</span></div>
@@ -115,7 +165,19 @@ async function loadSkillsTab(container) {
   const views = { installed, market, enabled: installed.filter(s => s.userEnabled), disabled: installed.filter(s => !s.userEnabled) }
   const current = views[skillsView] || views.installed
 
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>Skills</h3></div>
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>Skills</h3><button class="btn-sm" id="sk-upload-btn">Upload Skill</button></div>
+    <!-- Upload modal -->
+    <div id="sk-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:none;align-items:center;justify-content:center">
+      <div style="background:var(--bg);border-radius:var(--radius-md);padding:24px;max-width:400px;width:100%">
+        <h4 style="margin-bottom:12px">Upload Skill</h4>
+        <div id="sk-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px;text-align:center;cursor:pointer;color:var(--fg-tertiary);font-size:14px;transition:border-color var(--transition)">
+          Drop a ZIP or SKILL.md here, or click to browse
+          <input type="file" id="sk-file-input" hidden accept=".zip,.md">
+        </div>
+        <div id="sk-upload-status" style="display:none;margin-top:8px;font-size:13px;color:var(--fg-secondary)"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-sm" onclick="document.getElementById('sk-upload-modal').style.display='none'">Close</button></div>
+      </div>
+    </div>
     <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap">
       ${['installed','market','enabled','disabled'].map(v => `<button class="btn-sm ${skillsView === v ? 'btn-primary' : ''}" onclick="switchSkillsView('${v}')">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`).join('')}
     </div>
@@ -123,6 +185,19 @@ async function loadSkillsTab(container) {
     <div class="sk-grid" id="sk-grid">${renderSkillCards(current, skillsView)}</div></div>`
 
   bindSkillEvents()
+
+  // Upload modal
+  document.getElementById('sk-upload-btn')?.addEventListener('click', () => {
+    document.getElementById('sk-upload-modal').style.display = 'flex'
+    document.getElementById('sk-upload-status').style.display = 'none'
+  })
+  const skDropzone = document.getElementById('sk-dropzone')
+  const skFileInput = document.getElementById('sk-file-input')
+  skDropzone?.addEventListener('click', () => skFileInput?.click())
+  skDropzone?.addEventListener('dragover', (e) => { e.preventDefault(); skDropzone.style.borderColor = 'var(--fg-tertiary)' })
+  skDropzone?.addEventListener('dragleave', () => { skDropzone.style.borderColor = '' })
+  skDropzone?.addEventListener('drop', (e) => { e.preventDefault(); skDropzone.style.borderColor = ''; if (e.dataTransfer?.files?.length) uploadSkillFile(e.dataTransfer.files[0]) })
+  skFileInput?.addEventListener('change', () => { if (skFileInput.files?.length) uploadSkillFile(skFileInput.files[0]); skFileInput.value = '' })
 }
 
 function renderSkillCards(skills, view) {
@@ -162,6 +237,23 @@ function bindSkillEvents() {
       showToast('Uninstalled'); loadSettingsTab('skills')
     })
   })
+}
+
+async function uploadSkillFile(file) {
+  const statusEl = document.getElementById('sk-upload-status')
+  statusEl.style.display = ''; statusEl.textContent = 'Uploading...'
+  try {
+    const buffer = await file.arrayBuffer()
+    const result = await window.klaus.skills.upload(file.name, buffer)
+    if (result.ok) {
+      statusEl.textContent = 'Installed: ' + result.name
+      loadSettingsTab('skills')
+    } else {
+      statusEl.textContent = 'Error: ' + (result.error || 'unknown')
+    }
+  } catch (err) {
+    statusEl.textContent = 'Error: ' + (err.message || err)
+  }
 }
 
 window.switchSkillsView = function(view) { skillsView = view; loadSettingsTab('skills') }

@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('klaus', {
     install: (name: string) => ipcRenderer.invoke('skills:install', { name }),
     uninstall: (name: string) => ipcRenderer.invoke('skills:uninstall', { name }),
     toggle: (name: string, enabled: boolean) => ipcRenderer.invoke('skills:toggle', { name, enabled }),
+    upload: (name: string, buffer: ArrayBuffer) => ipcRenderer.invoke('skills:upload', { name, buffer }),
   },
 
   // Channels
