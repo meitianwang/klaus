@@ -427,8 +427,35 @@ export class EngineHost {
           getAppState: () => ({
             toolPermissionContext: toolPermissionCtx,
             tasks: new Map(),
+            teamContext: session.appState?.teamContext,
           } as any),
-          setAppState: () => {},
+          setAppState: (fn: (prev: any) => any) => {
+            const prev = session.appState ?? { toolPermissionContext: toolPermissionCtx, tasks: new Map() }
+            const next = fn(prev)
+            // Detect team events
+            if (!prev.teamContext && next.teamContext) {
+              this.pushEvent({ type: 'team_created' as any, sessionId, teamName: next.teamContext.name ?? 'Team' })
+            }
+            // Detect new tasks (agents spawned)
+            if (next.tasks && prev.tasks) {
+              for (const [id, task] of next.tasks) {
+                if (!prev.tasks.has(id)) {
+                  this.pushEvent({ type: 'teammate_spawned' as any, sessionId, agentId: id, name: (task as any).name ?? id, color: (task as any).color })
+                }
+                const prevTask = prev.tasks.get(id) as any
+                const nextTask = task as any
+                if (prevTask && nextTask) {
+                  if (prevTask.toolUseCount !== nextTask.toolUseCount) {
+                    this.pushEvent({ type: 'agent_progress' as any, sessionId, agentId: id, toolUseCount: nextTask.toolUseCount ?? 0 })
+                  }
+                  if (prevTask.status !== nextTask.status && (nextTask.status === 'completed' || nextTask.status === 'failed')) {
+                    this.pushEvent({ type: 'agent_done' as any, sessionId, agentId: id, status: nextTask.status })
+                  }
+                }
+              }
+            }
+            session.appState = next
+          },
           messages: session.messages,
         } as any,
         querySource: 'repl_main_thread' as any,
@@ -506,19 +533,62 @@ export class EngineHost {
 
     switch (event.type) {
       case 'assistant': {
-        // Full assistant message
         session.messages.push(event as Message)
+        // Check for tool_use blocks to forward tool_end
+        const content = (event as any).message?.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_use') {
+              this.pushEvent({ type: 'stream_mode', sessionId, mode: 'tool-use' })
+            }
+          }
+        }
+        this.pushEvent({ type: 'message_complete', sessionId } as any)
         break
       }
       case 'user': {
-        // Tool result message
         session.messages.push(event as Message)
         session.toolCallCount++
+        // Forward tool results
+        const userContent = (event as any).message?.content
+        if (Array.isArray(userContent)) {
+          for (const block of userContent) {
+            if (block.type === 'tool_result') {
+              this.pushEvent({
+                type: 'tool_end', sessionId,
+                toolName: '', toolCallId: block.tool_use_id ?? '', isError: block.is_error ?? false,
+              })
+            }
+          }
+        }
         break
       }
       case 'stream_event': {
         const se = event.event ?? event
         this.processApiStreamEvent(sessionId, se)
+        break
+      }
+      // Tool progress events
+      case 'tool_progress': {
+        this.pushEvent({
+          type: 'progress', sessionId,
+          toolName: event.toolName ?? '', toolCallId: event.toolUseId ?? event.toolCallId ?? '',
+          content: event.content ?? '',
+        })
+        break
+      }
+      // Context collapse
+      case 'context_collapse_stats': {
+        this.pushEvent({
+          type: 'context_collapse_stats', sessionId,
+          collapsedSpans: event.collapsedSpans ?? 0,
+          stagedSpans: event.stagedSpans ?? 0,
+        })
+        break
+      }
+      // File generated
+      case 'file': {
+        this.pushEvent({ type: 'file' as any, sessionId, name: event.name, url: event.url })
         break
       }
     }

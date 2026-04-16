@@ -33,7 +33,8 @@ const I18N = {
     settings_ch_disconnected: 'Disconnected',
     // Skills
     skills: 'Skills', installed: 'Installed', market: 'Market',
-    enabled: 'Enabled', disabled: 'Disabled',
+    enabled: 'Enabled', disabled: 'Disabled', builtin: 'Built-in',
+    settings_skills_upload: 'Upload Skill',
     settings_skills_on: 'Skill enabled', settings_skills_off: 'Skill disabled',
     settings_skills_uninstall: 'Uninstall',
     settings_skills_uninstalled_toast: 'Uninstalled',
@@ -94,7 +95,8 @@ const I18N = {
     settings_ch_disconnected: '已断开',
     // Skills
     skills: '技能', installed: '已安装', market: '市场',
-    enabled: '已启用', disabled: '已禁用',
+    enabled: '已启用', disabled: '已禁用', builtin: '内置',
+    settings_skills_upload: '上传技能',
     settings_skills_on: '技能已启用', settings_skills_off: '技能已禁用',
     settings_skills_uninstall: '卸载',
     settings_skills_uninstalled_toast: '已卸载',

@@ -5,6 +5,7 @@ import { MessageStore } from './message-store.js'
 import { SkillsManager } from './skills-manager.js'
 import { McpConfigManager } from './mcp-config.js'
 import { ChannelConfigManager } from './channel-config.js'
+import { CronScheduler } from './cron-scheduler.js'
 import { registerIpcHandlers } from './ipc-handlers.js'
 import { createMainWindow } from './window.js'
 import { createTray } from './tray.js'
@@ -71,6 +72,10 @@ app.whenReady().then(async () => {
     } catch (err) {
       console.warn('[Klaus] AutoDream init failed (non-fatal):', err)
     }
+
+    // 10. Cron scheduler
+    const cronScheduler = new CronScheduler(settingsStore, engineHost)
+    cronScheduler.start()
 
     mainWindow.webContents.send('engine:status', { status: 'ready' })
     console.log('[Klaus] Desktop app ready')

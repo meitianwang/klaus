@@ -76,10 +76,25 @@ export function registerIpcHandlers(
   })
   ipcMain.handle('mcp:status', async () => engine.getMcpStatus())
   ipcMain.handle('mcp:list', async () => mcpConfig.list())
-  ipcMain.handle('mcp:create', async (_e, input) => mcpConfig.create(input))
-  ipcMain.handle('mcp:toggle', async (_e, { name, enabled }) => mcpConfig.toggle(name, enabled))
-  ipcMain.handle('mcp:remove', async (_e, { name }) => mcpConfig.remove(name))
-  ipcMain.handle('mcp:import', async (_e, { json }) => mcpConfig.importJson(json))
+  ipcMain.handle('mcp:create', async (_e, input) => {
+    const result = mcpConfig.create(input)
+    if (result.ok) engine.reconnectMcp().catch(() => {})
+    return result
+  })
+  ipcMain.handle('mcp:toggle', async (_e, { name, enabled }) => {
+    mcpConfig.toggle(name, enabled)
+    engine.reconnectMcp().catch(() => {})
+  })
+  ipcMain.handle('mcp:remove', async (_e, { name }) => {
+    const ok = mcpConfig.remove(name)
+    if (ok) engine.reconnectMcp().catch(() => {})
+    return ok
+  })
+  ipcMain.handle('mcp:import', async (_e, { json }) => {
+    const result = mcpConfig.importJson(json)
+    if (result.imported.length > 0) engine.reconnectMcp().catch(() => {})
+    return result
+  })
 
   // --- Skills ---
   ipcMain.handle('skills:list', async () => skills.listAll())

@@ -4,7 +4,7 @@
 const settingsApi = window.klaus.settings
 let settingsVisible = false
 let currentSettingsTab = 'profile'
-let skillsView = 'installed' // installed | market | enabled | disabled
+let skillsView = 'installed' // installed | builtin | market | enabled | disabled
 
 function toggleSettings() {
   settingsVisible = !settingsVisible
@@ -162,24 +162,26 @@ window.disconnectChannel = async function(id) {
 async function loadSkillsTab(container) {
   const [installed, market] = await Promise.all([window.klaus.skills.list(), window.klaus.skills.market()])
 
-  const views = { installed, market, enabled: installed.filter(s => s.userEnabled), disabled: installed.filter(s => !s.userEnabled) }
+  const builtin = installed.filter(s => s.source === 'builtin')
+  const userInstalled = installed.filter(s => s.source !== 'builtin')
+  const views = { installed: userInstalled, builtin, market, enabled: installed.filter(s => s.userEnabled), disabled: installed.filter(s => !s.userEnabled) }
   const current = views[skillsView] || views.installed
 
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>Skills</h3><button class="btn-sm" id="sk-upload-btn">Upload Skill</button></div>
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt('skills')}</h3><button class="btn-sm" id="sk-upload-btn">${tt('settings_skills_upload') || 'Upload Skill'}</button></div>
     <!-- Upload modal -->
-    <div id="sk-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:none;align-items:center;justify-content:center">
+    <div id="sk-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center">
       <div style="background:var(--bg);border-radius:var(--radius-md);padding:24px;max-width:400px;width:100%">
-        <h4 style="margin-bottom:12px">Upload Skill</h4>
+        <h4 style="margin-bottom:12px">${tt('settings_skills_upload') || 'Upload Skill'}</h4>
         <div id="sk-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px;text-align:center;cursor:pointer;color:var(--fg-tertiary);font-size:14px;transition:border-color var(--transition)">
           Drop a ZIP or SKILL.md here, or click to browse
           <input type="file" id="sk-file-input" hidden accept=".zip,.md">
         </div>
         <div id="sk-upload-status" style="display:none;margin-top:8px;font-size:13px;color:var(--fg-secondary)"></div>
-        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-sm" onclick="document.getElementById('sk-upload-modal').style.display='none'">Close</button></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-sm" onclick="document.getElementById('sk-upload-modal').style.display='none'">${tt('cancel')}</button></div>
       </div>
     </div>
     <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap">
-      ${['installed','market','enabled','disabled'].map(v => `<button class="btn-sm ${skillsView === v ? 'btn-primary' : ''}" onclick="switchSkillsView('${v}')">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`).join('')}
+      ${['installed','builtin','market','enabled','disabled'].map(v => `<button class="btn-sm ${skillsView === v ? 'btn-primary' : ''}" onclick="switchSkillsView('${v}')">${tt(v) || v.charAt(0).toUpperCase() + v.slice(1)}</button>`).join('')}
     </div>
     <div style="margin-bottom:12px"><input class="s-form-input" id="sk-search" placeholder="Search skills..." style="width:100%" oninput="filterSkills()"></div>
     <div class="sk-grid" id="sk-grid">${renderSkillCards(current, skillsView)}</div></div>`
