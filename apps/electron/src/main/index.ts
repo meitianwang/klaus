@@ -10,6 +10,10 @@ import { registerIpcHandlers } from './ipc-handlers.js'
 import { createMainWindow } from './window.js'
 import { createTray } from './tray.js'
 
+// Prevent EPIPE crashes when stdout/stderr pipe breaks (e.g. launched from sandboxed environments)
+process.stdout?.on?.('error', () => {})
+process.stderr?.on?.('error', () => {})
+
 // --- Feature flags (same as Web端) ---
 if (!process.env.CLAUDE_CODE_FEATURES) {
   process.env.CLAUDE_CODE_FEATURES = [

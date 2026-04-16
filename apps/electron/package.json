@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
-  "main": "dist/main/index.cjs",
+  "main": "dist/main/index.js",
   "author": "Klaus AI",
   "description": "Klaus AI Desktop — single-user AI assistant",
   "scripts": {
@@ -26,6 +26,7 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "electron": "^32.3.3",
