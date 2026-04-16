@@ -84,7 +84,7 @@ async function init() {
 function updateWelcomeGreeting() {
   const h = new Date().getHours()
   const el = document.getElementById('welcome-greeting')
-  if (el) el.textContent = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  if (el) el.textContent = h < 12 ? tt('good_morning') : h < 18 ? tt('good_afternoon') : tt('good_evening')
 }
 
 // ==================== Sessions ====================
@@ -272,7 +272,7 @@ function appendFinalAssistantMsg(text) {
   const msgEl = document.createElement('div')
   msgEl.className = 'msg assistant'
   msgEl.innerHTML = renderMarkdown(text)
-  group.innerHTML = '<div class="msg-label">Klaus</div>'
+  group.innerHTML = '<div class="msg-label">${tt('bot_name')}</div>'
   group.appendChild(msgEl)
   postProcessMsg(msgEl)
   messagesEl.appendChild(group)
@@ -282,7 +282,7 @@ function ensureAssistantGroup() {
   if (!currentMsgGroup) {
     currentMsgGroup = document.createElement('div')
     currentMsgGroup.className = 'msg-group assistant'
-    currentMsgGroup.innerHTML = '<div class="msg-label">Klaus</div>'
+    currentMsgGroup.innerHTML = '<div class="msg-label">${tt('bot_name')}</div>'
     messagesEl.appendChild(currentMsgGroup)
   }
   return currentMsgGroup
@@ -307,12 +307,12 @@ function postProcessMsg(container) {
     // Copy button
     const btn = document.createElement('button')
     btn.className = 'code-copy'
-    btn.textContent = 'Copy'
+    btn.textContent = tt('copy')
     btn.onclick = () => {
       navigator.clipboard.writeText(block.textContent).then(() => {
-        btn.textContent = 'Copied!'
-        setTimeout(() => { btn.textContent = 'Copy' }, 2000)
-      }).catch(() => { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Copy' }, 2000) })
+        btn.textContent = tt('copied')
+        setTimeout(() => { btn.textContent = tt('copy') }, 2000)
+      }).catch(() => { btn.textContent = tt('copy_failed'); setTimeout(() => { btn.textContent = tt('copy') }, 2000) })
     }
     wrapper.appendChild(btn)
   })
@@ -344,7 +344,7 @@ function finalizeThinking() {
   const elapsed = Math.round((Date.now() - thinkingStartTime) / 1000)
   const done = document.createElement('div')
   done.className = 'thinking-done'
-  done.innerHTML = `<div class="thinking-toggle"><span>Thought for ${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
+  done.innerHTML = `<div class="thinking-toggle"><span>${tt('thought_for') || 'Thought for '}${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
   done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
   currentThinkingEl.replaceWith(done)
   currentThinkingEl = null
@@ -472,7 +472,7 @@ function appendFileCard(name, url) {
   const label = FILE_EXT_LABELS[ext] || ext.toUpperCase() || 'FILE'
   const group = document.createElement('div')
   group.className = 'msg-group assistant'
-  group.innerHTML = `<div class="msg-label">Klaus</div><div class="file-card"><div class="file-card-icon">${escapeHtml(label)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(name)}</div><div class="file-card-hint">File ready</div></div><a class="file-card-dl" href="${escapeHtml(url)}" download="${escapeHtml(name)}">Download</a></div>`
+  group.innerHTML = `<div class="msg-label">${tt('bot_name')}</div><div class="file-card"><div class="file-card-icon">${escapeHtml(label)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(name)}</div><div class="file-card-hint">File ready</div></div><a class="file-card-dl" href="${escapeHtml(url)}" download="${escapeHtml(name)}">${tt('download')}</a></div>`
   messagesEl.appendChild(group)
   scrollToBottom()
 }
@@ -518,7 +518,7 @@ function showPermissionRequest(req) {
     <div class="permission-message">${escapeHtml(req.message || 'This tool requires your approval.')}</div>
     ${inputPreview ? `<details class="permission-input-details"><summary>Show input</summary><pre class="permission-input-preview">${escapeHtml(inputPreview).slice(0, 500)}</pre></details>` : ''}
     ${suggestionsHtml}
-    <div class="permission-actions"><button class="permission-btn permission-btn-allow" onclick="handlePermission('${req.requestId}','allow')">Allow</button><button class="permission-btn permission-btn-deny" onclick="handlePermission('${req.requestId}','deny')">Deny</button></div>
+    <div class="permission-actions"><button class="permission-btn permission-btn-allow" onclick="handlePermission('${req.requestId}','allow')">${tt('allow')}</button><button class="permission-btn permission-btn-deny" onclick="handlePermission('${req.requestId}','deny')">${tt('deny')}</button></div>
     <div class="permission-timer"><span class="permission-timer-text">120s</span></div>`
   messagesEl.appendChild(card)
   scrollToBottom()
@@ -542,7 +542,7 @@ window.handlePermission = function(requestId, decision) {
   }
   klaus.permission.respond(requestId, decision, indices.length > 0 ? indices : undefined)
   if (card) {
-    card.querySelector('.permission-actions').innerHTML = `<div class="permission-result ${decision === 'allow' ? 'permission-allowed' : 'permission-denied'}">${decision === 'allow' ? 'Allowed' : 'Denied'}${indices.length ? ' (rules saved)' : ''}</div>`
+    card.querySelector('.permission-actions').innerHTML = `<div class="permission-result ${decision === 'allow' ? 'permission-allowed' : 'permission-denied'}">${decision === 'allow' ? (tt('allowed')) : (tt('denied'))}${indices.length ? ' (rules saved)' : ''}</div>`
     card.querySelector('.permission-timer').remove()
     card.classList.add('permission-resolved')
   }
@@ -592,9 +592,9 @@ klaus.on.permissionRequest(showPermissionRequest)
 
 klaus.on.engineStatus((s) => {
   statusEl.className = ''
-  if (s.status === 'ready') { statusEl.textContent = 'Connected' }
-  else if (s.status === 'error') { statusEl.textContent = 'Error'; statusEl.className = 'error' }
-  else { statusEl.textContent = 'Initializing...'; statusEl.className = 'init' }
+  if (s.status === 'ready') { statusEl.textContent = tt('connected') }
+  else if (s.status === 'error') { statusEl.textContent = tt('error'); statusEl.className = 'error' }
+  else { statusEl.textContent = tt('initializing'); statusEl.className = 'init' }
 })
 
 function appendError(msg) {

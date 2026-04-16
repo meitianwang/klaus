@@ -62,6 +62,8 @@ const I18N = {
     perm_default: 'Default', perm_default_desc: 'Ask permission for potentially risky operations',
     perm_auto: 'Auto', perm_auto_desc: 'Automatically approve safe operations',
     perm_bypass: 'Bypass All', perm_bypass_desc: 'Skip all permission prompts (use with caution)',
+    thought_for: 'Thought for ',
+    no_mcp: 'No MCP servers configured', no_skills: 'No skills found', no_cron: 'No scheduled tasks',
     // User menu
     menu_settings: 'Settings', menu_help: 'Help',
   },
@@ -126,6 +128,8 @@ const I18N = {
     perm_default: '默认', perm_default_desc: '对有风险的操作请求许可',
     perm_auto: '自动', perm_auto_desc: '自动批准安全操作',
     perm_bypass: '跳过所有', perm_bypass_desc: '跳过所有权限提示（谨慎使用）',
+    thought_for: '思考了 ',
+    no_mcp: '暂无 MCP 服务器', no_skills: '暂无技能', no_cron: '暂无定时任务',
     // User menu
     menu_settings: '设置', menu_help: '帮助',
   },

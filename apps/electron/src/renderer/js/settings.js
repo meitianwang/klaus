@@ -105,7 +105,7 @@ window.deleteModel = async (id) => { if (confirm('Delete this model?')) { await 
 // ==================== Prompts ====================
 async function loadPromptsTab(container) {
   const prompts = await settingsApi.prompts.list()
-  container.innerHTML = `<div class="settings-section"><h3>${tt('prompts')}</h3><p class="hint-text">Customize sections of the system prompt. Leave empty to use engine defaults.</p><div>${prompts.map(p => `
+  container.innerHTML = `<div class="settings-section"><h3>${tt('prompts')}</h3><p class="hint-text">${tt('prompt_hint')}</p><div>${prompts.map(p => `
     <div class="settings-card"><div class="card-header"><strong>${esc(p.name)}</strong><span style="font-size:11px;color:var(--fg-quaternary)">${esc(p.id)}</span></div>
     <textarea class="prompt-editor" data-prompt-id="${esc(p.id)}" placeholder="(using engine default)" rows="4">${esc(p.content)}</textarea>
     <button class="btn-xs" onclick="savePrompt('${esc(p.id)}','${esc(p.name)}',this)">${tt('save')}</button></div>`).join('')}</div></div>`
@@ -127,7 +127,7 @@ async function loadChannelsTab(container) {
     { id: 'qq', name: 'QQ', icon: '💬', inputs: [['app_id','App ID'],['client_secret','Client Secret']] },
     { id: 'telegram', name: 'Telegram', icon: '✈️', inputs: [['bot_token','Bot Token']] },
   ]
-  container.innerHTML = `<div class="settings-section"><h3>${tt("channels")}</h3><p class="hint-text">Connect messaging platforms to Klaus.</p>
+  container.innerHTML = `<div class="settings-section"><h3>${tt("channels")}</h3><p class="hint-text">${tt('ch_hint')}</p>
     <div style="margin-bottom:12px;font-size:12px;color:var(--fg-tertiary)">
       <details><summary style="cursor:pointer;font-weight:500">Feishu Permissions JSON (click to copy)</summary>
         <pre id="feishu-perms-json" style="background:var(--bg-surface);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:4px" onclick="navigator.clipboard.writeText(this.textContent).then(()=>showToast('Copied!'))">[{"name":"im:message","desc":"Read messages"},{"name":"im:message:send_as_bot","desc":"Send messages as bot"},{"name":"im:chat","desc":"Access chat info"}]</pre>
@@ -203,7 +203,7 @@ async function loadSkillsTab(container) {
 }
 
 function renderSkillCards(skills, view) {
-  if (skills.length === 0) return '<p class="empty-text">No skills found</p>'
+  if (skills.length === 0) return '<p class="empty-text">${tt('no_skills') || 'No skills found'}</p>'
   return skills.map(s => {
     const isMarket = view === 'market'
     const toggle = !isMarket ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
@@ -292,7 +292,7 @@ async function loadMcpTab(container) {
       <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-json-import">Import</button><button class="btn-sm" id="mcpf-json-cancel">${tt('cancel')}</button></div></div></div>
 
     <!-- Server list -->
-    <div id="mcp-list">${servers.length === 0 ? '<p class="empty-text">No MCP servers configured</p>' : `<div class="sk-grid">${servers.map(s => {
+    <div id="mcp-list">${servers.length === 0 ? '<p class="empty-text">${tt('no_mcp') || 'No MCP servers configured'}</p>' : `<div class="sk-grid">${servers.map(s => {
       const st = statusMap.get(s.name)
       const cfg = s.config || {}
       const type = cfg.type || 'stdio'
@@ -413,7 +413,7 @@ async function loadCronTab(container) {
       <div class="form-row"><label>Schedule (cron)</label><input id="cf-schedule" placeholder="0 9 * * *"></div>
       <div class="form-row"><label>Prompt</label><textarea id="cf-prompt" rows="3" class="prompt-editor" placeholder="What should the agent do?"></textarea></div>
       <div class="form-actions"><button class="btn-sm btn-primary" id="cf-save">${tt('save')}</button><button class="btn-sm" id="cf-cancel">${tt('cancel')}</button></div></div></div>
-    <div id="cron-list">${tasks.length === 0 ? '<p class="empty-text">No scheduled tasks</p>' : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
+    <div id="cron-list">${tasks.length === 0 ? '<p class="empty-text">${tt('no_cron') || 'No scheduled tasks'}</p>' : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
     <tr><td><span class="s-code">${esc(t.id)}</span></td><td>${esc(t.name || '-')}</td><td class="s-muted">${esc(t.schedule)}</td>
     <td>${t.enabled ? '<span class="s-badge s-badge-green">${tt('settings_on')}</span>' : '<span class="s-badge s-badge-gray">${tt('settings_off')}</span>'}</td>
     <td><div class="s-actions"><button class="s-btn s-btn-ghost" onclick="toggleCron('${esc(t.id)}',${!t.enabled})">${t.enabled ? 'Disable' : 'Enable'}</button><button class="s-btn s-btn-danger" onclick="deleteCron('${esc(t.id)}')">${tt('delete_title')}</button></div></td></tr>`).join('')}</tbody></table>`}</div></div>`
