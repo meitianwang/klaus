@@ -123,6 +123,27 @@ export function registerIpcHandlers(
 
   // --- Channels ---
   ipcMain.handle('channels:list', async () => channels.list())
-  ipcMain.handle('channels:connect', async (_e, { id, config }) => channels.connect(id, config))
-  ipcMain.handle('channels:disconnect', async (_e, { id }) => channels.disconnect(id))
+  ipcMain.handle('channels:connect', async (_e, { id, config }) => {
+    const result = channels.connect(id, config)
+    // Hot-start the channel if ChannelManager is available
+    if (result.ok) {
+      try {
+        const { getChannelManager } = await import('./index.js')
+        const mgr = getChannelManager?.()
+        if (mgr) mgr.hotStart(id, 'default')
+      } catch {}
+    }
+    return result
+  })
+  ipcMain.handle('channels:disconnect', async (_e, { id }) => {
+    const ok = channels.disconnect(id)
+    if (ok) {
+      try {
+        const { getChannelManager } = await import('./index.js')
+        const mgr = getChannelManager?.()
+        if (mgr) await mgr.stop(id)
+      } catch {}
+    }
+    return ok
+  })
 }
