@@ -17,6 +17,14 @@ delete process.env.ELECTRON_RUN_AS_NODE
 process.stdout?.on?.('error', () => {})
 process.stderr?.on?.('error', () => {})
 
+// Prevent uncaught exceptions from crashing the app (e.g. channel plugin spawn failures)
+process.on('uncaughtException', (err) => {
+  console.error('[Klaus] Uncaught exception (non-fatal):', err.message)
+})
+process.on('unhandledRejection', (err: any) => {
+  console.error('[Klaus] Unhandled rejection (non-fatal):', err?.message || err)
+})
+
 // --- Feature flags (same as Web端) ---
 if (!process.env.CLAUDE_CODE_FEATURES) {
   process.env.CLAUDE_CODE_FEATURES = [
