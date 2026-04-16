@@ -3,61 +3,108 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; connect-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self';">
   <title>Klaus</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <div id="app">
     <!-- Sidebar -->
-    <aside id="sidebar">
+    <div id="sidebar" class="sidebar">
       <div class="sidebar-header">
-        <span class="logo">Klaus</span>
-        <button id="btn-new-chat" class="btn-icon" data-i18n-title="new_chat" title="New Chat">+</button>
+        <div class="sidebar-brand">
+          <span style="font-size:18px">K</span>
+          <span>Klaus</span>
+        </div>
       </div>
-      <div id="session-list" class="session-list"></div>
-      <div class="sidebar-footer">
-        <button id="btn-settings" class="btn-text" data-i18n="settings">Settings</button>
-      </div>
-    </aside>
 
-    <!-- Main content -->
-    <main id="main">
-      <!-- Welcome screen -->
+      <div class="sidebar-nav">
+        <button class="sidebar-nav-item" id="btn-new-chat">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+          <span data-i18n="new_chat">New chat</span>
+        </button>
+      </div>
+
+      <div class="sidebar-section-label" data-i18n="recents">Recents</div>
+
+      <div class="session-list" id="session-list"></div>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user" id="sidebar-user">
+          <div class="sidebar-avatar">U</div>
+          <div class="sidebar-user-info">
+            <div class="sidebar-username">User</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div id="main">
+      <div id="header">
+        <div class="header-right">
+          <span id="status" class="init" data-i18n="initializing">Initializing...</span>
+        </div>
+      </div>
+
+      <!-- Welcome -->
       <div id="welcome" class="welcome">
-        <h1 data-i18n="welcome_title">Klaus AI</h1>
-        <p data-i18n="welcome_sub">Start a conversation</p>
+        <div class="welcome-greeting" id="welcome-greeting">Good afternoon</div>
+        <div class="welcome-sub" data-i18n="welcome_sub">How can I help you today?</div>
+        <div class="welcome-chips">
+          <button class="welcome-chip" onclick="sendQuickPrompt('Write')">Write</button>
+          <button class="welcome-chip" onclick="sendQuickPrompt('Code')">Code</button>
+          <button class="welcome-chip" onclick="sendQuickPrompt('Analyze')">Analyze</button>
+          <button class="welcome-chip" onclick="sendQuickPrompt('Explain')">Explain</button>
+        </div>
       </div>
 
       <!-- Messages -->
-      <div id="messages" class="messages" style="display:none"></div>
+      <div id="messages" style="display:none"></div>
 
-      <!-- Input area -->
-      <div id="input-area" class="input-area">
-        <textarea id="input" data-i18n-placeholder="placeholder" placeholder="Send a message..." rows="1"></textarea>
-        <button id="btn-send" class="btn-send" disabled data-i18n="send">Send</button>
-      </div>
-
-      <!-- Engine status -->
-      <div id="status-bar" class="status-bar">
-        <span id="engine-status">Initializing...</span>
-      </div>
-
-      <!-- Settings panel (hidden by default) -->
-      <div id="settings-panel" class="settings-panel" style="display:none">
-        <div class="settings-header">
-          <h2>Settings</h2>
-          <button class="btn-icon" onclick="toggleSettings()" title="Close">&times;</button>
+      <!-- Input -->
+      <div id="input-wrapper">
+        <div id="input-area">
+          <div id="previews"></div>
+          <div class="input-row">
+            <button id="attach" title="Attach file">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 8.5l-5.5 5.5a3.5 3.5 0 01-5-5L9 3.5a2 2 0 013 3L6.5 12a.5.5 0 01-1-1L11 5.5"/></svg>
+            </button>
+            <input type="file" id="file-input" multiple hidden>
+            <textarea id="input" rows="1" data-i18n-placeholder="placeholder" placeholder="Send a message..." autocomplete="off"></textarea>
+            <button id="send" disabled>
+              <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.724 1.053a.5.5 0 0 1 .547-.033l12 7a.5.5 0 0 1 0 .86l-12 7A.5.5 0 0 1 1.5 15.5V9.236l6.735-1.236L1.5 6.764V.5a.5.5 0 0 1 .224-.447z"/></svg>
+            </button>
+          </div>
         </div>
-        <div class="settings-tabs">
-          <button class="settings-tab-btn active" data-tab="models" onclick="loadSettingsTab('models')">Models</button>
-          <button class="settings-tab-btn" data-tab="prompts" onclick="loadSettingsTab('prompts')">Prompts</button>
-          <button class="settings-tab-btn" data-tab="mcp" onclick="loadSettingsTab('mcp')">MCP</button>
-          <button class="settings-tab-btn" data-tab="preferences" onclick="loadSettingsTab('preferences')">Preferences</button>
-        </div>
-        <div id="settings-content" class="settings-content"></div>
       </div>
-    </main>
+
+      <!-- Settings view -->
+      <div id="settings-view">
+        <div class="settings-inner">
+          <div class="settings-sidebar">
+            <button class="settings-back" id="settings-back">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 12L6 8l4-4"/></svg>
+              <span>Back</span>
+            </button>
+            <div class="settings-sidebar-title">Settings</div>
+            <div class="settings-sidebar-nav">
+              <button class="settings-nav-item active" data-stab="models">Models</button>
+              <button class="settings-nav-item" data-stab="prompts">Prompts</button>
+              <button class="settings-nav-item" data-stab="mcp">MCP</button>
+              <button class="settings-nav-item" data-stab="preferences">Preferences</button>
+            </div>
+          </div>
+          <div class="settings-content" id="settings-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drop overlay -->
+    <div class="drop-overlay" id="drop-overlay">
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Drop files to upload
+    </div>
   </div>
 
   <script src="js/i18n.js"></script>

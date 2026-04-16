@@ -8,27 +8,20 @@ let currentSettingsTab = 'models'
 
 function toggleSettings() {
   settingsVisible = !settingsVisible
-  const panel = document.getElementById('settings-panel')
-  const main = document.getElementById('main')
+  const view = document.getElementById('settings-view')
   if (settingsVisible) {
-    panel.style.display = 'flex'
-    main.querySelector('#messages').style.display = 'none'
-    main.querySelector('#welcome').style.display = 'none'
-    main.querySelector('#input-area').style.display = 'none'
+    view.classList.add('active')
     loadSettingsTab(currentSettingsTab)
   } else {
-    panel.style.display = 'none'
-    main.querySelector('#messages').style.display = currentSessionId ? 'flex' : 'none'
-    main.querySelector('#welcome').style.display = currentSessionId ? 'none' : 'flex'
-    main.querySelector('#input-area').style.display = 'flex'
+    view.classList.remove('active')
   }
 }
 
 function loadSettingsTab(tab) {
   currentSettingsTab = tab
-  // Update tab buttons
-  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab)
+  // Update nav items
+  document.querySelectorAll('.settings-nav-item').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.stab === tab)
   })
   const content = document.getElementById('settings-content')
   switch (tab) {
