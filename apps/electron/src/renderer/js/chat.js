@@ -488,7 +488,7 @@ function renderAgentPanel() {
   const title = agentPanelEl.querySelector('#agent-panel-title')
   const count = agentPanelEl.querySelector('#agent-panel-count')
   const body = agentPanelEl.querySelector('#agent-panel-body')
-  if (title) title.textContent = agentPanel.team ? agentPanel.team.name : 'Agents'
+  if (title) title.textContent = agentPanel.team ? agentPanel.team.name : (tt('agents') || 'Agents')
   if (count) count.textContent = runningCount > 0 ? runningCount + ' running' : agentPanel.agents.size + ' agent(s)'
   if (!body) return
   body.innerHTML = ''

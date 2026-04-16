@@ -31,7 +31,7 @@ function loadSettingsTab(tab) {
 
 // ==================== Profile ====================
 async function loadProfileTab(container) {
-  const displayName = await settingsApi.kv.get('display_name') || 'User'
+  const displayName = await settingsApi.kv.get('display_name') || tt('profile') || 'User'
   const email = await settingsApi.kv.get('email') || 'user@local'
 
   container.innerHTML = `<div class="settings-section">
@@ -100,7 +100,7 @@ window.saveModel = async function() {
   loadSettingsTab('models')
 }
 window.setDefaultModel = async (id) => { await settingsApi.models.setDefault(id); loadSettingsTab('models') }
-window.deleteModel = async (id) => { if (confirm('Delete this model?')) { await settingsApi.models.delete(id); loadSettingsTab('models') } }
+window.deleteModel = async (id) => { if (confirm(tt('delete_model'))) { await settingsApi.models.delete(id); loadSettingsTab('models') } }
 
 // ==================== Prompts ====================
 async function loadPromptsTab(container) {
@@ -113,7 +113,7 @@ async function loadPromptsTab(container) {
 window.savePrompt = async function(id, name, btn) {
   const textarea = btn.parentElement.querySelector('.prompt-editor')
   await settingsApi.prompts.upsert({ id, name, content: textarea.value, isDefault: false, createdAt: Date.now(), updatedAt: Date.now() })
-  btn.textContent = 'Saved!'; setTimeout(() => btn.textContent = 'Save', 1500)
+  btn.textContent = tt('saved'); setTimeout(() => btn.textContent = tt('save'), 1500)
 }
 
 // ==================== Channels ====================
@@ -149,13 +149,13 @@ window.connectChannel = async function(id) {
   const config = {}
   for (const key of fields) config[key] = document.getElementById('ch-' + id + '-' + key)?.value?.trim() || ''
   const result = await window.klaus.channels.connect(id, config)
-  if (result.ok) { showToast('Connected!'); loadSettingsTab('channels') }
+  if (result.ok) { showToast(tt('settings_ch_connect_ok')); loadSettingsTab('channels') }
   else showToast(result.error || 'Connection failed')
 }
 window.disconnectChannel = async function(id) {
-  if (!confirm('Disconnect this channel?')) return
+  if (!confirm(tt('settings_confirm_delete'))) return
   window.klaus.channels.disconnect(id)
-  showToast('Disconnected'); loadSettingsTab('channels')
+  showToast(tt('settings_ch_disconnected')); loadSettingsTab('channels')
 }
 
 // ==================== Skills (5 views + search + install) ====================
@@ -207,7 +207,7 @@ function renderSkillCards(skills, view) {
   return skills.map(s => {
     const isMarket = view === 'market'
     const toggle = !isMarket ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
-    const installBtn = isMarket ? `<button class="btn-xs ${s.installed ? '' : 'btn-primary'}" data-install="${esc(s.dirName || s.name)}" ${s.installed ? 'disabled' : ''}>${s.installed ? 'Installed' : 'Install'}</button>` : ''
+    const installBtn = isMarket ? `<button class="btn-xs ${s.installed ? '' : 'btn-primary'}" data-install="${esc(s.dirName || s.name)}" ${s.installed ? 'disabled' : ''}>${s.installed ? tt('installed') : tt('settings_skills_install')}</button>` : ''
     const uninstallBtn = !isMarket && s.source === 'installed' ? `<button class="btn-xs btn-danger" data-uninstall="${esc(s.dirName || s.name)}">${tt('settings_skills_uninstall')}</button>` : ''
     const srcBadge = `<span class="s-badge s-badge-gray">${esc(s.source)}</span>`
     return `<div class="sk-card" data-name="${esc(s.name)}"><div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">🧩</div><div class="sk-card-name">${esc(s.name)}</div></div>${toggle}</div>
@@ -228,15 +228,15 @@ function bindSkillEvents() {
     el.addEventListener('click', async () => {
       el.disabled = true; el.textContent = 'Installing...'
       const result = await window.klaus.skills.install(el.dataset.install)
-      if (result.ok) { showToast('Installed: ' + result.name); loadSettingsTab('skills') }
+      if (result.ok) { showToast(tt('settings_skills_installed_toast') + ': ' + result.name); loadSettingsTab('skills') }
       else { showToast('Error: ' + (result.error || 'unknown')); el.disabled = false; el.textContent = 'Install' }
     })
   })
   document.querySelectorAll('[data-uninstall]').forEach(el => {
     el.addEventListener('click', async () => {
-      if (!confirm('Uninstall skill: ' + el.dataset.uninstall + '?')) return
+      if (!confirm(tt('settings_skills_uninstall') + ': ' + el.dataset.uninstall + '?')) return
       await window.klaus.skills.uninstall(el.dataset.uninstall)
-      showToast('Uninstalled'); loadSettingsTab('skills')
+      showToast(tt('settings_skills_uninstalled_toast')); loadSettingsTab('skills')
     })
   })
 }
@@ -357,8 +357,8 @@ async function loadMcpTab(container) {
     const timeout = parseInt(gv('mcpf-timeout'))
     if (timeout > 0) payload.timeout = timeout
     const result = await window.klaus.mcp.create(payload)
-    if (result.ok) { showToast('Server added'); loadSettingsTab('mcp') }
-    else showToast(result.error || 'Failed')
+    if (result.ok) { showToast(tt('settings_saved')); loadSettingsTab('mcp') }
+    else showToast(result.error || tt('settings_failed'))
   })
   document.getElementById('mcpf-json-import')?.addEventListener('click', async () => {
     const json = document.getElementById('mcpf-json')?.value?.trim()
@@ -373,14 +373,14 @@ async function loadMcpTab(container) {
   container.querySelectorAll('.mcp-toggle-input').forEach(el => {
     el.addEventListener('change', async () => {
       await window.klaus.mcp.toggle(el.dataset.mcp, el.checked)
-      showToast(el.checked ? 'Enabled' : 'Disabled')
+      showToast(el.checked ? tt('enabled') : tt('disabled'))
     })
   })
   container.querySelectorAll('[data-delmcp]').forEach(el => {
     el.addEventListener('click', async () => {
-      if (!confirm('Remove MCP server: ' + el.dataset.delmcp + '?')) return
+      if (!confirm(tt('settings_mcp_delete_confirm') + ': ' + el.dataset.delmcp + '?')) return
       await window.klaus.mcp.remove(el.dataset.delmcp)
-      showToast('Removed'); loadSettingsTab('mcp')
+      showToast(tt('settings_deleted')); loadSettingsTab('mcp')
     })
   })
 }
@@ -423,7 +423,7 @@ async function loadCronTab(container) {
     const id = gv('cf-id'), schedule = gv('cf-schedule'), prompt = gv('cf-prompt')
     if (!id || !schedule || !prompt) { showToast('All fields required'); return }
     await settingsApi.cron.upsert({ id, name: gv('cf-name') || undefined, schedule, prompt, enabled: true, createdAt: Date.now(), updatedAt: Date.now() })
-    showToast('Task saved'); loadSettingsTab('cron')
+    showToast(tt('settings_saved')); loadSettingsTab('cron')
   })
 }
 window.toggleCron = async function(id, enabled) {
@@ -431,7 +431,7 @@ window.toggleCron = async function(id, enabled) {
   const t = tasks.find(x => x.id === id)
   if (t) { await settingsApi.cron.upsert({ ...t, enabled, updatedAt: Date.now() }); loadSettingsTab('cron') }
 }
-window.deleteCron = async function(id) { if (confirm('Delete this task?')) { await settingsApi.cron.delete(id); showToast('Deleted'); loadSettingsTab('cron') } }
+window.deleteCron = async function(id) { if (confirm(tt('settings_cron_delete_confirm'))) { await settingsApi.cron.delete(id); showToast('Deleted'); loadSettingsTab('cron') } }
 
 // ==================== Preferences ====================
 async function loadPreferencesTab(container) {
