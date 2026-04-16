@@ -94,7 +94,11 @@ app.whenReady().then(async () => {
     const cronScheduler = new CronScheduler(settingsStore, engineHost)
     cronScheduler.start()
 
-    // 11. Channel plugins — start all enabled IM channels
+    // Engine is ready — tell renderer
+    mainWindow.webContents.send('engine:status', { status: 'ready' })
+    console.log('[Klaus] Desktop app ready')
+
+    // 11. Channel plugins — start in background (don't block UI)
     try {
       const { ChannelManager } = await import('../channels/manager.js')
 
@@ -148,8 +152,6 @@ app.whenReady().then(async () => {
       console.warn('[Klaus] Channel plugins init failed (non-fatal):', err)
     }
 
-    mainWindow.webContents.send('engine:status', { status: 'ready' })
-    console.log('[Klaus] Desktop app ready')
   } catch (err) {
     console.error('[Klaus] Startup failed:', err)
   }
