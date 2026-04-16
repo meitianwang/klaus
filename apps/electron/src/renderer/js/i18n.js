@@ -45,6 +45,8 @@ const I18N = {
     settings_mcp_uninstall: 'Uninstall', settings_mcp_name_required: 'Name is required',
     settings_mcp_delete_confirm: 'Remove this MCP server?',
     settings_mcp_import_failed: 'Import failed', settings_mcp_imported: 'Imported',
+    settings_mcp_import_json: 'Import JSON', settings_mcp_reconnect: 'Reconnect',
+    settings_skills_install: 'Install',
     // Cron
     cron: 'Tasks', settings_cron_running: 'Running', settings_cron_stopped: 'Stopped',
     settings_cron_tasks_label: 'tasks', settings_cron_active_label: 'active',
@@ -107,6 +109,8 @@ const I18N = {
     settings_mcp_uninstall: '卸载', settings_mcp_name_required: '名称不能为空',
     settings_mcp_delete_confirm: '确定移除此 MCP 服务器？',
     settings_mcp_import_failed: '导入失败', settings_mcp_imported: '已导入',
+    settings_mcp_import_json: '导入 JSON', settings_mcp_reconnect: '重新连接',
+    settings_skills_install: '安装',
     // Cron
     cron: '定时任务', settings_cron_running: '运行中', settings_cron_stopped: '已停止',
     settings_cron_tasks_label: '个任务', settings_cron_active_label: '个活跃',

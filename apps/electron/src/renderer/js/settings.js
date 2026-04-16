@@ -46,10 +46,10 @@ async function loadProfileTab(container) {
       </div>
     </div>
     <div class="settings-field">
-      <label class="settings-field-label">Display name</label>
+      <label class="settings-field-label">${tt("display_name")}</label>
       <input class="settings-field-input" type="text" id="profile-name-input" value="${esc(displayName)}">
     </div>
-    <button class="settings-btn-save" id="profile-save-btn">Save</button>
+    <button class="settings-btn-save" id="profile-save-btn">${tt('save')}</button>
     <span id="profile-save-status" style="margin-left:8px;font-size:12px;color:var(--fg-tertiary)"></span>
   </div>`
 
@@ -75,11 +75,11 @@ async function loadProfileTab(container) {
 // ==================== Models ====================
 async function loadModelsTab(container) {
   const models = await settingsApi.models.list()
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>Models</h3><button class="btn-sm" onclick="showAddModelForm()">+ Add Model</button></div><div id="models-list">${models.length === 0 ? '<p class="empty-text">No models configured</p>' : models.map(m => `
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("models")}</h3><button class="btn-sm" onclick="showAddModelForm()">${tt("add_model")}</button></div><div id="models-list">${models.length === 0 ? '<p class="empty-text">${tt('no_models')}</p>' : models.map(m => `
     <div class="settings-card ${m.isDefault ? 'card-default' : ''}">
       <div class="card-header"><strong>${esc(m.name)}</strong>${m.isDefault ? '<span class="badge">Default</span>' : ''}${m.role ? `<span class="s-badge s-badge-blue">${esc(m.role)}</span>` : ''}</div>
       <div class="card-meta">${esc(m.provider || 'anthropic')} / ${esc(m.model)} &middot; ${m.maxContextTokens.toLocaleString()} tokens &middot; thinking: ${esc(m.thinking)}</div>
-      <div class="card-actions">${!m.isDefault ? `<button class="btn-xs" onclick="setDefaultModel('${esc(m.id)}')">Set Default</button>` : ''}<button class="btn-xs btn-danger" onclick="deleteModel('${esc(m.id)}')">Delete</button></div>
+      <div class="card-actions">${!m.isDefault ? `<button class="btn-xs" onclick="setDefaultModel('${esc(m.id)}')">${tt('set_default')}</button>` : ''}<button class="btn-xs btn-danger" onclick="deleteModel('${esc(m.id)}')">${tt('delete_title')}</button></div>
     </div>`).join('')}</div><div id="model-form" style="display:none"></div></div>`
 }
 window.showAddModelForm = function() {
@@ -92,7 +92,7 @@ window.showAddModelForm = function() {
     <div class="form-row"><label>Base URL (optional)</label><input id="mf-baseurl"></div>
     <div class="form-row"><label>Max Context Tokens</label><input id="mf-tokens" type="number" value="200000"></div>
     <div class="form-row"><label>Thinking</label><select id="mf-thinking"><option value="off">Off</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
-    <div class="form-actions"><button class="btn-sm btn-primary" onclick="saveModel()">Save</button><button class="btn-sm" onclick="document.getElementById('model-form').style.display='none'">Cancel</button></div></div>`
+    <div class="form-actions"><button class="btn-sm btn-primary" onclick="saveModel()">${tt('save')}</button><button class="btn-sm" onclick="document.getElementById('model-form').style.display='none'">${tt('cancel')}</button></div></div>`
 }
 window.saveModel = async function() {
   const now = Date.now()
@@ -105,10 +105,10 @@ window.deleteModel = async (id) => { if (confirm('Delete this model?')) { await 
 // ==================== Prompts ====================
 async function loadPromptsTab(container) {
   const prompts = await settingsApi.prompts.list()
-  container.innerHTML = `<div class="settings-section"><h3>System Prompt Sections</h3><p class="hint-text">Customize sections of the system prompt. Leave empty to use engine defaults.</p><div>${prompts.map(p => `
+  container.innerHTML = `<div class="settings-section"><h3>${tt('prompts')}</h3><p class="hint-text">Customize sections of the system prompt. Leave empty to use engine defaults.</p><div>${prompts.map(p => `
     <div class="settings-card"><div class="card-header"><strong>${esc(p.name)}</strong><span style="font-size:11px;color:var(--fg-quaternary)">${esc(p.id)}</span></div>
     <textarea class="prompt-editor" data-prompt-id="${esc(p.id)}" placeholder="(using engine default)" rows="4">${esc(p.content)}</textarea>
-    <button class="btn-xs" onclick="savePrompt('${esc(p.id)}','${esc(p.name)}',this)">Save</button></div>`).join('')}</div></div>`
+    <button class="btn-xs" onclick="savePrompt('${esc(p.id)}','${esc(p.name)}',this)">${tt('save')}</button></div>`).join('')}</div></div>`
 }
 window.savePrompt = async function(id, name, btn) {
   const textarea = btn.parentElement.querySelector('.prompt-editor')
@@ -127,7 +127,7 @@ async function loadChannelsTab(container) {
     { id: 'qq', name: 'QQ', icon: '💬', inputs: [['app_id','App ID'],['client_secret','Client Secret']] },
     { id: 'telegram', name: 'Telegram', icon: '✈️', inputs: [['bot_token','Bot Token']] },
   ]
-  container.innerHTML = `<div class="settings-section"><h3>IM Channels</h3><p class="hint-text">Connect messaging platforms to Klaus.</p>
+  container.innerHTML = `<div class="settings-section"><h3>${tt("channels")}</h3><p class="hint-text">Connect messaging platforms to Klaus.</p>
     <div style="margin-bottom:12px;font-size:12px;color:var(--fg-tertiary)">
       <details><summary style="cursor:pointer;font-weight:500">Feishu Permissions JSON (click to copy)</summary>
         <pre id="feishu-perms-json" style="background:var(--bg-surface);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:4px" onclick="navigator.clipboard.writeText(this.textContent).then(()=>showToast('Copied!'))">[{"name":"im:message","desc":"Read messages"},{"name":"im:message:send_as_bot","desc":"Send messages as bot"},{"name":"im:chat","desc":"Access chat info"}]</pre>
@@ -136,10 +136,10 @@ async function loadChannelsTab(container) {
     <div class="ch-grid">${chDefs.map(ch => {
     const state = channels.find(c => c.id === ch.id)
     const connected = state?.connected
-    return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? '<span class="s-badge s-badge-green">Connected</span>' : '<span class="s-badge s-badge-gray">Off</span>'}</span></div>
+    return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? '<span class="s-badge s-badge-green">${tt('connected')}</span>' : '<span class="s-badge s-badge-gray">${tt('settings_off')}</span>'}</span></div>
     <div class="ch-card-body">${connected
-      ? `<button class="btn-xs btn-danger" onclick="disconnectChannel('${ch.id}')">Disconnect</button>`
-      : ch.inputs.map(([key, label]) => `<div class="ch-form-field"><label>${label}</label><input id="ch-${ch.id}-${key}" placeholder="${label}" value="${esc(state?.credentials?.[key] || '')}"></div>`).join('') + (ch.inputs.length ? `<button class="btn-xs" onclick="connectChannel('${ch.id}')">Connect</button>` : '<p class="s-muted" style="font-size:12px">QR code login — coming soon</p>')
+      ? `<button class="btn-xs btn-danger" onclick="disconnectChannel('${ch.id}')">${tt('settings_ch_disconnected')}</button>`
+      : ch.inputs.map(([key, label]) => `<div class="ch-form-field"><label>${label}</label><input id="ch-${ch.id}-${key}" placeholder="${label}" value="${esc(state?.credentials?.[key] || '')}"></div>`).join('') + (ch.inputs.length ? `<button class="btn-xs" onclick="connectChannel('${ch.id}')">${tt('settings_ch_connect')}</button>` : '<p class="s-muted" style="font-size:12px">QR code login — coming soon</p>')
     }</div></div>`
   }).join('')}</div></div>`
 }
@@ -208,7 +208,7 @@ function renderSkillCards(skills, view) {
     const isMarket = view === 'market'
     const toggle = !isMarket ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
     const installBtn = isMarket ? `<button class="btn-xs ${s.installed ? '' : 'btn-primary'}" data-install="${esc(s.dirName || s.name)}" ${s.installed ? 'disabled' : ''}>${s.installed ? 'Installed' : 'Install'}</button>` : ''
-    const uninstallBtn = !isMarket && s.source === 'installed' ? `<button class="btn-xs btn-danger" data-uninstall="${esc(s.dirName || s.name)}">Uninstall</button>` : ''
+    const uninstallBtn = !isMarket && s.source === 'installed' ? `<button class="btn-xs btn-danger" data-uninstall="${esc(s.dirName || s.name)}">${tt('settings_skills_uninstall')}</button>` : ''
     const srcBadge = `<span class="s-badge s-badge-gray">${esc(s.source)}</span>`
     return `<div class="sk-card" data-name="${esc(s.name)}"><div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">🧩</div><div class="sk-card-name">${esc(s.name)}</div></div>${toggle}</div>
       <div class="sk-card-desc">${esc(s.description || '')}</div>
@@ -272,8 +272,8 @@ async function loadMcpTab(container) {
   const [servers, status] = await Promise.all([window.klaus.mcp.list(), window.klaus.mcp.status()])
   const statusMap = new Map(status.map(s => [s.name, s]))
 
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>MCP Servers</h3>
-      <div style="display:flex;gap:6px"><button class="btn-sm" id="mcp-add-manual">+ Add Server</button><button class="btn-sm" id="mcp-add-json">Import JSON</button><button class="btn-sm" onclick="window.klaus.mcp.reconnect().then(()=>{showToast('Reconnected');loadSettingsTab('mcp')})">Reconnect</button></div></div>
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("mcp")}</h3>
+      <div style="display:flex;gap:6px"><button class="btn-sm" id="mcp-add-manual">${tt("mcp")} +</button><button class="btn-sm" id="mcp-add-json">${tt('settings_mcp_import_json') || 'Import JSON'}</button><button class="btn-sm" onclick="window.klaus.mcp.reconnect().then(()=>{showToast('Reconnected');loadSettingsTab('mcp')})">${tt('settings_mcp_reconnect') || 'Reconnect'}</button></div></div>
 
     <!-- Manual form (hidden) -->
     <div id="mcp-manual-form" style="display:none"><div class="settings-card">
@@ -284,12 +284,12 @@ async function loadMcpTab(container) {
       <div class="form-row"><label>Timeout (seconds, optional)</label><input id="mcpf-timeout" type="number" class="s-form-input" style="width:100%"></div>
       <div class="form-row"><label>Environment Variables</label><div id="mcpf-env-rows"></div>
         <div style="display:flex;gap:6px;margin-top:4px"><button class="btn-xs" id="mcpf-add-env">+ Add</button><button class="btn-xs" id="mcpf-paste-env">Paste</button></div></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-save">Save</button><button class="btn-sm" id="mcpf-cancel">Cancel</button></div></div></div>
+      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-save">${tt('save')}</button><button class="btn-sm" id="mcpf-cancel">${tt('cancel')}</button></div></div></div>
 
     <!-- JSON import form (hidden) -->
     <div id="mcp-json-form" style="display:none"><div class="settings-card">
       <div class="form-row"><label>Paste .mcp.json content</label><textarea id="mcpf-json" rows="8" class="prompt-editor" placeholder='{ "mcpServers": { "name": { "command": "..." } } }'></textarea></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-json-import">Import</button><button class="btn-sm" id="mcpf-json-cancel">Cancel</button></div></div></div>
+      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-json-import">Import</button><button class="btn-sm" id="mcpf-json-cancel">${tt('cancel')}</button></div></div></div>
 
     <!-- Server list -->
     <div id="mcp-list">${servers.length === 0 ? '<p class="empty-text">No MCP servers configured</p>' : `<div class="sk-grid">${servers.map(s => {
@@ -302,7 +302,7 @@ async function loadMcpTab(container) {
       return `<div class="sk-card"><div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">🔌</div><div class="sk-card-name">${esc(s.name)}</div></div>
         <label class="sk-toggle"><input type="checkbox" class="mcp-toggle-input" data-mcp="${esc(s.name)}" ${s.enabled ? 'checked' : ''}><span class="sk-slider"></span></label></div>
         <div class="sk-card-desc">${esc(detail)}</div>
-        <div class="sk-card-actions"><button class="btn-xs btn-danger" data-delmcp="${esc(s.name)}">Uninstall</button></div>
+        <div class="sk-card-actions"><button class="btn-xs btn-danger" data-delmcp="${esc(s.name)}">${tt('settings_skills_uninstall')}</button></div>
         <div class="sk-card-badges"><span class="s-badge s-badge-gray">${esc(type.toUpperCase())}</span>${st ? `<span class="s-badge ${st.status === 'connected' ? 's-badge-green' : 's-badge-red'}">${st.toolCount} tools</span>` : ''}</div></div>`
     }).join('')}</div>`}</div></div>`
 
@@ -406,17 +406,17 @@ function getMcpEnvVars() {
 // ==================== Cron Tasks ====================
 async function loadCronTab(container) {
   const tasks = await settingsApi.cron.list()
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>Scheduled Tasks</h3><button class="btn-sm" id="cron-add-btn">+ New Task</button></div>
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("cron")}</h3><button class="btn-sm" id="cron-add-btn">${tt("cron")} +</button></div>
     <div id="cron-form" style="display:none"><div class="settings-card">
       <div class="form-row"><label>Task ID</label><input id="cf-id" placeholder="my-task"></div>
       <div class="form-row"><label>Name</label><input id="cf-name" placeholder="Friendly name"></div>
       <div class="form-row"><label>Schedule (cron)</label><input id="cf-schedule" placeholder="0 9 * * *"></div>
       <div class="form-row"><label>Prompt</label><textarea id="cf-prompt" rows="3" class="prompt-editor" placeholder="What should the agent do?"></textarea></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="cf-save">Save</button><button class="btn-sm" id="cf-cancel">Cancel</button></div></div></div>
+      <div class="form-actions"><button class="btn-sm btn-primary" id="cf-save">${tt('save')}</button><button class="btn-sm" id="cf-cancel">${tt('cancel')}</button></div></div></div>
     <div id="cron-list">${tasks.length === 0 ? '<p class="empty-text">No scheduled tasks</p>' : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
     <tr><td><span class="s-code">${esc(t.id)}</span></td><td>${esc(t.name || '-')}</td><td class="s-muted">${esc(t.schedule)}</td>
-    <td>${t.enabled ? '<span class="s-badge s-badge-green">On</span>' : '<span class="s-badge s-badge-gray">Off</span>'}</td>
-    <td><div class="s-actions"><button class="s-btn s-btn-ghost" onclick="toggleCron('${esc(t.id)}',${!t.enabled})">${t.enabled ? 'Disable' : 'Enable'}</button><button class="s-btn s-btn-danger" onclick="deleteCron('${esc(t.id)}')">Delete</button></div></td></tr>`).join('')}</tbody></table>`}</div></div>`
+    <td>${t.enabled ? '<span class="s-badge s-badge-green">${tt('settings_on')}</span>' : '<span class="s-badge s-badge-gray">${tt('settings_off')}</span>'}</td>
+    <td><div class="s-actions"><button class="s-btn s-btn-ghost" onclick="toggleCron('${esc(t.id)}',${!t.enabled})">${t.enabled ? 'Disable' : 'Enable'}</button><button class="s-btn s-btn-danger" onclick="deleteCron('${esc(t.id)}')">${tt('delete_title')}</button></div></td></tr>`).join('')}</tbody></table>`}</div></div>`
   document.getElementById('cron-add-btn')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'block')
   document.getElementById('cf-cancel')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'none')
   document.getElementById('cf-save')?.addEventListener('click', async () => {
@@ -439,19 +439,19 @@ async function loadPreferencesTab(container) {
   const theme = await settingsApi.kv.get('theme') || 'light'
   const permMode = await settingsApi.kv.get('permission_mode') || 'default'
 
-  container.innerHTML = `<div class="settings-section"><h3>Preferences</h3>
-    <div class="settings-field"><label class="settings-field-label">Color mode</label>
+  container.innerHTML = `<div class="settings-section"><h3>${tt("preferences")}</h3>
+    <div class="settings-field"><label class="settings-field-label">${tt("color_mode")}</label>
       <div class="settings-theme-options" id="theme-options">
         <div class="settings-theme-card ${theme === 'light' ? 'active' : ''}" data-theme="light"><div class="settings-theme-preview settings-theme-preview-light"></div><div class="settings-theme-label">Light</div></div>
         <div class="settings-theme-card ${theme === 'dark' ? 'active' : ''}" data-theme="dark"><div class="settings-theme-preview settings-theme-preview-dark"></div><div class="settings-theme-label">Dark</div></div>
       </div></div>
-    <div class="settings-field"><label class="settings-field-label">Permission Mode</label>
+    <div class="settings-field"><label class="settings-field-label">${tt("permission_mode")}</label>
       <div id="perm-options">
         <div class="settings-perm-card ${permMode === 'default' ? 'active' : ''}" data-perm="default"><div class="settings-perm-icon">🛡</div><div><div class="settings-perm-label">Default</div><div class="settings-perm-desc">Ask permission for potentially risky operations</div></div></div>
         <div class="settings-perm-card ${permMode === 'auto' ? 'active' : ''}" data-perm="auto"><div class="settings-perm-icon">⚡</div><div><div class="settings-perm-label">Auto</div><div class="settings-perm-desc">Automatically approve safe operations</div></div></div>
         <div class="settings-perm-card ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions"><div class="settings-perm-icon">🔓</div><div><div class="settings-perm-label">Bypass All</div><div class="settings-perm-desc">Skip all permission prompts (use with caution)</div></div></div>
       </div></div>
-    <div class="settings-field"><label class="settings-field-label">Language</label>
+    <div class="settings-field"><label class="settings-field-label">${tt("language")}</label>
       <div class="settings-theme-options">
         <div class="settings-theme-card ${lang === 'en' ? 'active' : ''}" data-lang="en"><div class="settings-theme-label">English</div></div>
         <div class="settings-theme-card ${lang === 'zh' ? 'active' : ''}" data-lang="zh"><div class="settings-theme-label">中文</div></div>
