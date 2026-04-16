@@ -75,7 +75,7 @@ async function loadProfileTab(container) {
 // ==================== Models ====================
 async function loadModelsTab(container) {
   const models = await settingsApi.models.list()
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("models")}</h3><button class="btn-sm" onclick="showAddModelForm()">${tt("add_model")}</button></div><div id="models-list">${models.length === 0 ? '<p class="empty-text">${tt('no_models')}</p>' : models.map(m => `
+  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("models")}</h3><button class="btn-sm" onclick="showAddModelForm()">${tt("add_model")}</button></div><div id="models-list">${models.length === 0 ? `<p class="empty-text">${tt('no_models')}</p>` : models.map(m => `
     <div class="settings-card ${m.isDefault ? 'card-default' : ''}">
       <div class="card-header"><strong>${esc(m.name)}</strong>${m.isDefault ? '<span class="badge">Default</span>' : ''}${m.role ? `<span class="s-badge s-badge-blue">${esc(m.role)}</span>` : ''}</div>
       <div class="card-meta">${esc(m.provider || 'anthropic')} / ${esc(m.model)} &middot; ${m.maxContextTokens.toLocaleString()} tokens &middot; thinking: ${esc(m.thinking)}</div>
@@ -136,7 +136,7 @@ async function loadChannelsTab(container) {
     <div class="ch-grid">${chDefs.map(ch => {
     const state = channels.find(c => c.id === ch.id)
     const connected = state?.connected
-    return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? '<span class="s-badge s-badge-green">${tt('connected')}</span>' : '<span class="s-badge s-badge-gray">${tt('settings_off')}</span>'}</span></div>
+    return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? `<span class="s-badge s-badge-green">${tt('connected')}</span>` : `<span class="s-badge s-badge-gray">${tt('settings_off')}</span>`}</span></div>
     <div class="ch-card-body">${connected
       ? `<button class="btn-xs btn-danger" onclick="disconnectChannel('${ch.id}')">${tt('settings_ch_disconnected')}</button>`
       : ch.inputs.map(([key, label]) => `<div class="ch-form-field"><label>${label}</label><input id="ch-${ch.id}-${key}" placeholder="${label}" value="${esc(state?.credentials?.[key] || '')}"></div>`).join('') + (ch.inputs.length ? `<button class="btn-xs" onclick="connectChannel('${ch.id}')">${tt('settings_ch_connect')}</button>` : '<p class="s-muted" style="font-size:12px">QR code login — coming soon</p>')
@@ -203,7 +203,7 @@ async function loadSkillsTab(container) {
 }
 
 function renderSkillCards(skills, view) {
-  if (skills.length === 0) return '<p class="empty-text">${tt('no_skills') || 'No skills found'}</p>'
+  if (skills.length === 0) return `<p class="empty-text">${tt('no_skills') || 'No skills found'}</p>`
   return skills.map(s => {
     const isMarket = view === 'market'
     const toggle = !isMarket ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
@@ -292,7 +292,7 @@ async function loadMcpTab(container) {
       <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-json-import">Import</button><button class="btn-sm" id="mcpf-json-cancel">${tt('cancel')}</button></div></div></div>
 
     <!-- Server list -->
-    <div id="mcp-list">${servers.length === 0 ? '<p class="empty-text">${tt('no_mcp') || 'No MCP servers configured'}</p>' : `<div class="sk-grid">${servers.map(s => {
+    <div id="mcp-list">${servers.length === 0 ? `<p class="empty-text">${tt('no_mcp') || 'No MCP servers configured'}</p>` : `<div class="sk-grid">${servers.map(s => {
       const st = statusMap.get(s.name)
       const cfg = s.config || {}
       const type = cfg.type || 'stdio'
@@ -413,9 +413,9 @@ async function loadCronTab(container) {
       <div class="form-row"><label>Schedule (cron)</label><input id="cf-schedule" placeholder="0 9 * * *"></div>
       <div class="form-row"><label>Prompt</label><textarea id="cf-prompt" rows="3" class="prompt-editor" placeholder="What should the agent do?"></textarea></div>
       <div class="form-actions"><button class="btn-sm btn-primary" id="cf-save">${tt('save')}</button><button class="btn-sm" id="cf-cancel">${tt('cancel')}</button></div></div></div>
-    <div id="cron-list">${tasks.length === 0 ? '<p class="empty-text">${tt('no_cron') || 'No scheduled tasks'}</p>' : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
+    <div id="cron-list">${tasks.length === 0 ? `<p class="empty-text">${tt('no_cron') || 'No scheduled tasks'}</p>` : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
     <tr><td><span class="s-code">${esc(t.id)}</span></td><td>${esc(t.name || '-')}</td><td class="s-muted">${esc(t.schedule)}</td>
-    <td>${t.enabled ? '<span class="s-badge s-badge-green">${tt('settings_on')}</span>' : '<span class="s-badge s-badge-gray">${tt('settings_off')}</span>'}</td>
+    <td>${t.enabled ? `<span class="s-badge s-badge-green">${tt('settings_on')}</span>` : `<span class="s-badge s-badge-gray">${tt('settings_off')}</span>`}</td>
     <td><div class="s-actions"><button class="s-btn s-btn-ghost" onclick="toggleCron('${esc(t.id)}',${!t.enabled})">${t.enabled ? 'Disable' : 'Enable'}</button><button class="s-btn s-btn-danger" onclick="deleteCron('${esc(t.id)}')">${tt('delete_title')}</button></div></td></tr>`).join('')}</tbody></table>`}</div></div>`
   document.getElementById('cron-add-btn')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'block')
   document.getElementById('cf-cancel')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'none')

@@ -1,6 +1,6 @@
 // Klaus Desktop — Chat UI (fully aligned with Web端)
 
-const klaus = window.klaus
+const klausApi = window.klaus
 
 // --- State ---
 let currentSessionId = null
@@ -75,7 +75,7 @@ async function init() {
   // Sidebar collapse state
   if (sidebarCollapsed) document.getElementById('sidebar')?.classList.add('collapsed')
 
-  sessions = await klaus.session.list()
+  sessions = await klausApi.session.list()
   renderSessionList()
   updateWelcomeGreeting()
   if (sessions.length > 0) await switchSession(sessions[0].id)
@@ -122,7 +122,7 @@ async function switchSession(id) {
     messagesEl.appendChild(cached)
     sessionDom.delete(id)
   } else {
-    const history = await klaus.session.history(id)
+    const history = await klausApi.session.history(id)
     for (const msg of history) {
       if (msg.role === 'user') appendUserMsg(msg.text)
       else appendFinalAssistantMsg(msg.text)
@@ -132,7 +132,7 @@ async function switchSession(id) {
 }
 
 async function newChat() {
-  const info = await klaus.session.new()
+  const info = await klausApi.session.new()
   sessions.unshift(info)
   await switchSession(info.id)
   renderSessionList()
@@ -140,7 +140,7 @@ async function newChat() {
 }
 
 async function deleteSession(id) {
-  await klaus.session.delete(id)
+  await klausApi.session.delete(id)
   sessions = sessions.filter(s => s.id !== id)
   sessionDom.delete(id)
   if (currentSessionId === id) {
@@ -180,7 +180,7 @@ async function send() {
     : finalText
   appendUserMsg(displayText)
   resetStreamState()
-  await klaus.chat.send(currentSessionId, finalText, media.length > 0 ? media : undefined)
+  await klausApi.chat.send(currentSessionId, finalText, media.length > 0 ? media : undefined)
 }
 
 window.sendQuickPrompt = (topic) => { inputEl.value = topic + ': '; inputEl.focus() }
@@ -190,7 +190,7 @@ window.sendQuickPrompt = (topic) => { inputEl.value = topic + ': '; inputEl.focu
 async function fetchSkills() {
   if (slashSkillsCache) return slashSkillsCache
   try {
-    const skills = await klaus.skills.list()
+    const skills = await klausApi.skills.list()
     slashSkillsCache = skills.filter(s => s.enabled)
     return slashSkillsCache
   } catch { return [] }
@@ -272,7 +272,7 @@ function appendFinalAssistantMsg(text) {
   const msgEl = document.createElement('div')
   msgEl.className = 'msg assistant'
   msgEl.innerHTML = renderMarkdown(text)
-  group.innerHTML = '<div class="msg-label">${tt('bot_name')}</div>'
+  group.innerHTML = `<div class="msg-label">${tt('bot_name')}</div>`
   group.appendChild(msgEl)
   postProcessMsg(msgEl)
   messagesEl.appendChild(group)
@@ -282,7 +282,7 @@ function ensureAssistantGroup() {
   if (!currentMsgGroup) {
     currentMsgGroup = document.createElement('div')
     currentMsgGroup.className = 'msg-group assistant'
-    currentMsgGroup.innerHTML = '<div class="msg-label">${tt('bot_name')}</div>'
+    currentMsgGroup.innerHTML = `<div class="msg-label">${tt('bot_name')}</div>`
     messagesEl.appendChild(currentMsgGroup)
   }
   return currentMsgGroup
@@ -540,7 +540,7 @@ window.handlePermission = function(requestId, decision) {
   if (card && decision === 'allow') {
     card.querySelectorAll('input[data-sug-idx]:checked').forEach(cb => indices.push(parseInt(cb.dataset.sugIdx)))
   }
-  klaus.permission.respond(requestId, decision, indices.length > 0 ? indices : undefined)
+  klausApi.permission.respond(requestId, decision, indices.length > 0 ? indices : undefined)
   if (card) {
     card.querySelector('.permission-actions').innerHTML = `<div class="permission-result ${decision === 'allow' ? 'permission-allowed' : 'permission-denied'}">${decision === 'allow' ? (tt('allowed')) : (tt('denied'))}${indices.length ? ' (rules saved)' : ''}</div>`
     card.querySelector('.permission-timer').remove()
@@ -550,7 +550,7 @@ window.handlePermission = function(requestId, decision) {
 
 // ==================== Events ====================
 
-klaus.on.chatEvent((event) => {
+klausApi.on.chatEvent((event) => {
   if (event.sessionId && event.sessionId !== currentSessionId) return
 
   switch (event.type) {
@@ -588,9 +588,9 @@ klaus.on.chatEvent((event) => {
   }
 })
 
-klaus.on.permissionRequest(showPermissionRequest)
+klausApi.on.permissionRequest(showPermissionRequest)
 
-klaus.on.engineStatus((s) => {
+klausApi.on.engineStatus((s) => {
   statusEl.className = ''
   if (s.status === 'ready') { statusEl.textContent = tt('connected') }
   else if (s.status === 'error') { statusEl.textContent = tt('error'); statusEl.className = 'error' }
@@ -613,7 +613,7 @@ function appendSystemMsg(msg) {
   scrollToBottom()
 }
 
-async function updateSessionInList() { sessions = await klaus.session.list(); renderSessionList() }
+async function updateSessionInList() { sessions = await klausApi.session.list(); renderSessionList() }
 
 // ==================== Utils ====================
 
@@ -707,7 +707,7 @@ async function uploadFileEntry(entry) {
   try {
     // Read file as ArrayBuffer and send to main process
     const buffer = await entry.file.arrayBuffer()
-    const result = await klaus.chat.uploadFile(entry.file.name, entry.file.type, buffer)
+    const result = await klausApi.chat.uploadFile(entry.file.name, entry.file.type, buffer)
     entry.uploadPath = result.path
   } catch (err) {
     appendError('Upload failed: ' + entry.file.name)
@@ -763,8 +763,8 @@ inputEl.addEventListener('paste', (e) => {
 })
 
 // Tray events
-klaus.on.trayNewChat?.(() => newChat())
-klaus.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-view').classList.contains('active')) toggleSettings() })
+klausApi.on.trayNewChat?.(() => newChat())
+klausApi.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-view').classList.contains('active')) toggleSettings() })
 
 // --- Boot ---
 init()
