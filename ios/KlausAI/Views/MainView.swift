@@ -15,8 +15,12 @@ struct MainView: View {
     }
 
     private func sidebarWidth(geometry: GeometryProxy) -> CGFloat {
-        if isPad { return 320 }
+        if isPad { return 260 }
         return min(geometry.size.width - 60, 320)
+    }
+
+    private var rightSidebarWidth: CGFloat {
+        return isPad ? 260 : 0
     }
 
     var body: some View {
@@ -62,6 +66,7 @@ struct MainView: View {
                     }
                 }
                 .padding(.leading, isPad ? sidebarWidth(geometry: geometry) : 0)
+                .padding(.trailing, rightSidebarWidth)
 
                 // Dimming Layer
                 if isSidebarOpened && !isPad {
@@ -96,6 +101,15 @@ struct MainView: View {
                     .offset(x: (isSidebarOpened || isPad) ? 0 : -sidebarWidth(geometry: geometry) - 20)
                     .shadow(color: (!isPad && isSidebarOpened) ? Color.black.opacity(0.15) : .clear, radius: 20, x: 5, y: 0)
                     .zIndex(2)
+                }
+
+                // Right Sidebar Layer
+                if isPad {
+                    RightSidebarView()
+                        .frame(width: rightSidebarWidth)
+                        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                        .offset(x: geometry.size.width - rightSidebarWidth)
+                        .zIndex(2)
                 }
             }
         }
@@ -189,20 +203,47 @@ struct ChatViewWrapper: View {
                             .foregroundStyle(.primary)
                     }
                     .buttonStyle(.plain)
+                } else {
+                    Text(chatTitle)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.primary)
                 }
 
                 Spacer()
 
-                Button {
-                    showSettings = true
-                } label: {
-                    UserAvatarView(
-                        name: appState.currentUser?.displayName ?? "",
-                        size: 30,
-                        avatarUrl: appState.currentUser?.avatarUrl
-                    )
+                if showHamburger {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        UserAvatarView(
+                            name: appState.currentUser?.displayName ?? "",
+                            size: 30,
+                            avatarUrl: appState.currentUser?.avatarUrl
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        // 问题反馈
+                        print("反馈")
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "questionmark.square")
+                            Text("问题反馈")
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "timer")
+                        Text("37%")
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 12)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -306,5 +347,148 @@ struct EmptyStateView: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Right Sidebar (Task Monitor)
+
+struct RightSidebarView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text("任务监控")
+                    .font(.system(.headline, design: .rounded, weight: .bold))
+                Spacer()
+                Image(systemName: "sidebar.right")
+                    .foregroundStyle(.primary)
+                    .font(.system(size: 16))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            
+            Divider()
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // 待办 (To Do)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("待办")
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            TaskRow(title: "转换 ATA 文章为 Markdown", isCompleted: true)
+                            TaskRow(title: "保存到输出目录和桌面", isCompleted: true)
+                        }
+                    }
+                    
+                    // 产物 (Artifacts)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("产物")
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        Text("默认工作目录")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        Text("最终文件")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            FileRow(filename: "1001人公司.md")
+                            FileRow(filename: "跟AI聊一聊: 在AI乱世中....md")
+                            FileRow(filename: "重新定义团队: 当Agent....md")
+                            FileRow(filename: "聊聊 AI 时代的产品护城河.md")
+                            FileRow(filename: "PresentationOS: AI PPT....md")
+                        }
+                    }
+                    
+                    // 工作文件 (Working Files)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("工作文件")
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                            Spacer()
+                            Image(systemName: "chevron.up")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        FileRow(filename: "u4e8b.md'")
+                        
+                        HStack {
+                            Image(systemName: "doc.text")
+                                .foregroundStyle(.secondary)
+                            Text("~ (1)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                        
+                        FileRow(filename: "我给 Claude Code 写了....md")
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .background(Color(.systemBackground))
+        .overlay(
+            Rectangle()
+                .frame(width: 1)
+                .foregroundStyle(Color(.systemGray5)),
+            alignment: .leading
+        )
+    }
+}
+
+struct TaskRow: View {
+    let title: String
+    let isCompleted: Bool
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 14))
+                .foregroundStyle(isCompleted ? .primary : .secondary)
+            
+            Text(title)
+                .font(.system(size: 13))
+                .foregroundStyle(isCompleted ? .secondary : .primary)
+                .strikethrough(isCompleted)
+        }
+    }
+}
+
+struct FileRow: View {
+    let filename: String
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.text.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+            Text(filename)
+                .font(.system(size: 13))
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 }

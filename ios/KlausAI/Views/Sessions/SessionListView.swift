@@ -10,47 +10,95 @@ struct SessionListView: View {
 
     var body: some View {
         List(selection: $selectedSessionId) {
-            // Search bar
+            // Upper menu
             Section {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField(L10n.searchConversations, text: $searchText)
-                        .textFieldStyle(.plain)
+                VStack(spacing: 20) {
+                    Button {
+                        withAnimation {
+                            chatVM.newSession()
+                            selectedSessionId = chatVM.currentSessionId
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                            Text("新任务")
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "wrench.and.screwdriver")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                            Text("技能")
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                            Text("定时任务")
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                            Text("IM 频道")
+                            Spacer()
+                            Text("Beta")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.vertical, 12)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
             }
 
-            // New chat button
+            // Segment control
             Section {
-                Button {
-                    withAnimation {
-                        chatVM.newSession()
-                        selectedSessionId = chatVM.currentSessionId
-                    }
-                } label: {
-                    HStack(spacing: 16) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.primary)
-                        
-                        Text("发起新对话")
-                            .font(.system(.body, design: .default, weight: .semibold))
-                            .foregroundStyle(.primary)
-                        
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
+                HStack(spacing: 0) {
+                    Text("任务")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Color(.systemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
+                    
+                    Text("频道")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.plain)
+                .padding(3)
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.bottom, 8)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             }
@@ -98,11 +146,13 @@ struct SessionListView: View {
                     }
                 }
             } header: {
-                Text(L10n.conversations)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-                    .textCase(nil)
+                HStack {
+                    Text("任务")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.bottom, 4)
             }
         }
         .listStyle(.plain)

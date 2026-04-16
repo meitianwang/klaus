@@ -45,46 +45,93 @@ struct ChatInputBar: View {
             }
 
             // Input container
-            HStack(alignment: .center, spacing: 12) {
-                attachmentMenu
-
-                TextField(L10n.askKlaus, text: $viewModel.inputText, axis: .vertical)
+            VStack(alignment: .leading, spacing: 0) {
+                TextField("描述任务，/ 调用技能与工具", text: $viewModel.inputText, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .lineLimit(1...6)
+                    .lineLimit(1...8)
                     .focused($isFocused)
                     .font(.system(.body, design: .default))
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
                     .onSubmit {
                         if !viewModel.isProcessing {
                             Task { await viewModel.sendMessage() }
                         }
                     }
 
-                if canSend {
-                    sendButton
-                } else {
-                    Button {
-                        isFocused = false
-                        showVoiceSheet = true
-                    } label: {
-                        Image(systemName: "mic")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    // Left toolbar
+                    Button { } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13))
+                            Text("选择工作目录")
+                                .font(.system(size: 13))
+                        }
                     }
-                    .padding(.vertical, 10)
-                    .padding(.trailing, 10)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    
+                    Button { } label: { Image(systemName: "globe").font(.system(size: 16)) }
+                        .buttonStyle(.plain)
+                    Button { } label: { Image(systemName: "calendar").font(.system(size: 16)) }
+                        .buttonStyle(.plain)
+                    Button { showDocumentPicker = true } label: { Image(systemName: "paperclip").font(.system(size: 16)) }
+                        .buttonStyle(.plain)
+
+                    Spacer()
+
+                    // Right toolbar
+                    if isUploading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(.trailing, 4)
+                    }
+
+                    Button { } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.shield.fill")
+                            Text("企业专属")
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10))
+                        }
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+
+                    if canSend {
+                        sendButton
+                    } else {
+                        Button {
+                            isFocused = false
+                            showVoiceSheet = true
+                        } label: {
+                            Image(systemName: "mic")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 6)
+                    }
                 }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 4)
             .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color(.systemGray4), lineWidth: 1)
             )
             .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .padding(.bottom, 16)
             .padding(.top, 4)
         }
         .background(Color(.systemGroupedBackground))
@@ -122,16 +169,15 @@ struct ChatInputBar: View {
             ZStack {
                 Circle()
                     .fill(Color.primary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 30, height: 30)
 
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 14, weight: .medium))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(.systemBackground))
-                    .offset(x: -1, y: 1)
             }
         }
-        .padding(.bottom, 6)
-        .padding(.trailing, 6)
+        .buttonStyle(.plain)
+        .padding(.trailing, 4)
     }
 
     private var attachmentMenu: some View {
