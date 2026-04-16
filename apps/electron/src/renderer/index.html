@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; connect-src 'self';">
+  <title>Klaus</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">Klaus</span>
+        <button id="btn-new-chat" class="btn-icon" data-i18n-title="new_chat" title="New Chat">+</button>
+      </div>
+      <div id="session-list" class="session-list"></div>
+      <div class="sidebar-footer">
+        <button id="btn-settings" class="btn-text" data-i18n="settings">Settings</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+      <!-- Welcome screen -->
+      <div id="welcome" class="welcome">
+        <h1 data-i18n="welcome_title">Klaus AI</h1>
+        <p data-i18n="welcome_sub">Start a conversation</p>
+      </div>
+
+      <!-- Messages -->
+      <div id="messages" class="messages" style="display:none"></div>
+
+      <!-- Input area -->
+      <div id="input-area" class="input-area">
+        <textarea id="input" data-i18n-placeholder="placeholder" placeholder="Send a message..." rows="1"></textarea>
+        <button id="btn-send" class="btn-send" disabled data-i18n="send">Send</button>
+      </div>
+
+      <!-- Engine status -->
+      <div id="status-bar" class="status-bar">
+        <span id="engine-status">Initializing...</span>
+      </div>
+
+      <!-- Settings panel (hidden by default) -->
+      <div id="settings-panel" class="settings-panel" style="display:none">
+        <div class="settings-header">
+          <h2>Settings</h2>
+          <button class="btn-icon" onclick="toggleSettings()" title="Close">&times;</button>
+        </div>
+        <div class="settings-tabs">
+          <button class="settings-tab-btn active" data-tab="models" onclick="loadSettingsTab('models')">Models</button>
+          <button class="settings-tab-btn" data-tab="prompts" onclick="loadSettingsTab('prompts')">Prompts</button>
+          <button class="settings-tab-btn" data-tab="mcp" onclick="loadSettingsTab('mcp')">MCP</button>
+          <button class="settings-tab-btn" data-tab="preferences" onclick="loadSettingsTab('preferences')">Preferences</button>
+        </div>
+        <div id="settings-content" class="settings-content"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/i18n.js"></script>
+  <script src="js/sessions.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/chat.js"></script>
+</body>
+</html>

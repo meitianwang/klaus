@@ -1,0 +1,30 @@
+{
+  "name": "klaus-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/main/index.cjs",
+  "author": "Klaus AI",
+  "description": "Klaus AI Desktop — single-user AI assistant",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch & electron .",
+    "start": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
+    "package": "npm run build && electron-builder --mac",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.50.0",
+    "better-sqlite3": "^11.7.0",
+    "highlight.js": "^11.11.0",
+    "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0"
+  }
+}
