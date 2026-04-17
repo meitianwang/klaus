@@ -8,7 +8,7 @@
   "description": "Klaus AI Desktop — single-user AI assistant",
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch & electron .",
+    "dev": "tsup && (tsup --watch & ELECTRON_RUN_AS_NODE= electron .)",
     "start": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
     "package": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit"

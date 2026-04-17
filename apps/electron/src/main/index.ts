@@ -78,27 +78,29 @@ app.whenReady().then(async () => {
     // 7. Tray
     createTray()
 
-    // 8. Init engine (MCP, prompts, etc.)
-    mainWindow.webContents.send('engine:status', { status: 'initializing' })
-    await engineHost.init()
+    // 8. Engine 初始化 + 依赖它的服务（AutoDream）— 全部后台进行，chat() 会自动 await init
+    engineHost.init()
+      .then(async () => {
+        try {
+          const { initAutoDream } = await import('../engine/services/autoDream/autoDream.js')
+          initAutoDream()
+        } catch (err) {
+          console.warn('[Klaus] AutoDream init failed (non-fatal):', err)
+        }
+        console.log('[Klaus] Engine ready')
+      })
+      .catch(err => {
+        console.error('[Klaus] Engine init failed:', err)
+        mainWindow.webContents.send('engine:status', { status: 'error' })
+      })
 
-    // 9. AutoDream (background memory consolidation)
-    try {
-      const { initAutoDream } = await import('../engine/services/autoDream/autoDream.js')
-      initAutoDream()
-    } catch (err) {
-      console.warn('[Klaus] AutoDream init failed (non-fatal):', err)
-    }
-
-    // 10. Cron scheduler
+    // 9. Cron scheduler — chat() 内部会等 init，可立即启动
     const cronScheduler = new CronScheduler(settingsStore, engineHost)
     cronScheduler.start()
 
-    // Engine is ready — tell renderer
-    mainWindow.webContents.send('engine:status', { status: 'ready' })
     console.log('[Klaus] Desktop app ready')
 
-    // 11. Channel plugins — start in background (don't block UI)
+    // 10. Channel plugins — 后台启动，handler 调 chat() 也会自动等 init
     try {
       const { ChannelManager } = await import('../channels/manager.js')
 

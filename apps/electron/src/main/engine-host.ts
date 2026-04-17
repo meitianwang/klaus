@@ -87,6 +87,7 @@ export class EngineHost {
   private store: SettingsStore
   private messageStore: MessageStore | null = null
   private mainWindow: BrowserWindow | null = null
+  private initPromise: Promise<void> | null = null
 
   constructor(store: SettingsStore) {
     this.store = store
@@ -100,21 +101,22 @@ export class EngineHost {
     this.mainWindow = win
   }
 
-  async init(): Promise<void> {
-    // Set engine CWD state
+  init(): Promise<void> {
+    if (!this.initPromise) this.initPromise = this._doInit()
+    return this.initPromise
+  }
+
+  private async _doInit(): Promise<void> {
     const cwd = homedir()
     setOriginalCwd(cwd)
     setCwdState(cwd)
     setProjectRoot(CONFIG_DIR)
     setIsInteractive(true)
 
-    // Initialize context collapse
     initContextCollapse()
 
-    // Initialize MCP
     await this.initMcp()
 
-    // Seed default prompt sections if empty
     this.seedDefaultPrompts()
   }
 
@@ -264,6 +266,9 @@ export class EngineHost {
   // --- Chat ---
 
   async chat(sessionId: string, text: string, _media?: any[]): Promise<void> {
+    // 等待引擎初始化完成（init 仍在后台进行时，chat 自然排队，用户感知不到）
+    await this.init()
+
     let session = this.sessions.get(sessionId)
     if (!session) {
       // Auto-create

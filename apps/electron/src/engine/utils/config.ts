@@ -1312,8 +1312,8 @@ function saveConfigWithLock<A extends object>(
   }
 }
 
-// Flag to track if config reading is allowed
-let configReadingAllowed = false
+// Klaus: 阀门移除 — 桌面应用不需要 SDK 的"延迟读 config"开发期保护
+let configReadingAllowed = true
 
 export function enableConfigs(): void {
   if (configReadingAllowed) {
@@ -1324,8 +1324,6 @@ export function enableConfigs(): void {
   const startTime = Date.now()
   logForDiagnosticsNoPII('info', 'enable_configs_started')
 
-  // Any reads to configuration before this flag is set show an console warning
-  // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
   // We only check the global config because currently all the configs share a file
   getConfig(
@@ -1407,11 +1405,6 @@ function getConfig<A>(
   createDefault: () => A,
   throwOnInvalid?: boolean,
 ): A {
-  // Log a warning if config is accessed before it's allowed
-  if (!configReadingAllowed && process.env.NODE_ENV !== 'test') {
-    throw new Error('Config accessed before allowed.')
-  }
-
   const fs = getFsImplementation()
 
   try {

@@ -592,9 +592,11 @@ klausApi.on.permissionRequest(showPermissionRequest)
 
 klausApi.on.engineStatus((s) => {
   statusEl.className = ''
-  if (s.status === 'ready') { statusEl.textContent = tt('connected') }
-  else if (s.status === 'error') { statusEl.textContent = tt('error'); statusEl.className = 'error' }
-  else { statusEl.textContent = tt('initializing'); statusEl.className = 'init' }
+  statusEl.textContent = ''
+  if (s.status === 'error') {
+    statusEl.textContent = tt('error')
+    statusEl.className = 'error'
+  }
 })
 
 function appendError(msg) {
