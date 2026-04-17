@@ -1356,3 +1356,33 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .s-form-input:focus { border-color: var(--input-focus); }
 .settings-section-title { font-size: 16px; font-weight: 600; color: var(--fg); margin-bottom: 8px; }
 .hint-text { color: var(--fg-tertiary); font-size: 14px; margin-bottom: 20px; }
+
+/* Auth mode pill (header-right indicator) */
+.auth-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.auth-mode-pill:hover {
+  background: var(--bg);
+  border-color: var(--accent, #3b82f6);
+}
+.auth-mode-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+.auth-mode-pill.warning .dot { background: #f59e0b; }
+.auth-mode-pill.error   .dot { background: #ef4444; }
+.auth-mode-pill .mode-label { font-weight: 500; color: var(--fg); }
+.auth-mode-pill .mode-detail { color: var(--fg-tertiary); }

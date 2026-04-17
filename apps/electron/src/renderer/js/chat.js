@@ -78,8 +78,50 @@ async function init() {
   sessions = await klausApi.session.list()
   renderSessionList()
   updateWelcomeGreeting()
+  refreshAuthPill()
   if (sessions.length > 0) await switchSession(sessions[0].id)
 }
+
+// 刷新头部认证模式指示器
+async function refreshAuthPill() {
+  const pill = document.getElementById('auth-mode-pill')
+  if (!pill) return
+  try {
+    const mode = (await klausApi.settings.kv.get('auth_mode')) || 'subscription'
+    if (mode === 'subscription') {
+      const status = await klausApi.auth?.status?.()
+      if (status?.loggedIn) {
+        pill.className = 'auth-mode-pill'
+        pill.innerHTML = `<span class="dot"></span><span class="mode-label">Claude 订阅</span><span class="mode-detail">· ${escapeHtml(status.account || '已登录')}</span>`
+      } else {
+        pill.className = 'auth-mode-pill warning'
+        pill.innerHTML = `<span class="dot"></span><span class="mode-label">Claude 订阅</span><span class="mode-detail">· 未登录</span>`
+      }
+    } else {
+      const models = await klausApi.settings.models.list()
+      const def = models.find(m => m.isDefault) || models[0]
+      if (def) {
+        pill.className = 'auth-mode-pill'
+        pill.innerHTML = `<span class="dot"></span><span class="mode-label">自定义</span><span class="mode-detail">· ${escapeHtml(def.name || def.model)}</span>`
+      } else {
+        pill.className = 'auth-mode-pill warning'
+        pill.innerHTML = `<span class="dot"></span><span class="mode-label">自定义</span><span class="mode-detail">· 未配置</span>`
+      }
+    }
+    pill.style.display = 'inline-flex'
+  } catch {
+    pill.style.display = 'none'
+  }
+}
+
+// 设置页切了 auth_mode / 登录 / 登出后都会触发这个事件来刷新 pill
+window.addEventListener('klaus:auth-mode-changed', refreshAuthPill)
+
+// 点 pill 跳设置页模型 tab
+document.getElementById('auth-mode-pill')?.addEventListener('click', () => {
+  if (typeof window.toggleSettings === 'function' && !settingsVisibleIfAny()) window.toggleSettings()
+  if (typeof window.loadSettingsTab === 'function') window.loadSettingsTab('models')
+})
 
 function updateWelcomeGreeting() {
   const h = new Date().getHours()
@@ -572,6 +614,7 @@ klausApi.on.chatEvent((event) => {
     }
     case 'api_error': appendError(event.error); break
     case 'api_retry': appendError(`Retrying (${event.attempt}/${event.maxRetries})...`); break
+    case 'auth_required': appendAuthRequired(event.reason, event.mode); break
     // Agent events
     case 'team_created': agentPanel.team = { name: event.teamName }; renderAgentPanel(); break
     case 'teammate_spawned': agentPanel.agents.set(event.agentId, { name: event.name, color: event.color || 'blue', status: 'idle', toolUseCount: 0 }); renderAgentPanel(); break
@@ -613,6 +656,89 @@ function appendSystemMsg(msg) {
   group.innerHTML = `<div class="msg assistant" style="color:var(--fg-tertiary);font-size:13px">${escapeHtml(msg)}</div>`
   messagesEl.appendChild(group)
   scrollToBottom()
+}
+
+function appendAuthRequired(reason, mode) {
+  const group = document.createElement('div')
+  group.className = 'msg-group assistant'
+  const isSubscription = mode === 'subscription'
+  const icon = isSubscription
+    ? `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`
+    : `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`
+  const title = isSubscription ? '请先登录 Claude 订阅' : '请先配置自定义模型'
+  const hint = isSubscription
+    ? '使用你的 Claude Pro / Max 订阅聊天，点击下方登录按钮会打开浏览器完成授权。'
+    : '自定义模式需要先在设置中添加一个含 API Key 的模型。'
+  const primaryLabel = isSubscription ? '登录 Claude 账号' : '去配置模型'
+  const secondaryLabel = isSubscription ? '或切换到自定义模型' : '或切换到 Claude 订阅'
+
+  group.innerHTML = `
+    <div class="msg assistant auth-card" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:520px">
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">
+        <div style="color:var(--accent, #3b82f6);margin-top:2px">${icon}</div>
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:15px;margin-bottom:4px">${escapeHtml(title)}</div>
+          <div style="font-size:13px;color:var(--fg-tertiary);line-height:1.5">${escapeHtml(hint)}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-sm btn-primary" id="auth-primary-btn" style="padding:7px 14px;font-size:13px;font-weight:500">${escapeHtml(primaryLabel)}</button>
+        <button class="btn-sm" id="auth-switch-btn" style="padding:7px 14px;font-size:13px;background:transparent;color:var(--fg-tertiary);border:1px solid var(--border)">${escapeHtml(secondaryLabel)}</button>
+      </div>
+      <div id="auth-action-status" style="margin-top:10px;font-size:12px;color:var(--fg-tertiary)"></div>
+    </div>`
+  messagesEl.appendChild(group)
+
+  const primaryBtn = group.querySelector('#auth-primary-btn')
+  const switchBtn = group.querySelector('#auth-switch-btn')
+  const statusEl = group.querySelector('#auth-action-status')
+
+  primaryBtn?.addEventListener('click', async () => {
+    if (isSubscription) {
+      // 直接触发 OAuth 登录流程
+      primaryBtn.disabled = true
+      primaryBtn.textContent = '正在打开浏览器…'
+      if (statusEl) statusEl.textContent = '请在浏览器中完成授权，完成后这里会自动继续'
+      try {
+        const res = await window.klaus.auth.login()
+        if (res?.ok) {
+          primaryBtn.textContent = '✓ 登录成功'
+          if (statusEl) statusEl.textContent = '已登录，请重新发送你的消息'
+        } else {
+          primaryBtn.disabled = false
+          primaryBtn.textContent = '重试登录'
+          if (statusEl) statusEl.textContent = '登录失败：' + (res?.error || '未知错误')
+        }
+      } catch (err) {
+        primaryBtn.disabled = false
+        primaryBtn.textContent = '重试登录'
+        if (statusEl) statusEl.textContent = '登录失败：' + (err?.message || String(err))
+      }
+    } else {
+      // 跳转到模型设置页配置自定义模型
+      if (typeof window.toggleSettings === 'function' && !settingsVisibleIfAny()) window.toggleSettings()
+      if (typeof window.loadSettingsTab === 'function') window.loadSettingsTab('models')
+    }
+  })
+
+  switchBtn?.addEventListener('click', async () => {
+    // 一键切到另一种模式
+    const newMode = isSubscription ? 'custom' : 'subscription'
+    try {
+      await window.klaus.settings.kv.set('auth_mode', newMode)
+      window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+      if (statusEl) statusEl.textContent = `已切换到${newMode === 'subscription' ? 'Claude 订阅' : '自定义模型'}模式，请重新发送你的消息`
+      primaryBtn.disabled = true
+    } catch (err) {
+      if (statusEl) statusEl.textContent = '切换失败：' + (err?.message || String(err))
+    }
+  })
+
+  scrollToBottom()
+}
+
+function settingsVisibleIfAny() {
+  return document.getElementById('settings-view')?.classList.contains('active')
 }
 
 async function updateSessionInList() { sessions = await klausApi.session.list(); renderSessionList() }

@@ -74,13 +74,93 @@ async function loadProfileTab(container) {
 
 // ==================== Models ====================
 async function loadModelsTab(container) {
-  const models = await settingsApi.models.list()
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("models")}</h3><button class="btn-sm" onclick="showAddModelForm()">${tt("add_model")}</button></div><div id="models-list">${models.length === 0 ? `<p class="empty-text">${tt('no_models')}</p>` : models.map(m => `
-    <div class="settings-card ${m.isDefault ? 'card-default' : ''}">
-      <div class="card-header"><strong>${esc(m.name)}</strong>${m.isDefault ? '<span class="badge">Default</span>' : ''}${m.role ? `<span class="s-badge s-badge-blue">${esc(m.role)}</span>` : ''}</div>
-      <div class="card-meta">${esc(m.provider || 'anthropic')} / ${esc(m.model)} &middot; ${m.maxContextTokens.toLocaleString()} tokens &middot; thinking: ${esc(m.thinking)}</div>
-      <div class="card-actions">${!m.isDefault ? `<button class="btn-xs" onclick="setDefaultModel('${esc(m.id)}')">${tt('set_default')}</button>` : ''}<button class="btn-xs btn-danger" onclick="deleteModel('${esc(m.id)}')">${tt('delete_title')}</button></div>
-    </div>`).join('')}</div><div id="model-form" style="display:none"></div></div>`
+  const authMode = (await settingsApi.kv.get('auth_mode')) || 'subscription'
+
+  const segment = `
+    <div class="auth-mode-segment" style="display:inline-flex;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:3px;margin-bottom:16px">
+      <button class="auth-mode-btn" data-mode="subscription" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:${authMode==='subscription'?'var(--bg)':'transparent'};color:${authMode==='subscription'?'var(--fg)':'var(--fg-tertiary)'};font-weight:${authMode==='subscription'?'600':'400'}">Claude 订阅</button>
+      <button class="auth-mode-btn" data-mode="custom" style="padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:${authMode==='custom'?'var(--bg)':'transparent'};color:${authMode==='custom'?'var(--fg)':'var(--fg-tertiary)'};font-weight:${authMode==='custom'?'600':'400'}">自定义模型</button>
+    </div>
+  `
+
+  let body = ''
+  if (authMode === 'subscription') {
+    body = await renderSubscriptionSection()
+  } else {
+    const models = await settingsApi.models.list()
+    body = `<div class="settings-section-header"><h3>${tt("models")}</h3><button class="btn-sm" onclick="showAddModelForm()">${tt("add_model")}</button></div>
+      <div id="models-list">${models.length === 0 ? `<p class="empty-text">${tt('no_models')}</p>` : models.map(m => `
+        <div class="settings-card ${m.isDefault ? 'card-default' : ''}">
+          <div class="card-header"><strong>${esc(m.name)}</strong>${m.isDefault ? '<span class="badge">Default</span>' : ''}${m.role ? `<span class="s-badge s-badge-blue">${esc(m.role)}</span>` : ''}</div>
+          <div class="card-meta">${esc(m.provider || 'anthropic')} / ${esc(m.model)} &middot; ${m.maxContextTokens.toLocaleString()} tokens &middot; thinking: ${esc(m.thinking)}</div>
+          <div class="card-actions">${!m.isDefault ? `<button class="btn-xs" onclick="setDefaultModel('${esc(m.id)}')">${tt('set_default')}</button>` : ''}<button class="btn-xs btn-danger" onclick="deleteModel('${esc(m.id)}')">${tt('delete_title')}</button></div>
+        </div>`).join('')}</div>
+      <div id="model-form" style="display:none"></div>`
+  }
+
+  container.innerHTML = `<div class="settings-section">${segment}${body}</div>`
+
+  // 绑定 segment 点击
+  container.querySelectorAll('.auth-mode-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const mode = btn.dataset.mode
+      await settingsApi.kv.set('auth_mode', mode)
+      window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+      loadSettingsTab('models')
+    })
+  })
+
+  // subscription 模式下绑定登录/登出按钮
+  if (authMode === 'subscription') {
+    bindSubscriptionHandlers(container)
+  }
+}
+
+async function renderSubscriptionSection() {
+  const status = await window.klaus.auth?.status?.() || { loggedIn: false }
+  if (status.loggedIn) {
+    return `
+      <div class="settings-card">
+        <div class="card-header"><strong>${esc(status.account || 'Claude 账号')}</strong><span class="badge">已登录</span></div>
+        <div class="card-meta" style="color:var(--fg-tertiary);font-size:13px;margin:8px 0">订阅模式下由 Claude 引擎自动管理模型（Opus / Sonnet / Haiku），无需手动配置。</div>
+        <div class="card-actions"><button class="btn-xs btn-danger" id="auth-logout-btn">登出</button></div>
+      </div>
+    `
+  }
+  return `
+    <div class="settings-card">
+      <div class="card-header"><strong>未登录</strong></div>
+      <div class="card-meta" style="color:var(--fg-tertiary);font-size:13px;margin:8px 0">使用你的 Claude 订阅（Pro / Max）聊天，模型和用量由订阅管理。</div>
+      <div class="card-actions"><button class="btn-sm btn-primary" id="auth-login-btn">登录 Claude 账号</button></div>
+      <div id="auth-login-status" style="margin-top:10px;font-size:12px;color:var(--fg-tertiary)"></div>
+    </div>
+  `
+}
+
+function bindSubscriptionHandlers(container) {
+  container.querySelector('#auth-login-btn')?.addEventListener('click', async () => {
+    const statusEl = container.querySelector('#auth-login-status')
+    if (statusEl) statusEl.textContent = '正在打开浏览器…请在浏览器中完成授权'
+    try {
+      const res = await window.klaus.auth.login()
+      if (res?.ok) {
+        window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+        loadSettingsTab('models')
+      } else {
+        if (statusEl) statusEl.textContent = '登录失败：' + (res?.error || '未知错误')
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = '登录失败：' + (err?.message || String(err))
+    }
+  })
+  container.querySelector('#auth-logout-btn')?.addEventListener('click', async () => {
+    if (!confirm('确定登出 Claude 账号吗？')) return
+    try {
+      await window.klaus.auth.logout()
+    } catch {}
+    window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+    loadSettingsTab('models')
+  })
 }
 window.showAddModelForm = function() {
   const form = document.getElementById('model-form'); form.style.display = 'block'
@@ -99,7 +179,11 @@ window.saveModel = async function() {
   await settingsApi.models.upsert({ id: crypto.randomUUID(), name: gv('mf-name') || 'Untitled', provider: gv('mf-provider'), model: gv('mf-model') || 'claude-sonnet-4-20250514', apiKey: gv('mf-apikey') || undefined, baseUrl: gv('mf-baseurl') || undefined, maxContextTokens: parseInt(gv('mf-tokens')) || 200000, thinking: gv('mf-thinking'), isDefault: false, createdAt: now, updatedAt: now })
   loadSettingsTab('models')
 }
-window.setDefaultModel = async (id) => { await settingsApi.models.setDefault(id); loadSettingsTab('models') }
+window.setDefaultModel = async (id) => {
+  await settingsApi.models.setDefault(id)
+  window.dispatchEvent(new Event('klaus:auth-mode-changed'))
+  loadSettingsTab('models')
+}
 window.deleteModel = async (id) => { if (confirm(tt('delete_model'))) { await settingsApi.models.delete(id); loadSettingsTab('models') } }
 
 // ==================== Prompts ====================

@@ -122,6 +122,76 @@ export function registerIpcHandlers(
     return { ok: true, name: skillName }
   })
 
+  // --- Auth (Claude 订阅 OAuth) ---
+  ipcMain.handle('auth:status', async () => {
+    try {
+      const auth = await import('../engine/utils/auth.js')
+      const tokens = auth.getClaudeAIOAuthTokens()
+      if (!tokens) return { loggedIn: false }
+      const account = auth.getOauthAccountInfo?.()
+      return {
+        loggedIn: true,
+        account: account?.emailAddress ?? account?.displayName ?? 'Claude',
+        subscriptionType: tokens.subscriptionType ?? null,
+      }
+    } catch (err: any) {
+      console.error('[Auth] status error:', err)
+      return { loggedIn: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  ipcMain.handle('auth:login', async () => {
+    console.log('[Auth] login flow starting')
+    try {
+      const [{ OAuthService }, authMod, oauthClient] = await Promise.all([
+        import('../engine/services/oauth/index.js'),
+        import('../engine/utils/auth.js'),
+        import('../engine/services/oauth/client.js'),
+      ])
+      const svc = new OAuthService()
+      const tokens = await svc.startOAuthFlow(async (_manualUrl: string) => {
+        // 用默认 openBrowser 自动打开，manual URL 暂不展示给用户
+      })
+      const saveResult = authMod.saveOAuthTokensIfNeeded(tokens)
+      if (!saveResult.success) {
+        return { ok: false, error: saveResult.warning ?? 'Failed to save tokens' }
+      }
+      // 把账户信息也存到全局配置
+      if (tokens.tokenAccount?.uuid) {
+        oauthClient.storeOAuthAccountInfo({
+          accountUuid: tokens.tokenAccount.uuid,
+          emailAddress: tokens.tokenAccount.emailAddress ?? '',
+          organizationUuid: tokens.tokenAccount.organizationUuid,
+          displayName: (tokens.profile as any)?.display_name ?? (tokens.profile as any)?.displayName,
+        })
+      }
+      authMod.clearOAuthTokenCache()
+      console.log('[Auth] login success')
+      return { ok: true }
+    } catch (err: any) {
+      console.error('[Auth] login failed:', err)
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+    try {
+      const [storage, authMod] = await Promise.all([
+        import('../engine/utils/secureStorage/index.js'),
+        import('../engine/utils/auth.js'),
+      ])
+      const s = storage.getSecureStorage()
+      const data = s.read() || {}
+      delete (data as any).claudeAiOauth
+      s.update(data)
+      authMod.clearOAuthTokenCache()
+      return { ok: true }
+    } catch (err: any) {
+      console.error('[Auth] logout failed:', err)
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
   // --- Channels ---
   ipcMain.handle('channels:list', async () => channels.list())
   ipcMain.handle('channels:connect', async (_e, { id, config }) => {

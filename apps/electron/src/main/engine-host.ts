@@ -306,6 +306,39 @@ export class EngineHost {
       return
     }
 
+    // auth_mode 分叉 + 运行时切换
+    // - subscription：清掉 ANTHROPIC_API_KEY/BASE_URL + 解除 SKIP_OAUTH → 引擎走 OAuth
+    // - custom：设 ANTHROPIC_API_KEY/BASE_URL + 打开 SKIP_OAUTH → 引擎无视 keychain 里的 OAuth token，走 API key
+    // 每次 chat 都重新设环境 + 清 OAuth cache，确保用户在设置里切换后立即生效
+    const authMode = (this.store.get('auth_mode') as string) ?? 'subscription'
+    const authMod = await import('../engine/utils/auth.js')
+
+    if (authMode === 'subscription') {
+      delete process.env.ANTHROPIC_API_KEY
+      delete process.env.ANTHROPIC_BASE_URL
+      delete process.env.ANTHROPIC_AUTH_TOKEN
+      delete process.env.CLAUDE_CODE_SKIP_OAUTH
+      authMod.clearOAuthTokenCache() // 让 getClaudeAIOAuthTokens 重新从 keychain 读
+      const token = authMod.getClaudeAIOAuthTokens()
+      if (!token) {
+        this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'not_logged_in', mode: 'subscription' })
+        this.pushEvent({ type: 'done', sessionId })
+        return
+      }
+    } else {
+      const m = this.store.getDefaultModel() as any
+      if (!m || !m.apiKey) {
+        this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'no_model', mode: 'custom' })
+        this.pushEvent({ type: 'done', sessionId })
+        return
+      }
+      process.env.ANTHROPIC_API_KEY = m.apiKey
+      if (m.baseUrl) process.env.ANTHROPIC_BASE_URL = m.baseUrl
+      else delete process.env.ANTHROPIC_BASE_URL
+      process.env.CLAUDE_CODE_SKIP_OAUTH = '1' // 屏蔽已登录的 OAuth token（token 本身保留在 keychain，切回 subscription 立即恢复）
+      authMod.clearOAuthTokenCache() // 让 memoize 下次读时看到 SKIP_OAUTH
+    }
+
     session.isRunning = true
     session.updatedAt = Date.now()
 
@@ -491,9 +524,9 @@ export class EngineHost {
           updateAttributionState: () => {},
           setSDKStatus: () => {},
           contentReplacementState: session.contentReplacementState,
-          // API 凭证 —— 子 agent (AgentTool) 创建时会读这两个
-          apiKey: (modelRecord as any)?.apiKey,
-          baseURL: (modelRecord as any)?.baseUrl ?? undefined,
+          // API 凭证 —— subscription 模式下留空，让引擎读 OAuth credentials；custom 模式读 modelRecord
+          apiKey: authMode === 'subscription' ? undefined : (modelRecord as any)?.apiKey,
+          baseURL: authMode === 'subscription' ? undefined : ((modelRecord as any)?.baseUrl ?? undefined),
           // 同步外部状态进 session.appState（MCP 连接、权限 ctx 都是 EngineHost 级别的）
           // 照搬 CC 模式：getAppState/setAppState 读写同一份完整 AppState
           getAppState: () => session.appState,
@@ -532,7 +565,8 @@ export class EngineHost {
       const sessionDir = sessionDirFor(sessionId)
       mkdirSync(sessionDir, { recursive: true })
 
-      console.log('[Engine] sessionDir=', sessionDir, 'model=', this.getModel(), 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
+      console.log('[Engine] sessionDir=', sessionDir, 'model=', this.getModel(), 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
+
       await runWithCwdOverride(sessionDir, async () => {
         console.log('[Engine] calling query()')
         const gen = query(queryParams)
@@ -546,7 +580,13 @@ export class EngineHost {
         console.log('[Engine] for-await exited, total events=', n)
       })
     } catch (err: any) {
-      this.pushEvent({ type: 'api_error', sessionId, error: err?.message ?? String(err) })
+      const msg: string = err?.message ?? String(err)
+      // 运行时识别 OAuth token 过期 / 被吊销，转成前端能渲染按钮的 auth_required 事件
+      if (/Please run \/login|Not logged in|OAuth token revoked/i.test(msg)) {
+        this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'token_invalid', mode: authMode })
+      } else {
+        this.pushEvent({ type: 'api_error', sessionId, error: msg })
+      }
     } finally {
       session.isRunning = false
       this.pushEvent({ type: 'done', sessionId })

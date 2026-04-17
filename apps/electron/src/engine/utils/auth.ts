@@ -1244,10 +1244,9 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
 }
 
 export const getClaudeAIOAuthTokens = memoize((): OAuthTokens | null => {
-  // OAuth removed — source build uses API key auth only.
-  // This avoids macOS keychain reads that block when no OAuth token exists.
-  return null
-
+  // Klaus 桌面端：显式屏蔽 OAuth（custom 模式切换到 API key 时用，不破坏 keychain 里已有的 token）
+  if (process.env.CLAUDE_CODE_SKIP_OAUTH === '1') return null
+  // Klaus 桌面端恢复 OAuth 读取路径（支持"Claude 订阅"模式）
   // --bare: API-key-only. No OAuth env tokens, no keychain, no credentials file.
   if (isBareMode()) return null
 
@@ -1392,8 +1391,8 @@ async function handleOAuth401ErrorImpl(
  * (which don't hit the keychain), and only uses async for storage reads.
  */
 export async function getClaudeAIOAuthTokensAsync(): Promise<OAuthTokens | null> {
-  // OAuth removed — source build uses API key auth only.
-  return null
+  // Klaus 桌面端：custom 模式屏蔽 OAuth
+  if (process.env.CLAUDE_CODE_SKIP_OAUTH === '1') return null
   if (isBareMode()) return null
 
   // Env var and FD tokens are sync and don't hit the keychain
@@ -1425,9 +1424,7 @@ export function checkAndRefreshOAuthTokenIfNeeded(
   retryCount = 0,
   force = false,
 ): Promise<boolean> {
-  // OAuth removed — source build uses API key auth only.
-  return Promise.resolve(false)
-
+  // Klaus 桌面端恢复 OAuth token 刷新逻辑
   // Deduplicate concurrent non-retry, non-force calls
   if (retryCount === 0 && !force) {
     if (pendingRefreshCheck) {

@@ -129,8 +129,8 @@ export async function getAnthropicClient({
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
 
-  // OAuth removed — source build uses API key auth only.
-  // Original code: await checkAndRefreshOAuthTokenIfNeeded()
+  // Klaus 桌面端恢复：Claude 订阅模式需要在每次 API 请求前检查并刷新 OAuth token
+  await checkAndRefreshOAuthTokenIfNeeded()
 
   if (!isClaudeAISubscriber()) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())

@@ -75,6 +75,13 @@ contextBridge.exposeInMainWorld('klaus', {
     upload: (name: string, buffer: ArrayBuffer) => ipcRenderer.invoke('skills:upload', { name, buffer }),
   },
 
+  // Auth (Claude 订阅登录)
+  auth: {
+    status: () => ipcRenderer.invoke('auth:status'),
+    login: () => ipcRenderer.invoke('auth:login'),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+  },
+
   // Channels
   channels: {
     list: () => ipcRenderer.invoke('channels:list'),
