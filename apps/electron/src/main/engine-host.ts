@@ -57,6 +57,7 @@ interface SessionEntry {
   toolCallCount: number
   createdAt: number
   updatedAt: number
+  abortController: AbortController | null // 当前正在运行的 query 的 AbortController；interrupt 时取出来调 abort()
 }
 
 class ToolLoopDetector {
@@ -237,6 +238,7 @@ export class EngineHost {
       isRunning: false,
       contentReplacementState: createContentReplacementState(),
       toolCallCount: 0,
+      abortController: null,
       createdAt: now,
       updatedAt: now,
     }
@@ -510,7 +512,8 @@ export class EngineHost {
             maxBudgetUsd: undefined,
             hooksConfig: {},
           },
-          abortController: new AbortController(),
+          // 存到 session 上，让 interrupt() 能取到；query 退出时在 finally 里清掉
+          abortController: (session.abortController = new AbortController()),
           readFileState: new Map() as any,
           // CC 原版 toolUseContext 要求这几个 Set 用于 nested memory / skill discovery 追踪
           nestedMemoryAttachmentTriggers: new Set<string>(),
@@ -581,14 +584,21 @@ export class EngineHost {
       })
     } catch (err: any) {
       const msg: string = err?.message ?? String(err)
-      // 运行时识别 OAuth token 过期 / 被吊销，转成前端能渲染按钮的 auth_required 事件
-      if (/Please run \/login|Not logged in|OAuth token revoked/i.test(msg)) {
+      const isAbort = err?.name === 'AbortError'
+        || session.abortController?.signal?.aborted
+        || /aborted|user-cancel/i.test(msg)
+      if (isAbort) {
+        // 用户主动中断，不当 API 错误；推一个 interrupted 事件供前端展示（当前前端忽略）
+        this.pushEvent({ type: 'interrupted' as any, sessionId })
+      } else if (/Please run \/login|Not logged in|OAuth token revoked/i.test(msg)) {
+        // 运行时识别 OAuth token 过期 / 被吊销，转成前端能渲染按钮的 auth_required 事件
         this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'token_invalid', mode: authMode })
       } else {
         this.pushEvent({ type: 'api_error', sessionId, error: msg })
       }
     } finally {
       session.isRunning = false
+      session.abortController = null // 查询结束（无论成败/中断）都清，下次 chat 新建
       this.pushEvent({ type: 'done', sessionId })
 
       // Persist messages
@@ -614,8 +624,11 @@ export class EngineHost {
   }
 
   interrupt(sessionId: string): void {
-    // TODO: implement abort via AbortController stored per session
+    const session = this.sessions.get(sessionId)
+    if (!session?.abortController) return
     console.log(`[Engine] Interrupt requested for ${sessionId}`)
+    // 对齐 CC REPL.tsx:2147：abortController.abort('user-cancel')
+    session.abortController.abort('user-cancel')
   }
 
   // --- Permission response from renderer ---

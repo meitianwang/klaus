@@ -252,7 +252,9 @@ async function send() {
   if (!text && pendingFiles.length === 0) return
   if (busy) return
   if (!currentSessionId) await newChat()
-  busy = true; btnSend.disabled = true
+  busy = true
+  btnSend.disabled = false           // busy 态按钮仍可点击（用于中断）
+  btnSend.classList.add('busy')      // 切到停止图标 + 深色实心
   const finalText = inputEl.value.trim()
   inputEl.value = ''; autoResize(); hideSlashMenu()
 
@@ -644,7 +646,10 @@ klausApi.on.chatEvent((event) => {
     case 'mcp_auth_url': if (event.url) { window.open(event.url, '_blank'); appendSystemMsg('MCP authorization opened in browser for ' + (event.serverName || 'server')) }; break
     case 'done':
       thinkingUI.finalize(); finalizeStream()
-      busy = false; btnSend.disabled = !inputEl.value.trim(); inputEl.focus()
+      busy = false
+      btnSend.classList.remove('busy')
+      btnSend.disabled = !inputEl.value.trim()
+      inputEl.focus()
       updateSessionInList(); break
   }
 })
@@ -766,7 +771,11 @@ async function updateSessionInList() { sessions = await klausApi.session.list();
 function scrollToBottom() { requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight }) }
 function escapeHtml(str) { return str ? String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : '' }
 function autoResize() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px' }
-function updateSendBtn() { btnSend.disabled = !inputEl.value.trim() || busy }
+function updateSendBtn() {
+  // busy 态按钮显示为 stop，始终可点（用于中断）；非 busy 时根据输入框是否有内容
+  if (busy) { btnSend.disabled = false; return }
+  btnSend.disabled = !inputEl.value.trim()
+}
 
 // ==================== Input events ====================
 
@@ -787,7 +796,14 @@ inputEl.addEventListener('keydown', (e) => {
 })
 
 inputEl.addEventListener('input', () => { autoResize(); updateSendBtn(); handleSlashMenu() })
-btnSend.addEventListener('click', send)
+btnSend.addEventListener('click', () => {
+  if (busy) {
+    // 中断当前响应
+    if (currentSessionId) klausApi.chat.interrupt(currentSessionId).catch(() => {})
+  } else {
+    send()
+  }
+})
 btnNewChat.addEventListener('click', newChat)
 
 // Sidebar toggle

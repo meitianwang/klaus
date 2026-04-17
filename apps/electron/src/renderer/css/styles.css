@@ -751,6 +751,17 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 #send:active { transform: scale(0.96); }
 #send:disabled { opacity: 0.25; cursor: not-allowed; }
 #send svg { width: 16px; height: 16px; }
+/* 默认显示飞机（发送）；busy 态显示方块（停止），背景变深色实心 */
+#send .icon-stop { display: none; }
+#send.busy {
+  background: var(--fg, #111);
+  color: var(--bg, #fff);
+  opacity: 1 !important;
+  cursor: pointer;
+}
+#send.busy:hover { background: var(--fg-secondary, #333); transform: scale(1.04); }
+#send.busy .icon-send { display: none; }
+#send.busy .icon-stop { display: block; }
 
 /* File previews */
 #previews { display: none; flex-wrap: wrap; gap: 6px; padding: 4px 6px 0; }
