@@ -146,4 +146,138 @@ export function registerIpcHandlers(
     }
     return ok
   })
+
+  // WeChat QR login
+  let wechatQrSession: { qrcode: string; qrcodeUrl: string; startedAt: number } | null = null
+  ipcMain.handle('channels:wechat:qrStart', async () => {
+    try {
+      const { fetchQRCode, DEFAULT_BASE_URL } = await import('../channels/wechat-api.js')
+      const baseUrl = store.get('channel.wechat.base_url') || DEFAULT_BASE_URL
+      const qr = await fetchQRCode(baseUrl)
+      wechatQrSession = { qrcode: qr.qrcode, qrcodeUrl: qr.qrcodeUrl, startedAt: Date.now() }
+      const QRCode = (await import('qrcode')).default
+      const qrcodeDataUrl = await QRCode.toDataURL(qr.qrcodeUrl, { width: 280, margin: 2 })
+      return { ok: true, qrcodeDataUrl }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+  ipcMain.handle('channels:wechat:qrPoll', async () => {
+    if (!wechatQrSession) return { ok: false, error: 'no active QR session' }
+    try {
+      const { pollQRStatus, DEFAULT_BASE_URL } = await import('../channels/wechat-api.js')
+      const baseUrl = store.get('channel.wechat.base_url') || DEFAULT_BASE_URL
+      const result = await pollQRStatus(baseUrl, wechatQrSession.qrcode)
+      if (result.status === 'confirmed' && result.botToken && result.accountId) {
+        const { encryptCred } = await import('../channels/channel-creds.js')
+        store.set('channel.wechat.token', encryptCred(result.botToken))
+        store.set('channel.wechat.base_url', result.baseUrl || baseUrl)
+        store.set('channel.wechat.account_id', result.accountId)
+        store.set('channel.wechat.enabled', '1')
+        try {
+          const { getChannelManager } = await import('./index.js')
+          getChannelManager?.()?.hotStart('wechat', 'default')
+        } catch {}
+        wechatQrSession = null
+        return { ok: true, status: 'confirmed', accountId: result.accountId }
+      }
+      return { ok: true, status: result.status }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // WhatsApp QR login
+  ipcMain.handle('channels:whatsapp:start', async () => {
+    store.set('channel.whatsapp.enabled', '1')
+    try {
+      const { getChannelManager } = await import('./index.js')
+      getChannelManager?.()?.hotStart('whatsapp', 'default')
+    } catch {}
+
+    const { getWhatsAppQrStatus } = await import('../channels/whatsapp.js')
+    const QRCode = (await import('qrcode')).default
+    let waited = 0
+    while (waited < 10000) {
+      const s = getWhatsAppQrStatus()
+      if (s.connected) return { ok: true, status: 'connected' }
+      if (s.qr) {
+        const qrcodeDataUrl = await QRCode.toDataURL(s.qr, { width: 280 })
+        return { ok: true, status: 'qr', qrcodeDataUrl }
+      }
+      await new Promise(r => setTimeout(r, 500))
+      waited += 500
+    }
+    return { ok: true, status: 'waiting' }
+  })
+  ipcMain.handle('channels:whatsapp:poll', async () => {
+    const { getWhatsAppQrStatus } = await import('../channels/whatsapp.js')
+    const QRCode = (await import('qrcode')).default
+    const s = getWhatsAppQrStatus()
+    if (s.connected) return { ok: true, status: 'connected' }
+    if (s.qr) {
+      const qrcodeDataUrl = await QRCode.toDataURL(s.qr, { width: 280 })
+      return { ok: true, status: 'qr', qrcodeDataUrl }
+    }
+    return { ok: true, status: 'waiting' }
+  })
+
+  // iMessage auto-install + probe
+  ipcMain.handle('channels:imessage:install', async () => {
+    try {
+      const { execFile, exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execFileAsync = promisify(execFile)
+      const execAsync = promisify(exec)
+      const cliPath = 'imsg'
+
+      let installed = false
+      try {
+        await execFileAsync(cliPath, ['--version'], { timeout: 5000 })
+        installed = true
+      } catch {}
+
+      if (!installed) {
+        try {
+          await execFileAsync('brew', ['--version'], { timeout: 5000 })
+        } catch {
+          return { ok: false, error: 'Homebrew not installed. Install from https://brew.sh first.' }
+        }
+        try {
+          await execAsync('brew install steipete/tap/imsg', { timeout: 300_000 })
+        } catch (err) {
+          return { ok: false, error: `imsg installation failed: ${err instanceof Error ? err.message.slice(0, 200) : 'unknown'}` }
+        }
+        try {
+          await execFileAsync(cliPath, ['--version'], { timeout: 5000 })
+        } catch {
+          return { ok: false, error: 'imsg installed but not found on PATH' }
+        }
+      }
+
+      let needsFullDiskAccess = false
+      try {
+        await execFileAsync(cliPath, ['chats', '--limit', '1'], { timeout: 10_000 })
+      } catch {
+        needsFullDiskAccess = true
+      }
+
+      store.set('channel.imessage.cli_path', cliPath)
+      store.set('channel.imessage.enabled', '1')
+      try {
+        const { getChannelManager } = await import('./index.js')
+        getChannelManager?.()?.hotStart('imessage', 'default')
+      } catch {}
+
+      return {
+        ok: true,
+        needsFullDiskAccess,
+        message: needsFullDiskAccess
+          ? 'imsg installed. Grant Full Disk Access to your terminal in System Settings → Privacy & Security.'
+          : 'imsg connected.',
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
 }

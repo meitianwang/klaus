@@ -117,45 +117,397 @@ window.savePrompt = async function(id, name, btn) {
 }
 
 // ==================== Channels ====================
+const FEISHU_PERMISSIONS_JSON = '{"scopes":{"tenant":["contact:contact.base:readonly","docx:document:readonly","im:chat:read","im:chat:update","im:message.group_at_msg:readonly","im:message.p2p_msg:readonly","im:message.pins:read","im:message.pins:write_only","im:message.reactions:read","im:message.reactions:write_only","im:message:readonly","im:message:recall","im:message:send_as_bot","im:message:send_multi_users","im:message:send_sys_msg","im:message:update","im:resource","application:application:self_manage","cardkit:card:write","cardkit:card:read"],"user":["contact:user.employee_id:readonly","offline_access"]}}'
+
+function buildChannelDefs() {
+  return [
+    {
+      id: 'wechat', name: 'WeChat', icon: 'wechat-icon.png',
+      desc: tt('ch_wechat_desc'),
+      inputs: [],
+      flow: 'wechat-qr',
+    },
+    {
+      id: 'wecom', name: 'WeCom', icon: 'wecom-icon.png',
+      desc: tt('ch_wecom_desc'),
+      inputs: [['botid', 'bot_id', 'Bot ID', 'text', 'Enter Bot ID'], ['secret', 'secret', 'Secret', 'password', 'Enter Secret']],
+      guide: [
+        { num: '1', text: tt('ch_wecom_step1'), link: { href: 'https://work.weixin.qq.com/wework_admin/frame#manageTools', label: tt('ch_wecom_step1_link') } },
+        { num: '2', text: tt('ch_wecom_step2') },
+        { num: '3', text: tt('ch_wecom_step3') },
+        { num: '4', text: tt('ch_wecom_step4') },
+      ],
+    },
+    {
+      id: 'qq', name: 'QQ', icon: 'qq-icon.png',
+      desc: tt('ch_qq_desc'),
+      inputs: [['appid', 'app_id', 'App ID', 'text', '102xxxxxx'], ['secret', 'client_secret', 'App Secret', 'password', 'Enter App Secret']],
+      guide: [
+        { num: '1', text: tt('ch_qq_step1'), link: { href: 'https://q.qq.com/', label: tt('ch_qq_step1_link') } },
+        { num: '2', text: tt('ch_qq_step2') },
+        { num: '3', text: tt('ch_qq_step3') },
+      ],
+    },
+    {
+      id: 'feishu', name: 'Feishu / Lark', icon: 'feishu.png',
+      desc: tt('ch_feishu_desc'),
+      inputs: [['appid', 'app_id', 'App ID', 'text', 'cli_xxxxxxxxxxxxxxxx'], ['secret', 'app_secret', 'App Secret', 'password', 'Enter App Secret']],
+      guide: [
+        { num: '1', text: tt('ch_feishu_step1'), link: { href: 'https://open.feishu.cn/app', label: tt('ch_feishu_step1_link') } },
+        { num: '2', text: tt('ch_feishu_step2') },
+        { num: '3', text: tt('ch_feishu_step3'), action: { id: 'feishu-copy-perms', label: tt('ch_feishu_copy_perms') } },
+        { num: '4', text: tt('ch_feishu_step4') },
+      ],
+    },
+    {
+      id: 'dingtalk', name: 'DingTalk', icon: 'dingtalk.png',
+      desc: tt('ch_dingtalk_desc'),
+      inputs: [['clientid', 'client_id', 'Client ID (AppKey)', 'text', 'dingxxxxxxxx'], ['secret', 'client_secret', 'Client Secret (AppSecret)', 'password', 'Enter Client Secret']],
+      guide: [
+        { num: '1', text: tt('ch_dingtalk_step1'), link: { href: 'https://open-dev.dingtalk.com/fe/app', label: tt('ch_dingtalk_step1_link') } },
+        { num: '2', text: tt('ch_dingtalk_step2') },
+        { num: '3', text: tt('ch_dingtalk_step3') },
+      ],
+    },
+    {
+      id: 'telegram', name: 'Telegram', icon: 'telegram-icon.png',
+      desc: tt('ch_telegram_desc'),
+      inputs: [['token', 'bot_token', 'Bot Token', 'password', '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11']],
+      guide: [
+        { num: '1', text: tt('ch_telegram_step1'), link: { href: 'https://t.me/BotFather', label: tt('ch_telegram_step1_link') } },
+        { num: '2', text: tt('ch_telegram_step2') },
+        { num: '3', text: tt('ch_telegram_step3') },
+        { num: '4', text: tt('ch_telegram_step4') },
+      ],
+    },
+    {
+      id: 'imessage', name: 'iMessage', icon: 'imessage-icon.png',
+      desc: tt('ch_imessage_desc'),
+      inputs: [],
+      flow: 'imessage-install',
+    },
+    {
+      id: 'whatsapp', name: 'WhatsApp', icon: 'whatsapp-icon.png',
+      desc: tt('ch_whatsapp_desc'),
+      inputs: [],
+      flow: 'whatsapp-qr',
+    },
+  ]
+}
+
 async function loadChannelsTab(container) {
   const channels = await window.klaus.channels.list()
-  const chDefs = [
-    { id: 'feishu', name: 'Feishu', icon: '💬', inputs: [['app_id','App ID'],['app_secret','App Secret']] },
-    { id: 'dingtalk', name: 'DingTalk', icon: '💬', inputs: [['client_id','Client ID'],['client_secret','Client Secret']] },
-    { id: 'wechat', name: 'WeChat', icon: '💬', inputs: [] },
-    { id: 'wecom', name: 'WeCom', icon: '💬', inputs: [['bot_id','Bot ID'],['secret','Secret']] },
-    { id: 'qq', name: 'QQ', icon: '💬', inputs: [['app_id','App ID'],['client_secret','Client Secret']] },
-    { id: 'telegram', name: 'Telegram', icon: '✈️', inputs: [['bot_token','Bot Token']] },
-  ]
-  container.innerHTML = `<div class="settings-section"><h3>${tt("channels")}</h3><p class="hint-text">${tt('ch_hint')}</p>
-    <div style="margin-bottom:12px;font-size:12px;color:var(--fg-tertiary)">
-      <details><summary style="cursor:pointer;font-weight:500">Feishu Permissions JSON (click to copy)</summary>
-        <pre id="feishu-perms-json" style="background:var(--bg-surface);padding:8px;border-radius:4px;font-size:11px;cursor:pointer;margin-top:4px" onclick="navigator.clipboard.writeText(this.textContent).then(()=>showToast('Copied!'))">[{"name":"im:message","desc":"Read messages"},{"name":"im:message:send_as_bot","desc":"Send messages as bot"},{"name":"im:chat","desc":"Access chat info"}]</pre>
-      </details>
+  const stateMap = new Map(channels.map(c => [c.id, c]))
+  const defs = buildChannelDefs()
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="settings-section-title">${tt('channels')}</div>
+    <p class="hint-text">${tt('ch_hint_desc')}</p>
+    <div class="ch-grid">${defs.map(ch => {
+      const state = stateMap.get(ch.id)
+      const connected = !!state?.connected
+      return `<div class="ch-card" data-ch-id="${ch.id}">
+        <div class="ch-card-head">
+          <div class="ch-card-left">
+            <img src="${ch.icon}" alt="${esc(ch.name)}" width="42" height="42" class="ch-card-icon">
+            <div class="ch-card-name">${esc(ch.name)}</div>
+          </div>
+          <button class="ch-card-btn ${connected ? 'connected' : ''}" data-ch-cfg="${ch.id}">${connected ? tt('ch_configured') : tt('ch_setup')}</button>
+        </div>
+        <div class="ch-card-desc">${esc(ch.desc || '')}</div>
+      </div>`
+    }).join('')}</div>
+  </div>`
+
+  ensureChannelModal()
+  container.querySelectorAll('[data-ch-cfg]').forEach(btn => {
+    btn.addEventListener('click', () => openChannelModal(btn.dataset.chCfg))
+  })
+}
+
+function ensureChannelModal() {
+  if (document.getElementById('ch-modal-overlay')) return
+  const overlay = document.createElement('div')
+  overlay.id = 'ch-modal-overlay'
+  overlay.className = 'ch-modal-overlay'
+  overlay.innerHTML = `<div class="ch-modal" role="dialog" aria-modal="true">
+    <div class="ch-modal-header">
+      <div class="ch-modal-head-left">
+        <img id="ch-modal-icon" width="36" height="36" alt="" class="ch-modal-icon">
+        <div>
+          <div class="ch-modal-title" id="ch-modal-title"></div>
+          <div class="ch-modal-desc" id="ch-modal-desc"></div>
+        </div>
+      </div>
+      <button class="ch-modal-close" id="ch-modal-close-btn">&times;</button>
     </div>
-    <div class="ch-grid">${chDefs.map(ch => {
-    const state = channels.find(c => c.id === ch.id)
-    const connected = state?.connected
-    return `<div class="ch-card"><div class="ch-card-header"><span style="font-size:20px">${ch.icon}</span><span class="ch-card-name">${ch.name}</span><span class="ch-card-status">${connected ? `<span class="s-badge s-badge-green">${tt('connected')}</span>` : `<span class="s-badge s-badge-gray">${tt('settings_off')}</span>`}</span></div>
-    <div class="ch-card-body">${connected
-      ? `<button class="btn-xs btn-danger" onclick="disconnectChannel('${ch.id}')">${tt('settings_ch_disconnected')}</button>`
-      : ch.inputs.map(([key, label]) => `<div class="ch-form-field"><label>${label}</label><input id="ch-${ch.id}-${key}" placeholder="${label}" value="${esc(state?.credentials?.[key] || '')}"></div>`).join('') + (ch.inputs.length ? `<button class="btn-xs" onclick="connectChannel('${ch.id}')">${tt('settings_ch_connect')}</button>` : '<p class="s-muted" style="font-size:12px">QR code login — coming soon</p>')
-    }</div></div>`
-  }).join('')}</div></div>`
+    <div class="ch-modal-body" id="ch-modal-body"></div>
+  </div>`
+  document.body.appendChild(overlay)
+
+  const close = () => {
+    overlay.classList.remove('show')
+    stopChannelPollers()
+  }
+  document.getElementById('ch-modal-close-btn').addEventListener('click', close)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && overlay.classList.contains('show')) close() })
 }
-window.connectChannel = async function(id) {
-  const fieldMap = { feishu: ['app_id','app_secret'], dingtalk: ['client_id','client_secret'], wecom: ['bot_id','secret'], qq: ['app_id','client_secret'], telegram: ['bot_token'] }
-  const fields = fieldMap[id] || []
-  const config = {}
-  for (const key of fields) config[key] = document.getElementById('ch-' + id + '-' + key)?.value?.trim() || ''
-  const result = await window.klaus.channels.connect(id, config)
-  if (result.ok) { showToast(tt('settings_ch_connect_ok')); loadSettingsTab('channels') }
-  else showToast(result.error || 'Connection failed')
+
+let wxPollTimer = null
+let waPollTimer = null
+
+function stopChannelPollers() {
+  if (wxPollTimer) { clearInterval(wxPollTimer); wxPollTimer = null }
+  if (waPollTimer) { clearInterval(waPollTimer); waPollTimer = null }
 }
-window.disconnectChannel = async function(id) {
-  if (!confirm(tt('settings_confirm_delete'))) return
-  window.klaus.channels.disconnect(id)
-  showToast(tt('settings_ch_disconnected')); loadSettingsTab('channels')
+
+async function openChannelModal(id) {
+  stopChannelPollers()
+  const ch = buildChannelDefs().find(c => c.id === id)
+  if (!ch) return
+  const channels = await window.klaus.channels.list()
+  const state = channels.find(c => c.id === id)
+  const connected = !!state?.connected
+
+  document.getElementById('ch-modal-icon').src = ch.icon
+  document.getElementById('ch-modal-title').textContent = ch.name
+  document.getElementById('ch-modal-desc').textContent = ch.desc || ''
+
+  const body = document.getElementById('ch-modal-body')
+
+  if (ch.flow === 'wechat-qr') {
+    renderWechatFlow(body, connected, state)
+  } else if (ch.flow === 'whatsapp-qr') {
+    renderWhatsappFlow(body, connected)
+  } else if (ch.flow === 'imessage-install') {
+    renderImessageFlow(body, connected)
+  } else if (connected) {
+    const details = ch.inputs.filter(i => i[3] !== 'password')
+      .map(i => `<div class="ch-connected-field"><div class="ch-connected-label">${esc(i[2])}</div><div class="ch-connected-value">${esc(state?.credentials?.[i[1]] || '-')}</div></div>`).join('')
+    body.innerHTML = `<div class="ch-connected">
+      ${details}
+      <button class="s-btn s-btn-danger" id="ch-modal-disconnect">${tt('ch_disconnect')}</button>
+    </div>`
+    document.getElementById('ch-modal-disconnect').addEventListener('click', async () => {
+      if (!confirm(tt('settings_confirm_delete'))) return
+      await window.klaus.channels.disconnect(id)
+      showToast(tt('settings_ch_disconnected'))
+      document.getElementById('ch-modal-overlay').classList.remove('show')
+      loadSettingsTab('channels')
+    })
+  } else {
+    const guideHtml = (ch.guide || []).map(g => {
+      const link = g.link ? ` <a href="${g.link.href}" target="_blank" rel="noopener" class="ch-guide-link">${esc(g.link.label)}</a>` : ''
+      const action = g.action ? ` <button class="s-btn s-btn-ghost ch-guide-action" id="ch-guide-${g.action.id}">${esc(g.action.label)}</button>` : ''
+      return `<div class="ch-guide-row"><span class="ch-guide-num">${g.num}.</span> <span>${esc(g.text)}</span>${link}${action}</div>`
+    }).join('')
+
+    const inputsHtml = ch.inputs.map(([key, backendKey, label, type, placeholder]) => `
+      <div class="ch-form-field">
+        <label class="settings-field-label">${esc(label)} <span class="ch-required">*</span></label>
+        <input class="settings-field-input" id="ch-inp-${ch.id}-${key}" type="${type}" placeholder="${esc(placeholder || '')}" value="${esc(state?.credentials?.[backendKey] || '')}">
+      </div>`).join('')
+
+    body.innerHTML = `
+      ${ch.guide ? `<div class="ch-guide"><div class="ch-guide-title">${tt('ch_setup_steps')}</div>${guideHtml}</div>` : ''}
+      <div class="ch-form">${inputsHtml}</div>
+      <div class="ch-form-actions">
+        <button class="s-btn s-btn-primary" id="ch-modal-connect">${tt('ch_connect')}</button>
+      </div>`
+
+    if (ch.id === 'feishu') {
+      document.getElementById('ch-guide-feishu-copy-perms')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(FEISHU_PERMISSIONS_JSON).then(() => showToast(tt('ch_feishu_perms_copied')))
+      })
+    }
+    document.getElementById('ch-modal-connect').addEventListener('click', async () => {
+      const btn = document.getElementById('ch-modal-connect')
+      const payload = {}
+      let valid = true
+      for (const [key, backendKey] of ch.inputs) {
+        const val = document.getElementById(`ch-inp-${ch.id}-${key}`)?.value?.trim()
+        if (!val) { valid = false; break }
+        payload[backendKey] = val
+      }
+      if (!valid) { showToast(tt('ch_fields_required')); return }
+      btn.disabled = true; btn.textContent = tt('settings_ch_connecting')
+      const result = await window.klaus.channels.connect(id, payload)
+      if (result.ok) {
+        showToast(tt('settings_ch_connect_ok'))
+        document.getElementById('ch-modal-overlay').classList.remove('show')
+        loadSettingsTab('channels')
+      } else {
+        showToast(result.error || tt('settings_ch_connect_fail'))
+        btn.disabled = false; btn.textContent = tt('ch_connect')
+      }
+    })
+  }
+
+  document.getElementById('ch-modal-overlay').classList.add('show')
+}
+
+function closeChannelModal() {
+  document.getElementById('ch-modal-overlay')?.classList.remove('show')
+  stopChannelPollers()
+}
+
+// --- WeChat QR flow ---
+function renderWechatFlow(body, connected, state) {
+  if (connected) {
+    body.innerHTML = `<div class="ch-connected">
+      <div class="ch-connected-field">
+        <div><div class="ch-connected-label">Account ID</div><div class="ch-connected-value">${esc(state?.credentials?.account_id || '-')}</div></div>
+        <button class="s-btn s-btn-danger" id="ch-wx-disconnect">${tt('ch_disconnect')}</button>
+      </div>
+    </div>`
+    document.getElementById('ch-wx-disconnect').addEventListener('click', async () => {
+      if (!confirm(tt('settings_confirm_delete'))) return
+      await window.klaus.channels.disconnect('wechat')
+      showToast(tt('settings_ch_disconnected'))
+      closeChannelModal()
+      loadSettingsTab('channels')
+    })
+    return
+  }
+  body.innerHTML = `<div class="ch-qr-wrap">
+    <div class="ch-qr-hint">${tt('ch_wechat_scan_hint')}</div>
+    <img id="ch-wx-qr-img" class="ch-qr-img" alt="QR Code">
+    <div id="ch-wx-qr-status" class="ch-qr-status">${tt('ch_wechat_loading')}</div>
+  </div>`
+
+  window.klaus.channels.wechatQrStart().then(result => {
+    if (!result.ok) {
+      document.getElementById('ch-wx-qr-status').textContent = result.error || tt('settings_ch_connect_fail')
+      return
+    }
+    document.getElementById('ch-wx-qr-img').src = result.qrcodeDataUrl
+    document.getElementById('ch-wx-qr-status').textContent = tt('ch_wechat_waiting')
+    wxPollTimer = setInterval(async () => {
+      const r = await window.klaus.channels.wechatQrPoll()
+      if (!r.ok) return
+      const statusEl = document.getElementById('ch-wx-qr-status')
+      if (!statusEl) { stopChannelPollers(); return }
+      if (r.status === 'scaned') statusEl.textContent = tt('ch_wechat_scanned')
+      else if (r.status === 'confirmed') {
+        stopChannelPollers()
+        showToast(tt('settings_ch_connect_ok'))
+        closeChannelModal()
+        loadSettingsTab('channels')
+      } else if (r.status === 'expired') {
+        stopChannelPollers()
+        statusEl.textContent = tt('ch_wechat_expired')
+      }
+    }, 3000)
+  })
+}
+
+// --- WhatsApp QR flow ---
+function renderWhatsappFlow(body, connected) {
+  if (connected) {
+    body.innerHTML = `<div class="ch-connected">
+      <div class="ch-connected-field">
+        <div class="ch-connected-label">${tt('ch_connected')}</div>
+        <button class="s-btn s-btn-danger" id="ch-wa-disconnect">${tt('ch_disconnect')}</button>
+      </div>
+    </div>`
+    document.getElementById('ch-wa-disconnect').addEventListener('click', async () => {
+      if (!confirm(tt('settings_confirm_delete'))) return
+      await window.klaus.channels.disconnect('whatsapp')
+      showToast(tt('settings_ch_disconnected'))
+      closeChannelModal()
+      loadSettingsTab('channels')
+    })
+    return
+  }
+  body.innerHTML = `<div class="ch-qr-wrap">
+    <div class="ch-qr-hint">${tt('ch_whatsapp_scan_hint')}</div>
+    <img id="ch-wa-qr-img" class="ch-qr-img" alt="QR Code" style="display:none">
+    <div id="ch-wa-qr-status" class="ch-qr-status">${tt('ch_whatsapp_loading')}</div>
+  </div>`
+
+  const updateQr = (r) => {
+    const img = document.getElementById('ch-wa-qr-img')
+    const statusEl = document.getElementById('ch-wa-qr-status')
+    if (!img || !statusEl) return false
+    if (r.status === 'connected') {
+      stopChannelPollers()
+      showToast(tt('settings_ch_connect_ok'))
+      closeChannelModal()
+      loadSettingsTab('channels')
+      return true
+    }
+    if (r.status === 'qr' && r.qrcodeDataUrl) {
+      img.src = r.qrcodeDataUrl
+      img.style.display = 'block'
+      statusEl.textContent = tt('ch_whatsapp_waiting')
+    } else {
+      statusEl.textContent = tt('ch_whatsapp_loading')
+    }
+    return false
+  }
+
+  window.klaus.channels.whatsappStart().then(r => {
+    if (!r.ok) {
+      document.getElementById('ch-wa-qr-status').textContent = r.error || tt('settings_ch_connect_fail')
+      return
+    }
+    if (updateQr(r)) return
+    waPollTimer = setInterval(async () => {
+      const p = await window.klaus.channels.whatsappPoll()
+      if (p.ok) updateQr(p)
+    }, 3000)
+  })
+}
+
+// --- iMessage install flow ---
+function renderImessageFlow(body, connected) {
+  if (connected) {
+    body.innerHTML = `<div class="ch-connected">
+      <div class="ch-connected-field">
+        <div class="ch-connected-label">${tt('ch_connected')}</div>
+        <button class="s-btn s-btn-danger" id="ch-im-disconnect">${tt('ch_disconnect')}</button>
+      </div>
+      <div class="ch-imessage-usage">${tt('ch_imessage_usage')}</div>
+    </div>`
+    document.getElementById('ch-im-disconnect').addEventListener('click', async () => {
+      if (!confirm(tt('settings_confirm_delete'))) return
+      await window.klaus.channels.disconnect('imessage')
+      showToast(tt('settings_ch_disconnected'))
+      closeChannelModal()
+      loadSettingsTab('channels')
+    })
+    return
+  }
+  body.innerHTML = `<div class="ch-imessage">
+    <div class="ch-imessage-info">${tt('ch_imessage_info')}</div>
+    <div id="ch-im-perm-hint" class="ch-imessage-perm" style="display:none">
+      <div class="ch-imessage-perm-title">${tt('ch_imessage_perm_title')}</div>
+      <div>${tt('ch_imessage_perm_desc')}</div>
+    </div>
+    <div class="ch-form-actions">
+      <button class="s-btn s-btn-primary" id="ch-im-connect">${tt('ch_connect')}</button>
+    </div>
+  </div>`
+  document.getElementById('ch-im-connect').addEventListener('click', async () => {
+    const btn = document.getElementById('ch-im-connect')
+    btn.disabled = true; btn.textContent = tt('settings_ch_connecting')
+    const r = await window.klaus.channels.imessageInstall()
+    if (!r.ok) {
+      showToast(r.error || tt('settings_ch_connect_fail'))
+      btn.disabled = false; btn.textContent = tt('ch_connect')
+      return
+    }
+    if (r.needsFullDiskAccess) {
+      document.getElementById('ch-im-perm-hint').style.display = 'block'
+      showToast(r.message || tt('ch_imessage_need_fda'))
+      btn.disabled = false; btn.textContent = tt('ch_connect')
+    } else {
+      showToast(tt('settings_ch_connect_ok'))
+      closeChannelModal()
+      loadSettingsTab('channels')
+    }
+  })
 }
 
 // ==================== Skills (5 views + search + install) ====================

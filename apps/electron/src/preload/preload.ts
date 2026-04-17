@@ -76,6 +76,11 @@ contextBridge.exposeInMainWorld('klaus', {
     list: () => ipcRenderer.invoke('channels:list'),
     connect: (id: string, config: any) => ipcRenderer.invoke('channels:connect', { id, config }),
     disconnect: (id: string) => ipcRenderer.invoke('channels:disconnect', { id }),
+    wechatQrStart: () => ipcRenderer.invoke('channels:wechat:qrStart'),
+    wechatQrPoll: () => ipcRenderer.invoke('channels:wechat:qrPoll'),
+    whatsappStart: () => ipcRenderer.invoke('channels:whatsapp:start'),
+    whatsappPoll: () => ipcRenderer.invoke('channels:whatsapp:poll'),
+    imessageInstall: () => ipcRenderer.invoke('channels:imessage:install'),
   },
 
   // Event listeners (main → renderer push)

@@ -652,21 +652,81 @@ document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
 })
 
 // User menu
+function closeUserMenu() {
+  userMenuOpen = false
+  document.getElementById('user-menu')?.classList.remove('open')
+  document.getElementById('user-menu-lang')?.classList.remove('open')
+}
+
+function initLangSubmenu() {
+  const submenu = document.getElementById('user-menu-lang')
+  if (!submenu) return
+  const checkSvg = '<svg class="menu-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>'
+  submenu.innerHTML = `
+    <button class="user-menu-item${currentLang === 'en' ? ' active' : ''}" data-lang="en"><span>English</span>${currentLang === 'en' ? checkSvg : ''}</button>
+    <button class="user-menu-item${currentLang === 'zh' ? ' active' : ''}" data-lang="zh"><span>中文</span>${currentLang === 'zh' ? checkSvg : ''}</button>
+  `
+  submenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-lang]')
+    if (btn) {
+      const lang = btn.dataset.lang
+      setLanguage(lang)
+      klausApi?.settings?.kv?.set?.('language', lang).catch(() => {})
+      updateLangSubmenuActive(lang)
+    }
+  })
+}
+
+function updateLangSubmenuActive(lang) {
+  const submenu = document.getElementById('user-menu-lang')
+  if (submenu) {
+    const checkSvg = '<svg class="menu-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    submenu.querySelectorAll('[data-lang]').forEach(btn => {
+      const isActive = btn.dataset.lang === lang
+      btn.classList.toggle('active', isActive)
+      const check = btn.querySelector('.menu-check')
+      if (isActive && !check) btn.innerHTML += checkSvg
+      else if (!isActive && check) check.remove()
+    })
+  }
+}
+
 document.getElementById('sidebar-user')?.addEventListener('click', (e) => {
   e.stopPropagation()
-  userMenuOpen = !userMenuOpen
-  document.getElementById('user-menu')?.classList.toggle('open', userMenuOpen)
+  if (userMenuOpen) {
+    closeUserMenu()
+  } else {
+    userMenuOpen = true
+    document.getElementById('user-menu')?.classList.add('open')
+  }
 })
-document.addEventListener('click', () => {
-  if (userMenuOpen) { userMenuOpen = false; document.getElementById('user-menu')?.classList.remove('open') }
-})
+document.addEventListener('click', closeUserMenu)
+initLangSubmenu()
 document.getElementById('menu-settings')?.addEventListener('click', () => {
-  userMenuOpen = false; document.getElementById('user-menu')?.classList.remove('open')
+  closeUserMenu()
   toggleSettings()
 })
+document.getElementById('menu-language')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const langSubmenu = document.getElementById('user-menu-lang')
+  if (!langSubmenu) return
+  if (langSubmenu.classList.contains('open')) {
+    langSubmenu.classList.remove('open')
+  } else {
+    const menuBtn = e.currentTarget
+    const rect = menuBtn.getBoundingClientRect()
+    langSubmenu.style.left = (rect.right + 8) + 'px'
+    langSubmenu.style.top = rect.top + 'px'
+    langSubmenu.classList.add('open')
+  }
+})
 document.getElementById('menu-help')?.addEventListener('click', () => {
-  userMenuOpen = false; document.getElementById('user-menu')?.classList.remove('open')
+  closeUserMenu()
   window.open('https://github.com/anthropics/claude-code/issues', '_blank')
+})
+document.getElementById('menu-logout')?.addEventListener('click', () => {
+  closeUserMenu()
+  window.close()
 })
 
 // Settings back
