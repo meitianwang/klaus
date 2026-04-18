@@ -40,6 +40,13 @@ contextBridge.exposeInMainWorld('klaus', {
       list: () => ipcRenderer.invoke('settings:cron:list'),
       upsert: (task: any) => ipcRenderer.invoke('settings:cron:upsert', task),
       delete: (id: string) => ipcRenderer.invoke('settings:cron:delete', { id }),
+      runs: (filters?: { limit?: number; offset?: number; taskId?: string; status?: string }) =>
+        ipcRenderer.invoke('settings:cron:runs:list', filters ?? {}),
+      runNow: (id: string) => ipcRenderer.invoke('settings:cron:run:now', { id }),
+      keepAwake: {
+        get: () => ipcRenderer.invoke('settings:cron:keep-awake:get'),
+        set: (enabled: boolean) => ipcRenderer.invoke('settings:cron:keep-awake:set', { enabled }),
+      },
     },
   },
 

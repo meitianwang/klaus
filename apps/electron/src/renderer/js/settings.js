@@ -1,6 +1,7 @@
 // Klaus Desktop — Settings Panel
-// Tabs: Profile, Models, Channels, Skills, MCP, Tasks
-// Prompts are managed in the Klaus web admin panel (cloud), not here.
+// Tabs: Profile, Models, Channels, Skills, MCP
+// Prompts are managed in the Klaus web admin panel (cloud).
+// Scheduled tasks live in their own view (cron.js, sidebar entry).
 
 const settingsApi = window.klaus.settings
 let settingsVisible = false
@@ -20,11 +21,11 @@ function loadSettingsTab(tab) {
   const content = document.getElementById('settings-content')
   switch (tab) {
     case 'profile': loadProfileTab(content); break
+    case 'preferences': loadPreferencesTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
     case 'skills': loadSkillsTab(content); break
     case 'mcp': loadMcpTab(content); break
-    case 'cron': loadCronTab(content); break
   }
 }
 
@@ -51,14 +52,18 @@ function applyAvatar(dataUrl, displayName) {
   })
 }
 
-// 启动时把保存过的 display_name 和 avatar 应用到侧栏
+// 启动时把保存过的 display_name / email / avatar 应用到侧栏
 async function bootstrapProfile() {
   try {
     const name = await settingsApi.kv.get('display_name') || tt('user_default_name')
+    const email = await settingsApi.kv.get('email') || tt('user_default_email')
     const dataUrl = await settingsApi.kv.get('avatar_data_url')
     // 侧栏名字
     const sidebarName = document.querySelector('.sidebar-username')
     if (sidebarName) sidebarName.textContent = name
+    // 用户菜单里的 email
+    const emailEl = document.getElementById('user-menu-email')
+    if (emailEl) emailEl.textContent = email
     // 侧栏头像（有图片就用图，没有就用首字母）
     applyAvatar(dataUrl, name)
   } catch {}
@@ -72,9 +77,7 @@ async function loadProfileTab(container) {
   const displayName = await settingsApi.kv.get('display_name') || tt('user_default_name')
   const email = await settingsApi.kv.get('email') || tt('user_default_email')
   const avatarDataUrl = await settingsApi.kv.get('avatar_data_url')
-  const lang = await settingsApi.kv.get('language') || 'en'
   const theme = await settingsApi.kv.get('theme') || 'light'
-  const permMode = await settingsApi.kv.get('permission_mode') || 'default'
 
   container.innerHTML = `<div class="settings-section">
     <div class="settings-profile-header" style="display:flex;gap:16px;margin-bottom:20px;align-items:center">
@@ -111,21 +114,6 @@ async function loadProfileTab(container) {
             <div class="settings-theme-label">${tt('dark') || 'Dark'}</div>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="settings-field">
-      <label class="settings-field-label">${tt("permission_mode")}</label>
-      <div id="perm-options">
-        <div class="settings-perm-card ${permMode === 'default' ? 'active' : ''}" data-perm="default"><div class="settings-perm-icon">🛡</div><div><div class="settings-perm-label">${tt('perm_default')}</div><div class="settings-perm-desc">${tt('perm_default_desc')}</div></div></div>
-        <div class="settings-perm-card ${permMode === 'auto' ? 'active' : ''}" data-perm="auto"><div class="settings-perm-icon">⚡</div><div><div class="settings-perm-label">${tt('perm_auto')}</div><div class="settings-perm-desc">${tt('perm_auto_desc')}</div></div></div>
-        <div class="settings-perm-card ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions"><div class="settings-perm-icon">🔓</div><div><div class="settings-perm-label">${tt('perm_bypass')}</div><div class="settings-perm-desc">${tt('perm_bypass_desc')}</div></div></div>
-      </div>
-    </div>
-    <div class="settings-field">
-      <label class="settings-field-label">${tt("language")}</label>
-      <div class="settings-theme-options">
-        <div class="settings-theme-card ${lang === 'en' ? 'active' : ''}" data-lang="en"><div class="settings-theme-label">English</div></div>
-        <div class="settings-theme-card ${lang === 'zh' ? 'active' : ''}" data-lang="zh"><div class="settings-theme-label">中文</div></div>
       </div>
     </div>
   </div>`
@@ -190,24 +178,55 @@ async function loadProfileTab(container) {
     }
   })
 
-  // 主题 / 权限 / 语言 切换（原 loadPreferencesTab 的逻辑）
+  // Theme switch
   container.querySelector('#theme-options')?.addEventListener('click', async (e) => {
     const card = e.target.closest('.settings-theme-card'); if (!card) return
     container.querySelectorAll('#theme-options .settings-theme-card').forEach(c => c.classList.toggle('active', c.dataset.theme === card.dataset.theme))
     await settingsApi.kv.set('theme', card.dataset.theme); applyTheme(card.dataset.theme)
   })
+}
+
+// ==================== Preferences ====================
+async function loadPreferencesTab(container) {
+  const permMode = await settingsApi.kv.get('permission_mode') || 'default'
+  let keepAwake = false
+  try { keepAwake = (await settingsApi.cron.keepAwake.get())?.enabled === true } catch {}
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="settings-field">
+      <label class="settings-field-label">${tt("permission_mode")}</label>
+      <div id="perm-options">
+        <div class="settings-perm-card ${permMode === 'default' ? 'active' : ''}" data-perm="default"><div class="settings-perm-icon">🛡</div><div><div class="settings-perm-label">${tt('perm_default')}</div><div class="settings-perm-desc">${tt('perm_default_desc')}</div></div></div>
+        <div class="settings-perm-card ${permMode === 'auto' ? 'active' : ''}" data-perm="auto"><div class="settings-perm-icon">⚡</div><div><div class="settings-perm-label">${tt('perm_auto')}</div><div class="settings-perm-desc">${tt('perm_auto_desc')}</div></div></div>
+        <div class="settings-perm-card ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions"><div class="settings-perm-icon">🔓</div><div><div class="settings-perm-label">${tt('perm_bypass')}</div><div class="settings-perm-desc">${tt('perm_bypass_desc')}</div></div></div>
+      </div>
+    </div>
+    <div class="settings-field settings-row-field">
+      <div class="settings-row-text">
+        <div class="settings-row-label">${tt('cron_keep_awake')}</div>
+        <div class="settings-row-desc">${tt('cron_awake_hint')}</div>
+      </div>
+      <label class="cron-switch">
+        <input type="checkbox" id="pref-keep-awake" ${keepAwake ? 'checked' : ''}>
+        <span class="cron-switch-track"></span>
+      </label>
+    </div>
+  </div>`
+
   container.querySelector('#perm-options')?.addEventListener('click', async (e) => {
     const card = e.target.closest('.settings-perm-card'); if (!card) return
     container.querySelectorAll('.settings-perm-card').forEach(c => c.classList.toggle('active', c.dataset.perm === card.dataset.perm))
     await settingsApi.kv.set('permission_mode', card.dataset.perm); showToast(tt('perm_mode_saved'))
   })
-  container.querySelectorAll('[data-lang]').forEach(card => {
-    card.addEventListener('click', async () => {
-      container.querySelectorAll('[data-lang]').forEach(c => c.classList.toggle('active', c.dataset.lang === card.dataset.lang))
-      await settingsApi.kv.set('language', card.dataset.lang)
-      if (typeof setLanguage === 'function') setLanguage(card.dataset.lang)
-      showToast(tt('language_saved'))
-    })
+  container.querySelector('#pref-keep-awake')?.addEventListener('change', async (e) => {
+    const checked = e.target.checked
+    const res = await settingsApi.cron.keepAwake.set(checked)
+    if (!res?.ok) {
+      e.target.checked = !checked
+      showToast(res?.error || 'Failed')
+      return
+    }
+    showToast(tt('settings_saved'))
   })
 }
 
@@ -905,36 +924,6 @@ function getMcpEnvVars() {
   })
   return Object.keys(env).length ? env : undefined
 }
-
-// ==================== Cron Tasks ====================
-async function loadCronTab(container) {
-  const tasks = await settingsApi.cron.list()
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("cron")}</h3><button class="btn-sm" id="cron-add-btn">${tt("cron")} +</button></div>
-    <div id="cron-form" style="display:none"><div class="settings-card">
-      <div class="form-row"><label>Task ID</label><input id="cf-id" placeholder="my-task"></div>
-      <div class="form-row"><label>Name</label><input id="cf-name" placeholder="Friendly name"></div>
-      <div class="form-row"><label>Schedule (cron)</label><input id="cf-schedule" placeholder="0 9 * * *"></div>
-      <div class="form-row"><label>Prompt</label><textarea id="cf-prompt" rows="3" class="prompt-editor" placeholder="What should the agent do?"></textarea></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="cf-save">${tt('save')}</button><button class="btn-sm" id="cf-cancel">${tt('cancel')}</button></div></div></div>
-    <div id="cron-list">${tasks.length === 0 ? `<p class="empty-text">${tt('no_cron') || 'No scheduled tasks'}</p>` : `<table class="s-table"><thead><tr><th>ID</th><th>Name</th><th>Schedule</th><th>Status</th><th></th></tr></thead><tbody>${tasks.map(t => `
-    <tr><td><span class="s-code">${esc(t.id)}</span></td><td>${esc(t.name || '-')}</td><td class="s-muted">${esc(t.schedule)}</td>
-    <td>${t.enabled ? `<span class="s-badge s-badge-green">${tt('settings_on')}</span>` : `<span class="s-badge s-badge-gray">${tt('settings_off')}</span>`}</td>
-    <td><div class="s-actions"><button class="s-btn s-btn-ghost" onclick="toggleCron('${esc(t.id)}',${!t.enabled})">${t.enabled ? tt('cron_disable') : tt('cron_enable')}</button><button class="s-btn s-btn-danger" onclick="deleteCron('${esc(t.id)}')">${tt('delete_title')}</button></div></td></tr>`).join('')}</tbody></table>`}</div></div>`
-  document.getElementById('cron-add-btn')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'block')
-  document.getElementById('cf-cancel')?.addEventListener('click', () => document.getElementById('cron-form').style.display = 'none')
-  document.getElementById('cf-save')?.addEventListener('click', async () => {
-    const id = gv('cf-id'), schedule = gv('cf-schedule'), prompt = gv('cf-prompt')
-    if (!id || !schedule || !prompt) { showToast(tt('ch_fields_required')); return }
-    await settingsApi.cron.upsert({ id, name: gv('cf-name') || undefined, schedule, prompt, enabled: true, createdAt: Date.now(), updatedAt: Date.now() })
-    showToast(tt('settings_saved')); loadSettingsTab('cron')
-  })
-}
-window.toggleCron = async function(id, enabled) {
-  const tasks = await settingsApi.cron.list()
-  const t = tasks.find(x => x.id === id)
-  if (t) { await settingsApi.cron.upsert({ ...t, enabled, updatedAt: Date.now() }); loadSettingsTab('cron') }
-}
-window.deleteCron = async function(id) { if (confirm(tt('settings_cron_delete_confirm'))) { await settingsApi.cron.delete(id); showToast(tt('toast_deleted')); loadSettingsTab('cron') } }
 
 // ==================== Preferences ====================
 // loadPreferencesTab 已合并到 loadProfileTab

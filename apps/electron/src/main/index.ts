@@ -73,6 +73,8 @@ if (!process.env.CLAUDE_CODE_FEATURES) {
 // --- App lifecycle ---
 
 let settingsStore: SettingsStore
+let cronSchedulerRef: CronScheduler | null = null
+export function getCronScheduler(): CronScheduler | null { return cronSchedulerRef }
 let engineHost: EngineHost
 let channelManager: any = null
 export function getChannelManager() { return channelManager }
@@ -120,6 +122,18 @@ app.whenReady().then(async () => {
     // 9. Cron scheduler — chat() 内部会等 init，可立即启动
     const cronScheduler = new CronScheduler(settingsStore, engineHost)
     cronScheduler.start()
+    cronSchedulerRef = cronScheduler
+
+    // Restore keep-awake state from the last session (user-set toggle on the
+    // Scheduled Tasks page). Defaults to off.
+    try {
+      if (settingsStore.getBool('cron.keep_awake', false)) {
+        const { startPowerSaveBlocker } = await import('./power-saver.js')
+        startPowerSaveBlocker()
+      }
+    } catch (err) {
+      console.warn('[Klaus] keep-awake restore failed:', err)
+    }
 
     console.log('[Klaus] Desktop app ready')
 

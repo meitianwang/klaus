@@ -203,6 +203,11 @@ function renderSessionList() {
 }
 
 async function switchSession(id) {
+  // Leaving any full-screen overlay — clicking a session in the sidebar
+  // means the user wants to return to the chat surface.
+  if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+
   // Save current session's DOM
   if (currentSessionId && messagesEl.childNodes.length) {
     const frag = document.createDocumentFragment()
@@ -927,7 +932,18 @@ btnSend.addEventListener('click', () => {
     send()
   }
 })
-btnNewChat.addEventListener('click', newChat)
+btnNewChat.addEventListener('click', () => {
+  // Coming from cron/settings view: close the overlay before starting a new chat
+  if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  newChat()
+})
+
+document.getElementById('btn-cron')?.addEventListener('click', () => {
+  // Close settings if open, then toggle cron view
+  if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  if (typeof window.showCronView === 'function') window.showCronView()
+})
 
 // Sidebar toggle
 document.getElementById('sidebar-toggle')?.addEventListener('click', () => {

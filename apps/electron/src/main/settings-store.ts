@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync } from 'fs'
-import type { ModelRecord, PromptRecord, CronTask } from '../shared/types.js'
+import type { ModelRecord, PromptRecord, CronTask, CronRun, CronRunFilters, CronRunTrigger, CronRunStatus } from '../shared/types.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
 
@@ -73,6 +73,19 @@ export class SettingsStore {
         created_at        INTEGER NOT NULL,
         updated_at        INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS cron_runs (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id      TEXT NOT NULL,
+        task_name    TEXT NOT NULL,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        duration_ms  INTEGER,
+        trigger_type TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'running',
+        error        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id);
     `)
   }
 
@@ -332,6 +345,51 @@ export class SettingsStore {
     return this.db.prepare('DELETE FROM cron_tasks WHERE id = ?').run(id).changes > 0
   }
 
+  // --- Cron runs (execution history) ---
+
+  createCronRun(taskId: string, taskName: string, triggerType: CronRunTrigger): number {
+    const now = Date.now()
+    const info = this.db.prepare(
+      'INSERT INTO cron_runs (task_id, task_name, started_at, trigger_type, status) VALUES (?, ?, ?, ?, ?)'
+    ).run(taskId, taskName, now, triggerType, 'running')
+    return Number(info.lastInsertRowid)
+  }
+
+  finishCronRun(id: number, status: Exclude<CronRunStatus, 'running'>, durationMs: number, error?: string | null): void {
+    this.db.prepare(
+      'UPDATE cron_runs SET finished_at = ?, duration_ms = ?, status = ?, error = ? WHERE id = ?'
+    ).run(Date.now(), durationMs, status, error ?? null, id)
+  }
+
+  listCronRuns(filters: CronRunFilters = {}): CronRun[] {
+    const where: string[] = []
+    const args: any[] = []
+    if (filters.taskId) { where.push('task_id = ?'); args.push(filters.taskId) }
+    if (filters.status) { where.push('status = ?'); args.push(filters.status) }
+    const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : ''
+    const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000)
+    const offset = Math.max(filters.offset ?? 0, 0)
+    const rows = this.db.prepare(
+      `SELECT * FROM cron_runs${whereSql} ORDER BY started_at DESC LIMIT ? OFFSET ?`
+    ).all(...args, limit, offset) as any[]
+    return rows.map(rowToCronRun)
+  }
+
+  /**
+   * Reap stale running rows on startup — if the app crashed mid-execution,
+   * those rows would otherwise stay 'running' forever. Anything older than
+   * 24 h still in 'running' is marked failed with a crash note.
+   */
+  reapStaleCronRuns(): number {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000
+    const info = this.db.prepare(
+      `UPDATE cron_runs SET status = 'failed', finished_at = started_at,
+       duration_ms = 0, error = 'interrupted (app restart)'
+       WHERE status = 'running' AND started_at < ?`
+    ).run(cutoff)
+    return info.changes
+  }
+
   close(): void {
     this.db.close()
   }
@@ -368,5 +426,19 @@ function rowToCronTask(r: any): CronTask {
     enabled: r.enabled === 1, thinking: r.thinking ?? undefined,
     timeoutSeconds: r.timeout_seconds ?? undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  }
+}
+
+function rowToCronRun(r: any): CronRun {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    taskName: r.task_name,
+    startedAt: r.started_at,
+    finishedAt: r.finished_at ?? null,
+    durationMs: r.duration_ms ?? null,
+    triggerType: r.trigger_type,
+    status: r.status,
+    error: r.error ?? null,
   }
 }

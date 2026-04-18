@@ -83,6 +83,37 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:cron:upsert', async (_e, task) => store.upsertTask(task))
   ipcMain.handle('settings:cron:delete', async (_e, { id }) => store.deleteTask(id))
 
+  ipcMain.handle('settings:cron:runs:list', async (_e, filters = {}) => store.listCronRuns(filters))
+
+  ipcMain.handle('settings:cron:run:now', async (_e, { id }: { id: string }) => {
+    try {
+      const { getCronScheduler } = await import('./index.js')
+      const sched = getCronScheduler?.()
+      if (!sched) return { ok: false, error: 'scheduler not ready' }
+      const ok = await sched.runNow(id)
+      return { ok, error: ok ? undefined : 'task not found or already running' }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  ipcMain.handle('settings:cron:keep-awake:get', async () => ({
+    enabled: store.getBool('cron.keep_awake', false),
+  }))
+
+  ipcMain.handle('settings:cron:keep-awake:set', async (_e, { enabled }: { enabled: boolean }) => {
+    store.set('cron.keep_awake', enabled ? '1' : '0')
+    try {
+      const { startPowerSaveBlocker, stopPowerSaveBlocker } = await import('./power-saver.js')
+      if (enabled) startPowerSaveBlocker()
+      else stopPowerSaveBlocker()
+    } catch (err) {
+      console.error('[IPC] keep-awake toggle failed:', err)
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    return { ok: true }
+  })
+
   // --- Permissions ---
   ipcMain.handle('permission:respond', async (_e, { requestId, decision, acceptedSuggestionIndices }) => {
     engine.resolvePermission(requestId, { decision, acceptedSuggestionIndices })

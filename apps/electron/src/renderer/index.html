@@ -61,6 +61,10 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
           <span data-i18n="new_chat">New chat</span>
         </button>
+        <button class="sidebar-nav-item" id="btn-cron">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><polyline points="8,4 8,8 10.5,9.5"/></svg>
+          <span data-i18n="cron">Scheduled Tasks</span>
+        </button>
       </div>
 
       <div class="sidebar-section-label" data-i18n="recents">Recents</div>
@@ -154,26 +158,152 @@
         </div>
       </div>
 
-      <!-- Settings view -->
-      <div id="settings-view">
-        <div class="settings-inner">
-          <div class="settings-sidebar">
-            <button class="settings-back" id="settings-back">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 12L6 8l4-4"/></svg>
-              <span data-i18n="back">Back</span>
+      <!-- Scheduled Tasks view (independent overlay) -->
+      <div id="cron-view">
+        <div class="cron-inner">
+          <!-- Top action bar: refresh + "create via Klaus" + "new task" -->
+          <div class="cron-topbar">
+            <button class="cron-icon-btn" id="cron-refresh" data-i18n-title="cron_refresh" title="Refresh">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M13.5 5a5.5 5.5 0 1 0 .5 4"/>
+                <polyline points="13.5,2 13.5,5 10.5,5"/>
+              </svg>
             </button>
-            <div class="settings-sidebar-title" data-i18n="settings">Settings</div>
-            <div class="settings-sidebar-nav">
-              <button class="settings-nav-item active" data-stab="profile" data-i18n="profile">Profile</button>
-              <button class="settings-nav-item" data-stab="models" data-i18n="models">Models</button>
-              <button class="settings-nav-item" data-stab="channels" data-i18n="channels">Channels</button>
-              <button class="settings-nav-item" data-stab="skills" data-i18n="skills">Skills</button>
-              <button class="settings-nav-item" data-stab="mcp" data-i18n="mcp">MCP</button>
-              <button class="settings-nav-item" data-stab="cron" data-i18n="cron">Tasks</button>
+            <button class="cron-pill-btn" id="cron-via-klaus">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v1m0 10v1m-6-6h1m10 0h1m-8.5-4.5l.7.7m5.6 5.6l.7.7m0-7l-.7.7m-5.6 5.6l-.7.7"/><circle cx="8" cy="8" r="2.5"/></svg>
+              <span data-i18n="cron_via_klaus">Create via Klaus</span>
+            </button>
+            <button class="btn-primary cron-new-btn" id="cron-new-btn">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
+              <span data-i18n="cron_new">New task</span>
+            </button>
+          </div>
+
+          <h1 class="cron-title" data-i18n="cron">Scheduled Tasks</h1>
+          <p class="cron-subtitle" data-i18n="cron_subtitle">Automate recurring tasks. Describe what you need done in any chat — Klaus can create one for you.</p>
+
+          <!-- Tabs + filters row -->
+          <div class="cron-tabbar">
+            <div class="cron-tabs">
+              <button class="cron-tab active" data-cron-tab="tasks" data-i18n="cron_tab_tasks">My Tasks</button>
+              <button class="cron-tab" data-cron-tab="runs" data-i18n="cron_tab_runs">Run History</button>
+            </div>
+            <div class="cron-filters">
+              <!-- Tasks tab: sort dropdown -->
+              <div class="cron-filter-group" data-for-tab="tasks">
+                <select id="cron-sort" class="cron-select">
+                  <option value="created_desc" data-i18n="cron_sort_created_desc">Newest first</option>
+                  <option value="created_asc" data-i18n="cron_sort_created_asc">Oldest first</option>
+                  <option value="name_asc" data-i18n="cron_sort_name_asc">Name A-Z</option>
+                  <option value="enabled_first" data-i18n="cron_sort_enabled_first">Enabled first</option>
+                </select>
+              </div>
+              <!-- Runs tab: task + status filters -->
+              <div class="cron-filter-group" data-for-tab="runs" style="display:none">
+                <select id="cron-runs-task" class="cron-select"></select>
+                <select id="cron-runs-status" class="cron-select">
+                  <option value="" data-i18n="cron_status_all">All statuses</option>
+                  <option value="success" data-i18n="cron_status_success">Success</option>
+                  <option value="failed" data-i18n="cron_status_failed">Failed</option>
+                  <option value="running" data-i18n="cron_status_running">Running</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="settings-content" id="settings-content"></div>
+
+          <!-- My Tasks pane -->
+          <div id="cron-pane-tasks" class="cron-pane active">
+            <div id="cron-grid" class="cron-grid"></div>
+            <div id="cron-empty" class="cron-empty" style="display:none">
+              <svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="24" cy="24" r="20"/><polyline points="24,12 24,24 32,28"/></svg>
+              <p data-i18n="no_cron">No scheduled tasks</p>
+            </div>
+          </div>
+
+          <!-- Run History pane -->
+          <div id="cron-pane-runs" class="cron-pane">
+            <div id="cron-runs-list"></div>
+            <div id="cron-runs-empty" class="cron-empty" style="display:none">
+              <svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M8 24h32M8 16h32M8 32h32"/></svg>
+              <p data-i18n="cron_runs_empty">No execution records yet</p>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <!-- Cron form modal -->
+      <div id="cron-modal" class="cron-modal">
+        <div class="cron-modal-backdrop" id="cron-modal-backdrop"></div>
+        <div class="cron-modal-card">
+          <div class="cron-modal-header">
+            <h2 id="cron-modal-title" data-i18n="cron_new">New task</h2>
+            <button class="cron-modal-close" id="cron-modal-close">&times;</button>
+          </div>
+          <div class="cron-modal-body">
+            <div class="cron-form-row">
+              <label data-i18n="cron_form_name">Name</label>
+              <input id="cron-form-name" type="text" placeholder="Daily news digest">
+            </div>
+            <div class="cron-form-row">
+              <label data-i18n="cron_form_schedule">Schedule (cron)</label>
+              <input id="cron-form-schedule" type="text" placeholder="0 9 * * *">
+              <p class="cron-form-hint" data-i18n="cron_form_schedule_hint">Examples: 0 9 * * * (every day at 9:00), 0 12 * * 1-5 (weekdays at noon)</p>
+            </div>
+            <div class="cron-form-row">
+              <label data-i18n="cron_form_prompt">Prompt</label>
+              <textarea id="cron-form-prompt" rows="5" placeholder="What should Klaus do?"></textarea>
+            </div>
+          </div>
+          <div class="cron-modal-footer">
+            <button class="btn-secondary" id="cron-form-cancel" data-i18n="cancel">Cancel</button>
+            <button class="btn-primary" id="cron-form-save" data-i18n="save">Save</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Settings view — full-window overlay (covers both chat sidebar and main) -->
+    <div id="settings-view">
+      <div class="settings-sidebar">
+        <button class="settings-back" id="settings-back">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="10,4 6,8 10,12"/></svg>
+          <span data-i18n="settings_back_to_app">Back to app</span>
+        </button>
+        <div class="settings-sidebar-nav">
+          <div class="settings-sidebar-group" data-i18n="settings_group_account">Account</div>
+          <button class="settings-nav-item active" data-stab="profile">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>
+            <span data-i18n="profile">Profile</span>
+          </button>
+
+          <div class="settings-sidebar-group" data-i18n="settings_group_general">General</div>
+          <button class="settings-nav-item" data-stab="preferences">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2.5" y1="5" x2="13.5" y2="5"/><circle cx="10.5" cy="5" r="1.5" fill="var(--bg-surface)"/><line x1="2.5" y1="11" x2="13.5" y2="11"/><circle cx="5.5" cy="11" r="1.5" fill="var(--bg-surface)"/></svg>
+            <span data-i18n="preferences">Preferences</span>
+          </button>
+          <button class="settings-nav-item" data-stab="models">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 7h6M5 10h4"/></svg>
+            <span data-i18n="models">Models</span>
+          </button>
+
+          <div class="settings-sidebar-group" data-i18n="settings_group_integrations">Extensions &amp; Integrations</div>
+          <button class="settings-nav-item" data-stab="channels">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12.5c0-3 1.5-5 4-5s4 2 4 5"/><circle cx="12.5" cy="4" r="1.5"/><circle cx="3.5" cy="4" r="1.5"/></svg>
+            <span data-i18n="channels">Channels</span>
+          </button>
+          <button class="settings-nav-item" data-stab="skills">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l2 4 4.5.5-3.3 3 .8 4.5L8 11.5 3.9 13.5 4.7 9 1.5 6l4.5-.5z"/></svg>
+            <span data-i18n="skills">Skills</span>
+          </button>
+          <button class="settings-nav-item" data-stab="mcp">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+            <span data-i18n="mcp">MCP</span>
+          </button>
+        </div>
+      </div>
+      <div class="settings-main">
+        <div class="settings-content" id="settings-content"></div>
       </div>
     </div>
 
@@ -188,6 +318,7 @@
   <script src="js/sessions.js"></script>
   <script src="js/permissions.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/cron.js"></script>
   <script src="js/chat.js"></script>
 </body>
 </html>

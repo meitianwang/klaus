@@ -73,6 +73,28 @@ export interface CronTask {
   updatedAt: number
 }
 
+export type CronRunTrigger = 'scheduled' | 'manual'
+export type CronRunStatus = 'running' | 'success' | 'failed'
+
+export interface CronRun {
+  id: number
+  taskId: string
+  taskName: string
+  startedAt: number
+  finishedAt: number | null
+  durationMs: number | null
+  triggerType: CronRunTrigger
+  status: CronRunStatus
+  error: string | null
+}
+
+export interface CronRunFilters {
+  limit?: number
+  offset?: number
+  taskId?: string
+  status?: CronRunStatus
+}
+
 export interface MediaFile {
   type: string
   path: string
