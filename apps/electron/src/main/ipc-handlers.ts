@@ -9,7 +9,6 @@ import type { SettingsStore } from './settings-store.js'
 import type { SkillsManager } from './skills-manager.js'
 import type { McpConfigManager } from './mcp-config.js'
 import type { ChannelConfigManager } from './channel-config.js'
-import type { MessageStore } from './message-store.js'
 
 export function registerIpcHandlers(
   engine: EngineHost,
@@ -17,7 +16,6 @@ export function registerIpcHandlers(
   skills: SkillsManager,
   mcpConfig: McpConfigManager,
   channels: ChannelConfigManager,
-  messageStore: MessageStore,
 ): void {
   // --- Chat ---
   // Register forwarders on chat():
@@ -27,19 +25,12 @@ export function registerIpcHandlers(
   // never reach the UI — aligns with Web 端 gateway per-user event dispatch.
   ipcMain.handle('chat:send', async (_e, { sessionId, text, media }) => {
     console.log('[IPC] chat:send received', { sessionId, textLen: text?.length })
-    // Persist user message first so it shows in history on next load even if
-    // chat() crashes. Assistant reply is persisted after chat() returns — mirrors
-    // Web 端 channel transcript semantics (src/channels/manager.ts:340).
-    messageStore.append(sessionId, 'user', text).catch(err =>
-      console.warn('[MessageStore] persist user failed:', err),
-    )
+    // Persistence is fully owned by engine.chat() now — full Message objects
+    // (including thinking / tool_use content blocks) are written so Cmd+R
+    // restore matches the live stream. No need to re-append here.
     engine.chat(sessionId, text, media, {
       onEvent: (event) => getMainWindow()?.webContents.send('chat:event', event),
       onPermissionRequest: (req) => getMainWindow()?.webContents.send('permission:request', req),
-    }).then((reply) => {
-      if (reply) messageStore.append(sessionId, 'assistant', reply).catch(err =>
-        console.warn('[MessageStore] persist assistant failed:', err),
-      )
     }).catch(err => {
       console.error('[IPC] chat:send error:', err)
     })
@@ -61,7 +52,10 @@ export function registerIpcHandlers(
   })
 
   // --- Sessions ---
-  ipcMain.handle('session:new', async () => engine.newSession())
+  // Desktop-UI "new chat" always rotates the same channelKey `app:local`, so
+  // the sidebar shows exactly one live UI session (plus archived uuids the
+  // user rotated away from) rather than accumulating app:<random> entries.
+  ipcMain.handle('session:new', async () => engine.newSession('app:local'))
   ipcMain.handle('session:list', async () => engine.listSessions())
   ipcMain.handle('session:delete', async (_e, { sessionId }) => engine.deleteSession(sessionId))
   ipcMain.handle('session:rename', async (_e, { sessionId, title }) => engine.renameSession(sessionId, title))

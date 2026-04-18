@@ -11,6 +11,11 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
+  // When present, carries the original engine Message.content block array
+  // (thinking / text / tool_use / tool_result) so the renderer can
+  // reconstruct rich UI (thinking folds, tool cards, file badges) on
+  // Cmd+R restore. Legacy entries without blocks fall back to `text`.
+  contentBlocks?: any[]
   thinking?: string
   toolCalls?: ToolCallInfo[]
   timestamp: number

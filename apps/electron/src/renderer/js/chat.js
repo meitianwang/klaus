@@ -224,6 +224,7 @@ async function switchSession(id) {
     const history = await klausApi.session.history(id)
     for (const msg of history) {
       if (msg.role === 'user') appendUserMsg(msg.text)
+      else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks)
       else appendFinalAssistantMsg(msg.text)
     }
   }
@@ -394,6 +395,61 @@ function appendFinalAssistantMsg(text) {
   group.appendChild(msgEl)
   postProcessMsg(msgEl)
   messagesEl.appendChild(group)
+}
+
+// Restore an assistant turn from its original engine content block array.
+// Mirrors the live-stream rendering (thinking fold + tool cards + text), so
+// Cmd+R reload looks identical to what the user saw during streaming. Block
+// shapes match CC: { type: 'thinking', thinking } / { type: 'text', text } /
+// { type: 'tool_use', name, id, input } / { type: 'tool_result', ... }.
+function appendAssistantFromBlocks(blocks) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return
+  // Collect thinking & text separately so we can render one fold + one bubble
+  // per turn, matching the live UI.
+  let thinkingText = ''
+  let mainText = ''
+  const toolBlocks = []
+  for (const b of blocks) {
+    if (!b || typeof b !== 'object') continue
+    if (b.type === 'thinking' || b.type === 'redacted_thinking') {
+      thinkingText += (b.thinking ?? b.data ?? '')
+    } else if (b.type === 'text' && typeof b.text === 'string') {
+      mainText += b.text
+    } else if (b.type === 'tool_use') {
+      toolBlocks.push(b)
+    }
+  }
+  // Thinking fold (no duration from disk — show just the content)
+  if (thinkingText.trim()) {
+    const done = document.createElement('div')
+    done.className = 'thinking-done'
+    done.innerHTML = `<div class="thinking-toggle"><span>${tt('thought_for') || 'Thought for '}…</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg></div><div class="thinking-detail">${escapeHtml(thinkingText)}</div>`
+    done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
+    messagesEl.appendChild(done)
+  }
+  // Tool cards (simplified, matches live tool-start/end visual)
+  if (toolBlocks.length > 0) {
+    const container = document.createElement('div')
+    container.className = 'tool-container'
+    for (const tb of toolBlocks) {
+      const cat = getToolCategory(tb.name || '')
+      const item = document.createElement('div')
+      item.className = 'tool-item done' + (cat ? ' ' + cat : '')
+      let valueText = ''
+      const args = tb.input
+      if (args && typeof args === 'object') {
+        if (args.command) valueText = '$ ' + args.command
+        else if (args.file_path) valueText = args.file_path
+        else if (args.pattern) valueText = args.pattern
+        else { const v = JSON.stringify(args); valueText = v.length > 80 ? v.slice(0, 80) + '…' : v }
+      }
+      item.innerHTML = `<span class="tool-label">${escapeHtml(tb.name || '')}</span><span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span><span class="tool-secondary">${escapeHtml(tt('tool_completed'))}</span>`
+      container.appendChild(item)
+    }
+    messagesEl.appendChild(container)
+  }
+  // Main text bubble
+  if (mainText.trim()) appendFinalAssistantMsg(mainText)
 }
 
 function ensureAssistantGroup() {

@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdirSync } from 'fs'
+import { mkdirSync, unlinkSync, existsSync } from 'fs'
 import type { BrowserWindow } from 'electron'
 import type { SettingsStore } from './settings-store.js'
-import type { MessageStore } from './message-store.js'
+import { SessionKeyRegistry } from './session-registry.js'
 import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage } from '../shared/types.js'
 
 // Engine imports — from the copied engine source
@@ -37,7 +37,7 @@ import { loadAllPermissionRulesFromDisk } from '../engine/utils/permissions/perm
 import { applyPermissionRulesToPermissionContext } from '../engine/utils/permissions/permissions.js'
 import { applyPermissionUpdate } from '../engine/utils/permissions/PermissionUpdate.js'
 import { addPermissionRulesToSettings } from '../engine/utils/permissions/permissionsLoader.js'
-import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive } from '../engine/bootstrap/state.js'
+import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession } from '../engine/bootstrap/state.js'
 import { createContentReplacementState, type ContentReplacementState } from '../engine/utils/toolResultStorage.js'
 import { initContextCollapse } from '../engine/services/contextCollapse/index.js'
 import { runWithCwdOverride } from '../engine/utils/cwd.js'
@@ -46,9 +46,26 @@ import type { MCPServerConnection, ServerResource } from '../engine/services/mcp
 import type { Tool } from '../engine/Tool.js'
 import { getMcpToolsCommandsAndResources } from '../engine/services/mcp/client.js'
 import { getAllMcpConfigs } from '../engine/services/mcp/config.js'
+import {
+  recordTranscript,
+  loadTranscriptFile,
+  getSessionFilesLite,
+  getTranscriptPathForSession,
+  getProjectDir,
+  resetSessionFilePointer,
+} from '../engine/utils/sessionStorage.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
 const SESSIONS_DIR = join(CONFIG_DIR, 'sessions')
+
+// One shared "pseudo cwd" used for every Klaus session so that
+// `getProjectDir(CANONICAL_CWD)` produces a stable, single project directory
+// (`~/.klaus/projects/<sanitized>/`). All session JSONLs land there, letting
+// `getSessionFilesLite` scan a single folder for the whole sidebar — mirrors
+// the way CC CLI organizes sessions per-project without actually caring what
+// "project" means to a desktop chat app.
+const CANONICAL_CWD = join(CONFIG_DIR, 'sessions', '__klaus__')
+mkdirSync(CANONICAL_CWD, { recursive: true })
 
 // 官方静态段 —— seed 到数据库,UI 可编辑,chat 时通过 sectionOverrides 覆盖引擎默认
 // id 必须和 Klaus 版 prompts.ts 里 ov(...) 的 key 一致，否则 override 不生效
@@ -88,7 +105,10 @@ function sessionDirFor(sessionId: string): string {
 }
 
 interface SessionEntry {
+  /** Channel-key — stable business id (e.g. "wechat:senderId"). */
   id: string
+  /** Engine uuid — CC's sessionStorage key; transcripts live at <projectDir>/<uuid>.jsonl. */
+  uuid: string
   title: string
   messages: Message[]
   appState: AppState
@@ -134,47 +154,60 @@ const pendingPermissions = new Map<string, {
 }>()
 
 export class EngineHost {
+  // in-memory session state — mirrored by CC's own JSONL on disk.
+  // `id` here is the channel-key (e.g. "wechat:o9cq..."), not the engine uuid.
+  // engine uuid lives in `uuid` below; registry maps channelKey → uuid.
   private sessions = new Map<string, SessionEntry>()
+  private registry = new SessionKeyRegistry()
   private mcpState: McpState = { clients: [], tools: [], resources: {} }
   private store: SettingsStore
-  private messageStore: MessageStore | null = null
   private mainWindow: BrowserWindow | null = null
   private initPromise: Promise<void> | null = null
   // Per-session event/permission forwarders — mirrors Web 端 gateway：
   // caller of chat() registers an onEvent callback and only that callback receives
   // the engine's stream events. External channels (wechat/…) don't register a forwarder,
-  // so their stream events are NOT pushed to the UI at all. No client-side filtering needed.
+  // so their stream events are NOT pushed to the UI at all.
   private sessionEmitters = new Map<string, (event: EngineEvent) => void>()
   private sessionPermissionEmitters = new Map<string, (req: PermissionRequest) => void>()
+  // Global chat serialization: CC's session state (STATE.sessionId and
+  // STATE.sessionProjectDir in bootstrap/state.ts) is module-global, NOT
+  // AsyncLocalStorage-scoped. Concurrent chats from different channelKeys would
+  // race `switchSession` and end up writing transcripts to the wrong uuid.
+  // Single-lane queue preserves FIFO ordering across all callers.
+  private chatQueue: Promise<unknown> = Promise.resolve()
 
   constructor(store: SettingsStore) {
     this.store = store
+    // Rebuild in-memory session list from CC's own on-disk transcripts.
+    // The registry already carries channelKey→uuid for live sessions; the
+    // JSONLs in the canonical project dir are the source of truth for what
+    // actually exists on disk.
+    for (const { channelKey } of this.registry.entries()) {
+      this.ensureSession(channelKey)
+    }
   }
 
-  setMessageStore(ms: MessageStore): void {
-    this.messageStore = ms
-    // 启动时扫磁盘重建 in-memory session 元数据（messages 先不加载，chat/getHistory 按需读）
-    // 对齐 CC 启动时从 ~/.claude/projects/<cwd>/*.jsonl 发现 session 的做法
-    ms.listSessions().then(summaries => {
-      for (const s of summaries) {
-        if (this.sessions.has(s.sessionKey)) continue
-        this.sessions.set(s.sessionKey, {
-          id: s.sessionKey,
-          title: s.title,
-          messages: [], // 懒加载：chat() 或 getHistory() 时才从磁盘读回
-          appState: getDefaultAppState(),
-          toolPermissionContext: null,
-          loopDetector: new ToolLoopDetector(),
-          isRunning: false,
-          contentReplacementState: createContentReplacementState(),
-          toolCallCount: 0,
-          abortController: null,
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-        })
-      }
-      console.log(`[Engine] Restored ${summaries.length} session(s) from disk`)
-    }).catch(err => console.warn('[Engine] Failed to restore sessions:', err))
+  private ensureSession(channelKey: string): SessionEntry {
+    let entry = this.sessions.get(channelKey)
+    if (entry) return entry
+    const uuid = this.registry.getOrCreateUuid(channelKey)
+    entry = {
+      id: channelKey,
+      title: channelKey === 'app:local' ? 'New Chat' : channelKey,
+      messages: [],
+      appState: getDefaultAppState(),
+      toolPermissionContext: null,
+      loopDetector: new ToolLoopDetector(),
+      isRunning: false,
+      contentReplacementState: createContentReplacementState(),
+      toolCallCount: 0,
+      abortController: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      uuid,
+    } as SessionEntry
+    this.sessions.set(channelKey, entry)
+    return entry
   }
 
   setMainWindow(win: BrowserWindow): void {
@@ -293,37 +326,73 @@ export class EngineHost {
 
   // --- Sessions ---
 
-  newSession(): SessionInfo {
-    const id = randomUUID()
-    const now = Date.now()
-    const entry: SessionEntry = {
-      id,
-      // Sentinel: renderer maps the fixed string 'New Chat' to tt('new_chat').
-      title: 'New Chat',
-      messages: [],
-      appState: getDefaultAppState(),
-      toolPermissionContext: null,
-      loopDetector: new ToolLoopDetector(),
-      isRunning: false,
-      contentReplacementState: createContentReplacementState(),
-      toolCallCount: 0,
-      abortController: null,
-      createdAt: now,
-      updatedAt: now,
-    }
-    this.sessions.set(id, entry)
-    return { id, title: entry.title, createdAt: now, updatedAt: now }
+  /**
+   * Create a brand-new conversation.
+   * Desktop-UI callers pass `channelKey="app:<localInstanceId>"` (or omit for
+   * a random one-off id). The registry rotates this key to a fresh uuid so the
+   * old conversation stays on disk as history while the new one starts empty.
+   */
+  newSession(channelKey?: string): SessionInfo {
+    const key = channelKey ?? `app:${randomUUID()}`
+    // Rotate (or first-create) uuid binding in the registry.
+    this.registry.rotate(key)
+    // Drop any stale in-memory entry so ensureSession creates a fresh one.
+    this.sessions.delete(key)
+    const entry = this.ensureSession(key)
+    // Sentinel: renderer maps the fixed string 'New Chat' to tt('new_chat').
+    entry.title = 'New Chat'
+    return { id: entry.id, title: entry.title, createdAt: entry.createdAt, updatedAt: entry.updatedAt }
   }
 
-  listSessions(): SessionInfo[] {
-    return [...this.sessions.values()]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map(s => ({ id: s.id, title: s.title, createdAt: s.createdAt, updatedAt: s.updatedAt }))
+  /**
+   * Enumerate sessions by scanning CC's on-disk JSONL via getSessionFilesLite.
+   * Each uuid-named .jsonl is a session. Cross-referenced with the registry
+   * so the UI sees stable channelKeys ("wechat:xxx" for external-channel
+   * sessions, "app:local" for desktop-UI sessions).
+   */
+  async listSessions(): Promise<SessionInfo[]> {
+    const projectDir = getProjectDir(CANONICAL_CWD)
+    const logs = await getSessionFilesLite(projectDir).catch(() => [])
+    const results: SessionInfo[] = []
+    for (const log of logs) {
+      const uuid = (log as any).sessionId as string
+      const channelKey = this.registry.sessionKeyOf(uuid) ?? uuid
+      // Prefer an in-memory session entry's live title (auto-updated per turn),
+      // fall back to first-prompt enrichment (future: call enrichLogs() per session).
+      const entry = this.sessions.get(channelKey)
+      results.push({
+        id: channelKey,
+        title: entry?.title ?? 'Chat',
+        createdAt: new Date((log as any).created ?? 0).getTime() || 0,
+        updatedAt: new Date((log as any).modified ?? 0).getTime() || 0,
+      })
+    }
+    // Merge with registry-only entries that have no transcript yet (user
+    // clicked "new chat" but hasn't sent a message). These wouldn't show
+    // up in getSessionFilesLite since no JSONL exists until recordTranscript
+    // materializes one on the first user message.
+    for (const [channelKey, entry] of this.sessions) {
+      if (!results.some(r => r.id === channelKey)) {
+        results.push({
+          id: channelKey,
+          title: entry.title,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+        })
+      }
+    }
+    return results.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   deleteSession(sessionId: string): void {
+    const entry = this.sessions.get(sessionId)
+    const uuid = entry?.uuid ?? this.registry.getOrCreateUuid(sessionId)
+    const filePath = join(getProjectDir(CANONICAL_CWD), `${uuid}.jsonl`)
+    if (existsSync(filePath)) {
+      try { unlinkSync(filePath) } catch (err) { console.warn('[Engine] deleteSession unlink failed:', err) }
+    }
     this.sessions.delete(sessionId)
-    this.messageStore?.deleteSession(sessionId) // 同步删磁盘 JSONL，下次启动不会再出现
+    this.registry.forgetUuid(uuid)
     clearSystemPromptSections()
   }
 
@@ -335,15 +404,44 @@ export class EngineHost {
     }
   }
 
+  /**
+   * Load full transcript for a channel-key via CC's loadTranscriptFile.
+   * Returns messages in chain order with original content blocks preserved —
+   * renderer uses these to rebuild thinking folds / tool cards / file badges
+   * exactly as the live stream showed them.
+   */
   async getHistory(sessionId: string): Promise<ChatMessage[]> {
-    if (!this.messageStore) return []
-    const msgs = await this.messageStore.readHistory(sessionId)
-    return msgs.map((m, i) => ({
-      id: `${sessionId}-${i}`,
-      role: m.role,
-      text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      timestamp: m.ts,
-    }))
+    const uuid = this.registry.getOrCreateUuid(sessionId)
+    const projectDir = getProjectDir(CANONICAL_CWD)
+    const filePath = join(projectDir, `${uuid}.jsonl`)
+    if (!existsSync(filePath)) return []
+    try {
+      const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
+      const out: ChatMessage[] = []
+      let i = 0
+      // Rebuild chain via buildConversationChain? For our purposes simple
+      // insertion order is good enough — CC writes in chain order already.
+      for (const m of messages.values()) {
+        if (m.type !== 'user' && m.type !== 'assistant') continue
+        const content = (m as any).message?.content
+        const text = typeof content === 'string'
+          ? content
+          : Array.isArray(content)
+            ? content.filter((b: any) => b && b.type === 'text').map((b: any) => b.text || '').join('')
+            : ''
+        out.push({
+          id: `${sessionId}-${i++}`,
+          role: (m as any).message?.role ?? m.type,
+          text,
+          contentBlocks: Array.isArray(content) ? content : undefined,
+          timestamp: Date.parse((m as any).timestamp || '') || 0,
+        })
+      }
+      return out
+    } catch (err) {
+      console.warn('[Engine] getHistory failed:', err)
+      return []
+    }
   }
 
   // --- Chat ---
@@ -351,7 +449,27 @@ export class EngineHost {
   async chat(
     sessionId: string,
     text: string,
-    _media?: any[],
+    media?: any[],
+    options?: {
+      onEvent?: (event: EngineEvent) => void
+      onPermissionRequest?: (req: PermissionRequest) => void
+    },
+  ): Promise<string> {
+    // Serialize all chats — CC session state is module-global (STATE.sessionId /
+    // STATE.sessionProjectDir in bootstrap/state.ts), not AsyncLocalStorage.
+    // Without this queue, concurrent wechat+UI chats would race `switchSession`
+    // and cross-contaminate transcripts. FIFO matches the "one active chat at a
+    // time" desktop UX the user described.
+    const run = () => this.doChat(sessionId, text, media, options)
+    const next = this.chatQueue.then(run, run)
+    this.chatQueue = next.catch(() => {}) // isolate errors so queue keeps flowing
+    return next
+  }
+
+  private async doChat(
+    sessionId: string,
+    text: string,
+    _media: any[] | undefined,
     options?: {
       onEvent?: (event: EngineEvent) => void
       onPermissionRequest?: (req: PermissionRequest) => void
@@ -366,53 +484,35 @@ export class EngineHost {
     await this.init()
     console.log('[Engine] chat() init done, entering query')
 
-    let session = this.sessions.get(sessionId)
-    if (!session) {
-      // Auto-create
-      session = {
-        id: sessionId,
-        title: text.slice(0, 50) || 'New Chat',
-        messages: [],
-        appState: getDefaultAppState(),
-        toolPermissionContext: null,
-        loopDetector: new ToolLoopDetector(),
-        isRunning: false,
-        contentReplacementState: createContentReplacementState(),
-        toolCallCount: 0,
-        abortController: null,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      }
-      this.sessions.set(sessionId, session)
-    }
+    const session = this.ensureSession(sessionId)
+    const uuid = session.uuid
+    const projectDir = getProjectDir(CANONICAL_CWD)
+    const transcriptPath = join(projectDir, `${uuid}.jsonl`)
 
-    // 懒加载历史：启动后第一次对这个 session 发消息时，把磁盘里的 JSONL 读回内存，
-    // 让模型能看到历史上下文续上下文。对齐 CC --resume 的加载时机。
-    if (session.messages.length === 0 && this.messageStore) {
+    // Swap CC's ambient session id / project dir → subsequent recordTranscript
+    // calls will write to ~/.klaus/projects/<sanitized-canonical>/<uuid>.jsonl.
+    // resetSessionFilePointer clears the Project singleton's cached sessionFile
+    // so the next recordTranscript re-derives the path from the new sessionId —
+    // without this, a prior chat()'s sessionFile persists and writes go to the
+    // wrong jsonl (see sessionStorage.ts:1369 resetSessionFilePointer docs).
+    switchSession(uuid as any, projectDir)
+    await resetSessionFilePointer()
+
+    // Lazy-load history from CC's own JSONL via loadTranscriptFile.
+    // in-memory session.messages is cleared each turn then rebuilt, because
+    // CC's recordTranscript dedups by uuid via getSessionMessages — feeding
+    // it messages it already has is a no-op, but we still need the replay
+    // to supply the model with full context.
+    if (session.messages.length === 0 && existsSync(transcriptPath)) {
       try {
-        const history = await this.messageStore.readHistory(sessionId)
-        for (const m of history) {
-          const contentText = typeof m.content === 'string'
-            ? m.content
-            : Array.isArray(m.content)
-              ? m.content.map((b: any) => b.text ?? '').join('')
-              : ''
-          session.messages.push({
-            type: m.role,
-            message: {
-              role: m.role,
-              // 引擎 normalizeMessagesForAPI 对 user case 接受 string，对 assistant case 调 .map 必须 array
-              content: m.role === 'assistant'
-                ? [{ type: 'text', text: contentText }]
-                : contentText,
-            },
-            uuid: randomUUID(),
-            timestamp: new Date(m.ts || Date.now()).toISOString(),
-          } as any)
+        const { messages } = await loadTranscriptFile(transcriptPath, { keepAllLeaves: true })
+        for (const m of messages.values()) {
+          if (m.type !== 'user' && m.type !== 'assistant') continue
+          session.messages.push(m as any)
         }
-        if (history.length > 0) console.log(`[Engine] Loaded ${history.length} historical message(s) for session ${sessionId}`)
+        console.log(`[Engine] loadTranscriptFile → ${session.messages.length} historical message(s) for ${sessionId}`)
       } catch (err) {
-        console.warn('[Engine] Failed to load session history:', err)
+        console.warn('[Engine] Failed to load transcript:', err)
       }
     }
 
@@ -461,6 +561,11 @@ export class EngineHost {
     if (session.messages.length === 0 && text.length > 0) {
       session.title = text.slice(0, 50)
     }
+
+    // Persist-from-index: marks the tail of session.messages before this turn's
+    // user msg is pushed. After query() we append [startIdx..] to disk, which
+    // is the exact slice the model added this turn (user + all assistant turns).
+    let startIdx = 0
 
     try {
       // Build tools
@@ -581,24 +686,25 @@ export class EngineHost {
 
       const canUseTool = createCanUseTool(onAsk)
 
-      // Append user message
-      // Only push the user msg if the lazy-loaded history doesn't already contain
-      // it as the tail. Channel plugins (wechat/feishu/…) transcribe the user msg
-      // to disk BEFORE calling handler→chat(), so readHistory above already put it
-      // into session.messages. Skipping here avoids the model seeing two identical
-      // user turns (which caused duplicated replies).
-      const tail = session.messages[session.messages.length - 1] as any
-      const tailIsSameUser = tail
-        && tail.type === 'user'
-        && (typeof tail.message?.content === 'string' ? tail.message.content : '') === text
-      if (!tailIsSameUser) {
-        const userMsg: Message = {
-          type: 'user',
-          message: { role: 'user', content: text },
-          uuid: randomUUID(),
-          timestamp: new Date().toISOString(),
-        } as any
-        session.messages.push(userMsg)
+      // Stamp turn boundary before push. Everything session.messages[startIdx..]
+      // is the new slice for this chat() call; we persist via recordTranscript
+      // below (CC dedups by uuid so already-recorded replays are no-op).
+      startIdx = session.messages.length
+      // Append user message — persistence goes through CC's recordTranscript
+      // right after (aligns with LocalMainSessionTask's per-message flush).
+      const userMsg: Message = {
+        type: 'user',
+        message: { role: 'user', content: text },
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+      } as any
+      session.messages.push(userMsg)
+      // Persist via CC API — writes to <projectDir>/<uuid>.jsonl, format
+      // identical to CC CLI's sessions. No self-rolled storage involved.
+      try {
+        await recordTranscript([userMsg])
+      } catch (err) {
+        console.warn('[Engine] recordTranscript(user) failed:', err)
       }
 
       // Build thinking config
@@ -718,6 +824,17 @@ export class EngineHost {
           n++
           console.log(`[Engine] event #${n}:`, (event as any)?.type)
           this.processStreamEvent(sessionId, event as any, session)
+          // Flush each new assistant/user message to CC's JSONL as it arrives
+          // — mirrors LocalMainSessionTask's per-event recordSidechainTranscript.
+          // CC dedups by uuid so re-feeding already-recorded messages is cheap.
+          const t = (event as any)?.type
+          if (t === 'assistant' || t === 'user') {
+            try {
+              await recordTranscript([event as any])
+            } catch (err) {
+              console.warn('[Engine] recordTranscript(' + t + ') failed:', err)
+            }
+          }
         }
         console.log('[Engine] for-await exited, total events=', n)
       })
@@ -744,22 +861,20 @@ export class EngineHost {
       this.sessionPermissionEmitters.delete(sessionId)
     }
 
-    // Extract final assistant text from session.messages — returned to the caller.
-    // Persistence is the CALLER's responsibility (aligns with Web 端 agent-manager,
-    // which never writes MessageStore itself — see src/agent-manager.ts):
-    //   - Channels write via ctx.transcript() in src/channels/manager.ts:340
-    //   - Desktop IPC chat:send writes after chat() returns (ipc-handlers.ts)
-    // Double-writing here would duplicate every message on disk.
-    let assistantText = ''
-    const lastMsg = [...session.messages].reverse().find(m => (m as any).type === 'assistant')
+    // Persistence already happened inside the for-await loop via
+    // recordTranscript — nothing to do here. Just compute the reply text that
+    // channel outbound adapters (wechat/telegram/…) need to deliver back to
+    // the user.
+    const newMsgs = session.messages.slice(startIdx)
+    let returnText = ''
+    const lastMsg = [...newMsgs].reverse().find(m => (m as any).type === 'assistant')
     if (lastMsg) {
       const content = (lastMsg as any).message?.content
-      assistantText = Array.isArray(content)
+      returnText = Array.isArray(content)
         ? content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
         : typeof content === 'string' ? content : ''
     }
-
-    return assistantText
+    return returnText
   }
 
   interrupt(sessionId: string): void {

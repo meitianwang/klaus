@@ -3,7 +3,6 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { SettingsStore } from './settings-store.js'
 import { EngineHost } from './engine-host.js'
-import { MessageStore } from './message-store.js'
 import { SkillsManager } from './skills-manager.js'
 import { McpConfigManager } from './mcp-config.js'
 import { ChannelConfigManager } from './channel-config.js'
@@ -75,21 +74,16 @@ app.whenReady().then(async () => {
     settingsStore = new SettingsStore()
     settingsStore.applyModelEnvOverrides()
 
-    // 2. Message store
-    const messageStore = new MessageStore()
-    messageStore.prune()
-
-    // 3. Managers
+    // 2. Managers (message persistence moved to CC engine — sessionStorage.ts)
     const skillsManager = new SkillsManager(settingsStore)
     const mcpConfig = new McpConfigManager(settingsStore)
     const channelConfig = new ChannelConfigManager(settingsStore)
 
-    // 4. Engine
+    // 3. Engine (persistence via CC's recordTranscript — no external store)
     engineHost = new EngineHost(settingsStore)
-    engineHost.setMessageStore(messageStore)
 
     // 5. IPC — pass all managers
-    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig, messageStore)
+    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig)
 
     // 6. Window
     const mainWindow = createMainWindow()
@@ -152,7 +146,6 @@ app.whenReady().then(async () => {
       channelManager = new ChannelManager({
         handler,
         settingsStore,
-        messageStore,
         buildNotify: notify,
       })
 

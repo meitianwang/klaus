@@ -12,7 +12,6 @@
 
 import type { Handler } from "../types.js";
 import type { SettingsStore } from "../settings-store.js";
-import type { MessageStore } from "../message-store.js";
 import { sleep } from "../retry.js";
 import type {
   ChannelPlugin,
@@ -64,7 +63,6 @@ interface AccountRuntime {
 interface ChannelManagerOptions {
   readonly handler: Handler;
   readonly settingsStore: SettingsStore;
-  readonly messageStore: MessageStore;
   readonly buildNotify: (ownerId?: string) => NotifyFn;
   readonly services?: Record<string, unknown>;
 }
@@ -336,8 +334,13 @@ export class ChannelManager {
     // Read ownerId from SettingsStore (channel.{id}.owner_id)
     const ownerId = this.opts.settingsStore.get(`channel.${plugin.meta.id}.owner_id`) ?? undefined;
 
-    const transcript: TranscriptFn = (sessionKey, role, text) =>
-      this.opts.messageStore.append(sessionKey, role, text);
+    // ctx.transcript is now a no-op on desktop. Persistence is fully owned by
+    // engine-host.chat() (engine sees structured content blocks — thinking,
+    // tool_use — which the channel layer cannot capture from plain text).
+    // Kept for interface compatibility with channel plugins.
+    const transcript: TranscriptFn = async (_sk, _role, _text) => {
+      void _sk; void _role; void _text;
+    };
 
     const notify = this.opts.buildNotify(ownerId);
 
