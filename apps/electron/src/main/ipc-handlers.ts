@@ -173,6 +173,39 @@ export function registerIpcHandlers(
     return { ok: true, name: skillName }
   })
 
+  // --- Klaus user auth (PKCE + klaus:// callback, talks to Klaus web server) ---
+  ipcMain.handle('klausAuth:status', async () => {
+    const { getStatus, refreshMe } = await import('./klaus-auth.js')
+    const s = getStatus()
+    if (s.loggedIn) {
+      // Best-effort refresh — updates display_name / avatar if changed on server
+      refreshMe().catch(() => {})
+    }
+    return s
+  })
+
+  ipcMain.handle('klausAuth:login', async (_e, { serverUrl }: { serverUrl?: string } = {}) => {
+    try {
+      const { startLogin } = await import('./klaus-auth.js')
+      const auth = await startLogin(serverUrl)
+      return { ok: true, user: auth.user, serverUrl: auth.serverUrl }
+    } catch (err: any) {
+      console.error('[KlausAuth] login failed:', err)
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  ipcMain.handle('klausAuth:logout', async () => {
+    try {
+      const { logout } = await import('./klaus-auth.js')
+      await logout()
+      return { ok: true }
+    } catch (err: any) {
+      console.error('[KlausAuth] logout failed:', err)
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
   // --- Auth (Claude 订阅 OAuth) ---
   ipcMain.handle('auth:status', async () => {
     try {

@@ -8,8 +8,55 @@ import { McpConfigManager } from './mcp-config.js'
 import { ChannelConfigManager } from './channel-config.js'
 import { CronScheduler } from './cron-scheduler.js'
 import { registerIpcHandlers } from './ipc-handlers.js'
-import { createMainWindow, getMainWindow } from './window.js'
+import { createMainWindow, getMainWindow, showMainWindow } from './window.js'
 import { createTray } from './tray.js'
+import { handleCallback as handleKlausAuthCallback } from './klaus-auth.js'
+
+// ---------------------------------------------------------------------------
+// klaus:// custom protocol — used for the desktop OAuth-style login callback.
+// On first launch we register Klaus as the handler; subsequent launches via
+// the protocol go through single-instance routing below.
+// ---------------------------------------------------------------------------
+
+const PROTOCOL = 'klaus'
+
+if (process.defaultApp) {
+  // Dev: electron binary needs the script path as second arg
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [join(__dirname, '../..')])
+  }
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL)
+}
+
+// Single instance lock — ensures klaus:// URLs on Windows/Linux always route
+// into the already-running app instead of spawning a duplicate. macOS handles
+// this natively via the `open-url` event, but the lock is harmless there.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = argv.find((a) => a.startsWith(`${PROTOCOL}://`))
+    if (url) {
+      handleKlausAuthCallback(url).catch((err) =>
+        console.error('[Klaus] klaus-auth callback error:', err),
+      )
+    }
+    // Surface existing window when a duplicate launch is attempted
+    showMainWindow()
+  })
+
+  // macOS: URLs come in via 'open-url' (can arrive before app is ready)
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (url.startsWith(`${PROTOCOL}://`)) {
+      handleKlausAuthCallback(url).catch((err) =>
+        console.error('[Klaus] klaus-auth callback error:', err),
+      )
+    }
+  })
+}
 
 // Ensure we run as Electron app, not Node.js (Claude Code sets ELECTRON_RUN_AS_NODE=1)
 delete process.env.ELECTRON_RUN_AS_NODE

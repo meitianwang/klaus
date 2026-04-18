@@ -77,6 +77,10 @@ import {
   handleAvatarServe,
   handleGoogleRedirect,
   handleGoogleCallback,
+  handleDesktopAuthSuccess,
+  handleDesktopTokenExchange,
+  handleDesktopMe,
+  handleDesktopLogout,
 } from "./web-auth.js";
 import { validateLocalToken } from "../local-token.js";
 import {
@@ -3019,6 +3023,28 @@ async function handleRequest(
         return;
       }
       return handleGoogleCallback(req, res, cfg, userStoreRef, inviteStoreRef);
+
+    // Desktop app OAuth-style flow (PKCE + klaus:// callback)
+    case "/desktop/auth-success":
+      return handleDesktopAuthSuccess(req, res);
+    case "/api/auth/desktop/token":
+      if (!userStoreRef) {
+        jsonResponse(res, 503, { error: "not ready" });
+        return;
+      }
+      return handleDesktopTokenExchange(req, res, userStoreRef);
+    case "/api/auth/desktop/me":
+      if (!userStoreRef) {
+        jsonResponse(res, 503, { error: "not ready" });
+        return;
+      }
+      return handleDesktopMe(req, res, userStoreRef);
+    case "/api/auth/desktop/logout":
+      if (!userStoreRef) {
+        jsonResponse(res, 503, { error: "not ready" });
+        return;
+      }
+      return handleDesktopLogout(req, res, userStoreRef);
 
     // User settings (language, output_style)
     case "/api/user/settings":

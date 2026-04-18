@@ -130,6 +130,36 @@ function getOrigin(req: IncomingMessage): string {
   return `${proto}://${host}`;
 }
 
+// Desktop OAuth-style parameters: `desktop=1` switches login/register/google
+// flows from "set session cookie + redirect /" to "issue auth code + redirect
+// klaus://auth/callback". PKCE challenge binds the code to the desktop client
+// that initiated the login, so even if the redirect URL leaks the code cannot
+// be redeemed by anyone else.
+interface DesktopAuthParams {
+  readonly desktop: boolean;
+  readonly state: string;
+  readonly codeChallenge: string;
+}
+
+function parseDesktopParams(body: Record<string, unknown>): DesktopAuthParams {
+  const desktop = body.desktop === true || body.desktop === "1" || body.desktop === 1;
+  return {
+    desktop,
+    state: String(body.state ?? "").trim(),
+    codeChallenge: String(body.codeChallenge ?? body.code_challenge ?? "").trim(),
+  };
+}
+
+/**
+ * Success page URL. Landing here shows "Login successful — opening Klaus..."
+ * and triggers `klaus://auth/callback?…` from JS, which gives the user a
+ * clean prompt and a manual fallback if the scheme isn't registered.
+ */
+function buildDesktopSuccessUrl(code: string, state: string): string {
+  const params = new URLSearchParams({ code, state });
+  return `/desktop/auth-success?${params.toString()}`;
+}
+
 function userResponse(user: {
   id: string;
   email: string;
@@ -211,6 +241,12 @@ export async function handleAuthRegister(
     return;
   }
 
+  const desktopParams = parseDesktopParams(body);
+  if (desktopParams.desktop && (!desktopParams.state || !desktopParams.codeChallenge)) {
+    json(res, 400, { error: "desktop_params_required" });
+    return;
+  }
+
   try {
     const user = await userStore.register(
       email,
@@ -224,19 +260,32 @@ export async function handleAuthRegister(
       inviteStore.consume(inviteCode, email);
     }
 
+    console.log(`[Web] User registered: ${user.id.slice(0, 8)} (${user.role})`);
+
+    if (desktopParams.desktop) {
+      const code = userStore.createDesktopAuthCode(
+        user.id,
+        desktopParams.state,
+        desktopParams.codeChallenge,
+      );
+      json(res, 201, {
+        user: userResponse(user),
+        redirect: buildDesktopSuccessUrl(code, desktopParams.state),
+      });
+      return;
+    }
+
     const session = userStore.createSession(
       user.id,
       getClientIp(req),
       req.headers["user-agent"] ?? "",
     );
-
     setSessionCookie(
       res,
       session.token,
       cfg.sessionMaxAgeDays,
       isSecureRequest(req),
     );
-    console.log(`[Web] User registered: ${user.id.slice(0, 8)} (${user.role})`);
     json(res, 201, { user: userResponse(user) });
   } catch (err) {
     console.error("[Web] Registration error:", err);
@@ -272,9 +321,30 @@ export async function handleAuthLogin(
     return;
   }
 
+  const desktopParams = parseDesktopParams(body);
+  if (desktopParams.desktop && (!desktopParams.state || !desktopParams.codeChallenge)) {
+    json(res, 400, { error: "desktop_params_required" });
+    return;
+  }
+
   const user = await userStore.verifyLogin(email, password);
   if (!user) {
     json(res, 401, { error: "invalid_credentials" });
+    return;
+  }
+
+  console.log(`[Web] User logged in: ${user.id.slice(0, 8)}`);
+
+  if (desktopParams.desktop) {
+    const code = userStore.createDesktopAuthCode(
+      user.id,
+      desktopParams.state,
+      desktopParams.codeChallenge,
+    );
+    json(res, 200, {
+      user: userResponse(user),
+      redirect: buildDesktopSuccessUrl(code, desktopParams.state),
+    });
     return;
   }
 
@@ -283,14 +353,12 @@ export async function handleAuthLogin(
     getClientIp(req),
     req.headers["user-agent"] ?? "",
   );
-
   setSessionCookie(
     res,
     session.token,
     cfg.sessionMaxAgeDays,
     isSecureRequest(req),
   );
-  console.log(`[Web] User logged in: ${user.id.slice(0, 8)}`);
   json(res, 200, { user: userResponse(user) });
 }
 
@@ -514,10 +582,24 @@ export function handleGoogleRedirect(
 
   const url = new URL(req.url ?? "/", getOrigin(req));
   const inviteCode = url.searchParams.get("invite") ?? "";
+  // Desktop params piggyback on Google OAuth state so we can issue a desktop
+  // auth code on callback instead of a session cookie.
+  const desktop = url.searchParams.get("desktop") === "1";
+  const desktopState = url.searchParams.get("state") ?? "";
+  const desktopChallenge = url.searchParams.get("code_challenge") ?? "";
 
-  // CSRF protection: random nonce stored in HttpOnly cookie, verified on callback
+  // CSRF protection: random nonce stored in HttpOnly cookie, verified on callback.
+  // State format (pipe-separated so colons in tokens don't collide):
+  //   nonce|inviteCode|desktop(0/1)|desktopState|desktopChallenge
   const nonce = randomBytes(16).toString("hex");
-  const state = `${nonce}:${inviteCode}`;
+  const stateFields = [
+    nonce,
+    inviteCode,
+    desktop ? "1" : "0",
+    desktopState,
+    desktopChallenge,
+  ];
+  const state = stateFields.join("|");
   const secure = isSecureRequest(req);
   const stateCookie = [
     `${OAUTH_STATE_COOKIE}=${nonce}`,
@@ -562,12 +644,29 @@ export async function handleGoogleCallback(
   const rawState = url.searchParams.get("state") ?? "";
   const error = url.searchParams.get("error");
 
-  // CSRF: validate state nonce against cookie
+  // CSRF: validate state nonce against cookie.
+  // Parse extended state (nonce|invite|desktop|desktopState|desktopChallenge).
+  // Falls back to legacy "nonce:invite" format for in-flight pre-upgrade logins.
   const cookies = parseCookies(req.headers.cookie);
   const expectedNonce = cookies[OAUTH_STATE_COOKIE] ?? "";
-  const colonIdx = rawState.indexOf(":");
-  const stateNonce = colonIdx >= 0 ? rawState.slice(0, colonIdx) : rawState;
-  const inviteCode = colonIdx >= 0 ? rawState.slice(colonIdx + 1) : "";
+
+  let stateNonce = "";
+  let inviteCode = "";
+  let desktopMode = false;
+  let desktopState = "";
+  let desktopChallenge = "";
+  if (rawState.includes("|")) {
+    const parts = rawState.split("|");
+    stateNonce = parts[0] ?? "";
+    inviteCode = parts[1] ?? "";
+    desktopMode = parts[2] === "1";
+    desktopState = parts[3] ?? "";
+    desktopChallenge = parts[4] ?? "";
+  } else {
+    const colonIdx = rawState.indexOf(":");
+    stateNonce = colonIdx >= 0 ? rawState.slice(0, colonIdx) : rawState;
+    inviteCode = colonIdx >= 0 ? rawState.slice(colonIdx + 1) : "";
+  }
 
   // Clear the state cookie
   const clearStateCookie = `${OAUTH_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/api/auth/google`;
@@ -681,12 +780,40 @@ export async function handleGoogleCallback(
       inviteStore.consume(inviteForCreate, googleUser.email);
     }
 
+    console.log(
+      `[Web] Google login: ${result.user.id.slice(0, 8)} (${result.isNew ? "new" : "existing"})`,
+    );
+
+    // Desktop flow: issue one-time auth code + 302 to klaus:// callback.
+    // Don't set a session cookie — browser isn't the authenticated client here.
+    if (desktopMode) {
+      if (!desktopState || !desktopChallenge) {
+        res.writeHead(302, {
+          Location: "/login?error=desktop_params_required",
+          "Set-Cookie": clearStateCookie,
+        });
+        res.end();
+        return;
+      }
+      const authCode = userStore.createDesktopAuthCode(
+        result.user.id,
+        desktopState,
+        desktopChallenge,
+      );
+      res.writeHead(302, {
+        Location: "/desktop/auth-success?code=" +
+          encodeURIComponent(authCode) + "&state=" + encodeURIComponent(desktopState),
+        "Set-Cookie": clearStateCookie,
+      });
+      res.end();
+      return;
+    }
+
     const session = userStore.createSession(
       result.user.id,
       getClientIp(req),
       req.headers["user-agent"] ?? "",
     );
-
     setSessionCookie(
       res,
       session.token,
@@ -703,9 +830,6 @@ export async function handleGoogleCallback(
     cookieArr.push(clearStateCookie);
     res.setHeader("Set-Cookie", cookieArr);
 
-    console.log(
-      `[Web] Google login: ${result.user.id.slice(0, 8)} (${result.isNew ? "new" : "existing"})`,
-    );
     res.writeHead(302, { Location: "/" });
     res.end();
   } catch (err) {
@@ -716,4 +840,185 @@ export async function handleGoogleCallback(
     });
     res.end();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Desktop auth: success landing page + token exchange + me + logout
+// ---------------------------------------------------------------------------
+
+/**
+ * HTML page shown after a successful desktop login. Immediately attempts to
+ * launch the klaus:// scheme and falls back to a manual "Open Klaus" button.
+ * The code + state are echoed in the URL so refresh/back still works until
+ * the code is redeemed or expires (5 min).
+ */
+export function handleDesktopAuthSuccess(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  const url = new URL(req.url ?? "/", getOrigin(req));
+  const code = url.searchParams.get("code") ?? "";
+  const state = url.searchParams.get("state") ?? "";
+  if (!code || !state) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("missing code or state");
+    return;
+  }
+
+  const callbackUrl =
+    `klaus://auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  const safeCallbackJson = JSON.stringify(callbackUrl);
+
+  const html = `<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Klaus — 登录成功</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: -apple-system, 'Segoe UI', sans-serif; background: #f8fafc; color: #0f172a; }
+  .card { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .inner { max-width: 420px; text-align: center; }
+  .check { width: 64px; height: 64px; border-radius: 50%; background: #10b981; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+  .check svg { width: 32px; height: 32px; stroke: #fff; stroke-width: 3; fill: none; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  p { font-size: 14px; color: #64748b; line-height: 1.6; margin-bottom: 20px; }
+  .btn { display: inline-block; padding: 10px 20px; background: #0f172a; color: #fff; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; }
+  .btn:hover { background: #334155; }
+  .hint { font-size: 12px; color: #94a3b8; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="inner">
+    <div class="check">
+      <svg viewBox="0 0 24 24"><polyline points="4 13 10 19 20 7"/></svg>
+    </div>
+    <h1>登录成功</h1>
+    <p>正在打开 Klaus 桌面应用… 如果没有自动跳转，请点击下方按钮。</p>
+    <a class="btn" id="open-btn" href="#">打开 Klaus</a>
+    <p class="hint">关闭此页面前请先确认 Klaus 桌面应用已接管登录。</p>
+  </div>
+</div>
+<script>
+  (function () {
+    var url = ${safeCallbackJson};
+    document.getElementById('open-btn').href = url;
+    // Auto-launch after a short delay so the browser shows the page first
+    setTimeout(function () { window.location.href = url; }, 200);
+  })();
+</script>
+</body>
+</html>`;
+
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    // Don't cache — code is one-time and user state changes
+    "Cache-Control": "no-store",
+  });
+  res.end(html);
+}
+
+/**
+ * POST /api/auth/desktop/token
+ * Body: { code, code_verifier, state, device_info? }
+ * Exchanges a one-time auth code (issued by a web login with desktop=1) for
+ * a long-lived bearer token, verified via PKCE.
+ */
+export async function handleDesktopTokenExchange(
+  req: IncomingMessage,
+  res: ServerResponse,
+  userStore: UserStore,
+): Promise<void> {
+  if (req.method !== "POST") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    const buf = await readBody(req);
+    body = JSON.parse(buf.toString()) as Record<string, unknown>;
+  } catch {
+    json(res, 400, { error: "invalid JSON" });
+    return;
+  }
+
+  const code = String(body.code ?? "").trim();
+  const codeVerifier = String(body.code_verifier ?? body.codeVerifier ?? "").trim();
+  const state = String(body.state ?? "").trim();
+  const deviceInfo = String(body.device_info ?? body.deviceInfo ?? "").slice(0, 500);
+
+  if (!code || !codeVerifier || !state) {
+    json(res, 400, { error: "missing_params" });
+    return;
+  }
+
+  const result = userStore.redeemDesktopAuthCode(code, codeVerifier, deviceInfo);
+  if (!result) {
+    json(res, 400, { error: "invalid_or_expired_code" });
+    return;
+  }
+
+  console.log(`[Web] Desktop token issued for user ${result.user.id.slice(0, 8)}`);
+  json(res, 200, {
+    token: result.token,
+    user: userResponse(result.user),
+  });
+}
+
+/**
+ * GET /api/auth/desktop/me
+ * Header: Authorization: Bearer <token>
+ */
+export function handleDesktopMe(
+  req: IncomingMessage,
+  res: ServerResponse,
+  userStore: UserStore,
+): void {
+  if (req.method !== "GET") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  const authHeader = req.headers.authorization ?? "";
+  const match = authHeader.match(/^Bearer\s+(\S+)$/);
+  if (!match) {
+    json(res, 401, { error: "missing_bearer_token" });
+    return;
+  }
+
+  const user = userStore.validateDesktopToken(match[1] ?? "");
+  if (!user) {
+    json(res, 401, { error: "invalid_token" });
+    return;
+  }
+
+  json(res, 200, { user: userResponse(user) });
+}
+
+/**
+ * POST /api/auth/desktop/logout
+ * Header: Authorization: Bearer <token>
+ */
+export function handleDesktopLogout(
+  req: IncomingMessage,
+  res: ServerResponse,
+  userStore: UserStore,
+): void {
+  if (req.method !== "POST") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  const authHeader = req.headers.authorization ?? "";
+  const match = authHeader.match(/^Bearer\s+(\S+)$/);
+  if (!match) {
+    json(res, 401, { error: "missing_bearer_token" });
+    return;
+  }
+
+  userStore.revokeDesktopToken(match[1] ?? "");
+  json(res, 200, { ok: true });
 }

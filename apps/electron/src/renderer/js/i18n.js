@@ -141,6 +141,18 @@ const I18N = {
     // User menu
     menu_settings: 'Settings', menu_language: 'Language', menu_help: 'Help', menu_logout: 'Logout',
     user_default_name: 'User', user_default_email: 'user@local',
+    // Login screen (Klaus user auth)
+    login_welcome_title: 'Welcome to Klaus',
+    login_welcome_subtitle: 'Your AI desktop assistant for everyone',
+    login_welcome_desc: 'Describe your task in plain language — Klaus plans, calls the right tools, and delivers the result.',
+    login_btn: 'Sign in / Sign up',
+    login_opening: 'Opening browser…',
+    login_waiting: 'Finish sign-in in the browser — this screen will continue automatically.',
+    login_failed_prefix: 'Sign in failed: ',
+    login_retry: 'Retry',
+    login_server_link: 'Use a custom server…',
+    login_server_prompt: 'Klaus server URL:',
+    login_server_invalid: 'Invalid URL — must start with http:// or https://',
     // UI chrome
     toggle_sidebar: 'Toggle sidebar', close_btn: 'Close', attach_file: 'Attach file',
     send_stop: 'Send / Stop', drop_files: 'Drop files to upload',
@@ -377,6 +389,18 @@ const I18N = {
     // User menu
     menu_settings: '设置', menu_language: '语言', menu_help: '帮助', menu_logout: '退出',
     user_default_name: '用户', user_default_email: 'user@local',
+    // Login screen (Klaus user auth)
+    login_welcome_title: '欢迎使用 Klaus',
+    login_welcome_subtitle: '面向所有人的 AI 桌面助手',
+    login_welcome_desc: '用自然语言描述你的需求，Klaus 自动规划、调用工具并交付结果。',
+    login_btn: '登录/注册',
+    login_opening: '正在打开浏览器…',
+    login_waiting: '请在浏览器中完成登录，这里会自动继续',
+    login_failed_prefix: '登录失败：',
+    login_retry: '重试',
+    login_server_link: '使用自定义服务器…',
+    login_server_prompt: 'Klaus 服务器 URL：',
+    login_server_invalid: 'URL 无效，必须以 http:// 或 https:// 开头',
     // UI chrome
     toggle_sidebar: '切换侧栏', close_btn: '关闭', attach_file: '附加文件',
     send_stop: '发送 / 停止', drop_files: '拖放文件以上传',

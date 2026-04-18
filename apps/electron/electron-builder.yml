@@ -1,5 +1,9 @@
 appId: ai.klaus.desktop
 productName: Klaus
+protocols:
+  - name: Klaus
+    schemes:
+      - klaus
 mac:
   category: public.app-category.developer-tools
   target: dmg

@@ -83,6 +83,13 @@ contextBridge.exposeInMainWorld('klaus', {
     logout: () => ipcRenderer.invoke('auth:logout'),
   },
 
+  // Klaus 用户登录（PKCE + klaus:// 回调，对接 Klaus web server）
+  klausAuth: {
+    status: () => ipcRenderer.invoke('klausAuth:status'),
+    login: (serverUrl?: string) => ipcRenderer.invoke('klausAuth:login', { serverUrl }),
+    logout: () => ipcRenderer.invoke('klausAuth:logout'),
+  },
+
   // Channels
   channels: {
     list: () => ipcRenderer.invoke('channels:list'),

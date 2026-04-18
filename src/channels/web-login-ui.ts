@@ -160,10 +160,23 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   const params = new URLSearchParams(location.search);
   const urlError = params.get('error');
   const urlMode = params.get('mode');
+
+  // Desktop OAuth-style params (PKCE). When present, login/register POST
+  // carries desktop + state + codeChallenge and the server returns a redirect
+  // URL to klaus:// callback instead of setting a session cookie.
+  const isDesktop = params.get('desktop') === '1';
+  const desktopState = params.get('state') || '';
+  const desktopChallenge = params.get('code_challenge') || '';
+
   if (urlError) {
     errorEl.textContent = errorMessages[urlError] || urlError;
     errorEl.classList.add('show');
-    history.replaceState(null, '', '/login');
+    // Preserve desktop params if present — otherwise user loses them on retry
+    const keep = isDesktop
+      ? '?desktop=1&state=' + encodeURIComponent(desktopState) +
+        '&code_challenge=' + encodeURIComponent(desktopChallenge)
+      : '';
+    history.replaceState(null, '', '/login' + keep);
   }
   if (urlMode === 'register') {
     switchTab('register');
@@ -201,6 +214,27 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     return data;
   }
 
+  function withDesktopParams(body) {
+    if (!isDesktop) return body;
+    return Object.assign({}, body, {
+      desktop: true,
+      state: desktopState,
+      codeChallenge: desktopChallenge,
+    });
+  }
+
+  function buildGoogleUrl(inviteCode) {
+    var qs = new URLSearchParams();
+    if (inviteCode) qs.set('invite', inviteCode);
+    if (isDesktop) {
+      qs.set('desktop', '1');
+      qs.set('state', desktopState);
+      qs.set('code_challenge', desktopChallenge);
+    }
+    var q = qs.toString();
+    return q ? '/api/auth/google?' + q : '/api/auth/google';
+  }
+
   // Login
   $('#btn-login').addEventListener('click', async () => {
     const email = $('#login-email').value.trim();
@@ -208,9 +242,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     if (!email || !password) { showError('Please fill in all fields.'); return; }
     const btn = $('#btn-login');
     btn.disabled = true;
-    const result = await apiCall('/api/auth/login', { email, password });
+    const result = await apiCall('/api/auth/login', withDesktopParams({ email, password }));
     btn.disabled = false;
-    if (result) location.href = '/';
+    if (result) location.href = result.redirect || '/';
   });
 
   // Register
@@ -223,9 +257,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     if (password.length < 8) { showError('Password must be at least 8 characters.'); return; }
     const btn = $('#btn-register');
     btn.disabled = true;
-    const result = await apiCall('/api/auth/register', { email, password, displayName, inviteCode });
+    const result = await apiCall('/api/auth/register', withDesktopParams({ email, password, displayName, inviteCode }));
     btn.disabled = false;
-    if (result) location.href = '/';
+    if (result) location.href = result.redirect || '/';
   });
 
   // Google OAuth
@@ -233,14 +267,14 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   const googleRegister = $('#btn-google-register');
   if (googleLogin) {
     googleLogin.addEventListener('click', () => {
-      location.href = '/api/auth/google';
+      location.href = buildGoogleUrl('');
     });
   }
   if (googleRegister) {
     googleRegister.addEventListener('click', () => {
       const inviteCode = $('#reg-invite').value.trim();
       if (needsInvite && !inviteCode) { showError('Please enter an invite code before using Google sign-up.'); return; }
-      location.href = inviteCode ? '/api/auth/google?invite=' + encodeURIComponent(inviteCode) : '/api/auth/google';
+      location.href = buildGoogleUrl(inviteCode);
     });
   }
 

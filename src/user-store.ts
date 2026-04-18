@@ -132,6 +132,28 @@ const INIT_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+
+  -- Desktop OAuth-style authorization codes (one-time, 5-min TTL)
+  CREATE TABLE IF NOT EXISTS desktop_auth_codes (
+    code            TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    state           TEXT NOT NULL,
+    code_challenge  TEXT NOT NULL,
+    created_at      INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL,
+    used_at         INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_desktop_auth_codes_expires ON desktop_auth_codes(expires_at);
+
+  -- Desktop long-lived bearer tokens
+  CREATE TABLE IF NOT EXISTS desktop_tokens (
+    token         TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at    INTEGER NOT NULL,
+    last_used_at  INTEGER NOT NULL,
+    device_info   TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_desktop_tokens_user_id ON desktop_tokens(user_id);
 `;
 
 // ---------------------------------------------------------------------------
@@ -576,6 +598,123 @@ export class UserStore {
   /** Remove expired sessions. */
   pruneExpiredSessions(): number {
     this.stmtPruneSessions.run(Date.now());
+    return this.lastChanges();
+  }
+
+  // -- Desktop auth: authorization codes ------------------------------------
+
+  /**
+   * Issue a one-time authorization code for the desktop app after successful
+   * web login. `codeChallenge` is the SHA-256-hashed PKCE challenge from the
+   * desktop client. The returned code is redeemed via `redeemDesktopAuthCode`.
+   */
+  createDesktopAuthCode(
+    userId: string,
+    state: string,
+    codeChallenge: string,
+  ): string {
+    const code = randomBytes(32).toString("hex");
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO desktop_auth_codes (code, user_id, state, code_challenge, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(code, userId, state, codeChallenge, now, now + 5 * 60 * 1000);
+    return code;
+  }
+
+  /**
+   * Exchange an authorization code + PKCE verifier for a long-lived desktop
+   * bearer token. Returns null on any failure (unknown code, expired, reused,
+   * or verifier mismatch). The code is consumed on success.
+   */
+  redeemDesktopAuthCode(
+    code: string,
+    codeVerifier: string,
+    deviceInfo: string,
+  ): { token: string; user: User } | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM desktop_auth_codes WHERE code = ?`,
+      )
+      .get(code) as
+      | {
+          code: string;
+          user_id: string;
+          state: string;
+          code_challenge: string;
+          created_at: number;
+          expires_at: number;
+          used_at: number;
+        }
+      | undefined;
+    if (!row) return null;
+    if (row.used_at > 0) return null;
+    if (row.expires_at < Date.now()) return null;
+
+    // Verify PKCE: base64url(sha256(verifier)) must equal stored challenge
+    const { createHash } = require("node:crypto") as typeof import("node:crypto");
+    const computed = createHash("sha256")
+      .update(codeVerifier)
+      .digest("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    if (computed !== row.code_challenge) return null;
+
+    const user = this.getUserById(row.user_id);
+    if (!user || !user.isActive) return null;
+
+    // Consume the code (prevents replay) and issue token atomically
+    const token = randomBytes(32).toString("hex");
+    const now = Date.now();
+    const txn = this.db.transaction(() => {
+      this.db
+        .prepare(`UPDATE desktop_auth_codes SET used_at = ? WHERE code = ?`)
+        .run(now, code);
+      this.db
+        .prepare(
+          `INSERT INTO desktop_tokens (token, user_id, created_at, last_used_at, device_info)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(token, row.user_id, now, now, deviceInfo.slice(0, 500));
+    });
+    txn();
+
+    return { token, user };
+  }
+
+  /** Resolve a desktop bearer token to its user. Touches last_used_at. */
+  validateDesktopToken(token: string): User | null {
+    if (!token) return null;
+    const row = this.db
+      .prepare(`SELECT user_id FROM desktop_tokens WHERE token = ?`)
+      .get(token) as { user_id: string } | undefined;
+    if (!row) return null;
+    const user = this.getUserById(row.user_id);
+    if (!user || !user.isActive) {
+      this.db.prepare(`DELETE FROM desktop_tokens WHERE token = ?`).run(token);
+      return null;
+    }
+    this.db
+      .prepare(`UPDATE desktop_tokens SET last_used_at = ? WHERE token = ?`)
+      .run(Date.now(), token);
+    return user;
+  }
+
+  revokeDesktopToken(token: string): boolean {
+    this.db.prepare(`DELETE FROM desktop_tokens WHERE token = ?`).run(token);
+    return this.lastChanges() > 0;
+  }
+
+  /** Best-effort cleanup for expired/used codes. Called periodically or on startup. */
+  pruneExpiredDesktopCodes(): number {
+    this.db
+      .prepare(
+        `DELETE FROM desktop_auth_codes WHERE expires_at < ? OR used_at > 0`,
+      )
+      .run(Date.now());
     return this.lastChanges();
   }
 

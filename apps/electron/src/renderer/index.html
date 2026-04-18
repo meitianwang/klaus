@@ -11,7 +11,48 @@
   <script src="vendor/highlight.min.js"></script>
 </head>
 <body>
-  <div id="app">
+  <!-- Login screen (shown on boot when not signed in to Klaus web server) -->
+  <div id="login-screen" class="login-screen" style="display:none">
+    <div class="login-left">
+      <div class="login-left-inner">
+        <div class="login-brand-logo">
+          <img src="logo.png" alt="Klaus" />
+        </div>
+        <h1 class="login-title" data-i18n="login_welcome_title">欢迎使用 Klaus</h1>
+        <p class="login-subtitle" data-i18n="login_welcome_subtitle">面向所有人的 AI 桌面助手</p>
+        <p class="login-desc" data-i18n="login_welcome_desc">
+          用自然语言描述你的需求，Klaus 自动规划、调用工具并交付结果。
+        </p>
+        <div id="login-error" class="login-error"></div>
+        <div class="login-actions">
+          <button id="login-btn" class="login-btn-primary">
+            <span id="login-btn-label" data-i18n="login_btn">登录/注册</span>
+          </button>
+          <div class="login-lang-select">
+            <button id="login-lang-btn" class="login-lang-btn">
+              <span id="login-lang-label">中文</span>
+              <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 4.5l3 3 3-3" />
+              </svg>
+            </button>
+            <div id="login-lang-menu" class="login-lang-menu hidden">
+              <button data-lang="zh">中文</button>
+              <button data-lang="en">English</button>
+            </div>
+          </div>
+        </div>
+        <button id="login-server-btn" class="login-skip" data-i18n="login_server_link">使用自定义服务器…</button>
+      </div>
+    </div>
+    <div class="login-right">
+      <div class="login-right-waves"></div>
+      <div class="login-tagline">
+        Go from answers to action with your agentic work partner
+      </div>
+    </div>
+  </div>
+
+  <div id="app" style="visibility:hidden">
     <!-- Sidebar -->
     <div id="sidebar" class="sidebar">
       <div class="sidebar-header">
