@@ -459,11 +459,15 @@ export class MessageStore {
 
         if (parsed.type === "message" &&
             (parsed.role === "user" || parsed.role === "assistant") &&
-            typeof parsed.content === "string") {
+            (typeof parsed.content === "string" || Array.isArray(parsed.content))) {
+          // Content can be either a plain string (legacy / user turns) or a
+          // TranscriptContentBlock[] array (new format with thinking / tool /
+          // text blocks). Preserve whichever shape was on disk so the engine
+          // lazy-load path doesn't strip thinking turns on session restore.
           messages.push({
             type: "message",
             role: parsed.role,
-            content: parsed.content,
+            content: parsed.content as string | TranscriptContentBlock[],
             ts: typeof parsed.ts === "number" ? parsed.ts : 0,
           });
         } else if (parsed.type === "marble-origami-commit") {

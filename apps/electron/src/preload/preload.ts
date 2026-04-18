@@ -106,9 +106,6 @@ contextBridge.exposeInMainWorld('klaus', {
     engineStatus: (cb: (status: any) => void) => {
       ipcRenderer.on('engine:status', (_e, status) => cb(status))
     },
-    sessionTouched: (cb: (info: { sessionId: string; role: 'user' | 'assistant'; text: string }) => void) => {
-      ipcRenderer.on('session:touched', (_e, info) => cb(info))
-    },
     trayNewChat: (cb: () => void) => {
       ipcRenderer.on('tray:new-chat', () => cb())
     },

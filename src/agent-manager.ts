@@ -35,7 +35,7 @@ import { runWithCwdOverride } from "./engine/utils/cwd.js";
 import { initContextCollapse, resetContextCollapse } from "./engine/services/contextCollapse/index.js";
 import type { ContextCollapseStats } from "./engine/services/contextCollapse/index.js";
 import { MessageQueueManager } from "./engine/services/messageQueue.js";
-import type { MessageStore } from "./message-store.js";
+import type { MessageStore, TranscriptContentBlock } from "./message-store.js";
 import { createContentReplacementState } from "./engine/utils/toolResultStorage.js";
 import type { ContentReplacementState } from "./engine/utils/toolResultStorage.js";
 import { parseWebSessionKey } from "./gateway/protocol.js";
@@ -1049,14 +1049,28 @@ export class AgentSessionManager {
         const { messages: transcriptMsgs, collapseCommits, collapseSnapshot } =
           await this.messageStore.readAllEntries(sessionKey);
 
-        // Rebuild engine Message objects from transcript
+        // Rebuild engine Message objects from transcript. Content on disk
+        // may be either a plain string (legacy / user turns) or a
+        // TranscriptContentBlock[] (thinking / tool / text). For engine
+        // context restoration we only need the rendered text — thinking is
+        // regenerated fresh per turn, tool records use Klaus-specific display
+        // fields that don't map 1:1 to engine tool_use/tool_result blocks.
+        // So flatten to text for the engine; the browser meanwhile reads
+        // original blocks via readHistory and renders thinking/tool UI from
+        // them on Cmd+R restore (appendMsg in web-ui-messages-js.ts).
         for (const tm of transcriptMsgs) {
+          const flatText = typeof tm.content === "string"
+            ? tm.content
+            : (tm.content as readonly TranscriptContentBlock[])
+                .filter((b): b is { readonly type: "text"; readonly text: string } => b.type === "text")
+                .map(b => b.text)
+                .join("");
           messages.push({
             type: "user",
-            message: { role: tm.role, content: tm.content },
+            message: { role: tm.role, content: flatText },
             uuid: randomUUID(),
             timestamp: new Date(tm.ts).toISOString(),
-            ...(tm.role === "assistant" ? { type: "assistant" as const, message: { role: "assistant" as const, content: [{ type: "text" as const, text: tm.content }], id: `msg_${randomUUID()}`, type: "message" as const, model: "<restored>", stop_reason: "end_turn" as const, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } } : {}),
+            ...(tm.role === "assistant" ? { type: "assistant" as const, message: { role: "assistant" as const, content: [{ type: "text" as const, text: flatText }], id: `msg_${randomUUID()}`, type: "message" as const, model: "<restored>", stop_reason: "end_turn" as const, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } } : {}),
           } as Message);
         }
 

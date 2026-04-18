@@ -53,6 +53,9 @@ import {
   getTranscriptPathForSession,
   getProjectDir,
   resetSessionFilePointer,
+  enrichLogs,
+  saveCustomTitle,
+  buildConversationChain,
 } from '../engine/utils/sessionStorage.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
@@ -193,7 +196,10 @@ export class EngineHost {
     const uuid = this.registry.getOrCreateUuid(channelKey)
     entry = {
       id: channelKey,
-      title: channelKey === 'app:local' ? 'New Chat' : channelKey,
+      // `New Chat` is a sentinel the renderer maps to tt('new_chat'). Shown only
+      // until the first message is sent — after which listSessions reads the
+      // real title (customTitle / firstPrompt) from the JSONL via enrichLogs.
+      title: 'New Chat',
       messages: [],
       appState: getDefaultAppState(),
       toolPermissionContext: null,
@@ -345,32 +351,40 @@ export class EngineHost {
   }
 
   /**
-   * Enumerate sessions by scanning CC's on-disk JSONL via getSessionFilesLite.
-   * Each uuid-named .jsonl is a session. Cross-referenced with the registry
-   * so the UI sees stable channelKeys ("wechat:xxx" for external-channel
-   * sessions, "app:local" for desktop-UI sessions).
+   * Enumerate sessions via CC's own session scanning. For each lite log, we
+   * run enrichLogs → tail-reads 128 KB per file to pull customTitle,
+   * firstPrompt, tag, etc. Title precedence:
+   *   1. customTitle (user-renamed, `saveCustomTitle` wrote it)
+   *   2. firstPrompt (auto-derived from first user msg by CC's readLiteMetadata)
+   *   3. 'Chat'
+   * Cross-referenced with the registry so channel sessions show their
+   * channelKey as the stable id (e.g. "wechat:o9cq..."), with UI sidebar
+   * badge derived from the prefix.
    */
   async listSessions(): Promise<SessionInfo[]> {
     const projectDir = getProjectDir(CANONICAL_CWD)
-    const logs = await getSessionFilesLite(projectDir).catch(() => [])
+    const liteLogs = await getSessionFilesLite(projectDir).catch(() => [])
+    const { logs } = await enrichLogs(liteLogs, 0, liteLogs.length).catch(
+      () => ({ logs: liteLogs, nextIndex: liteLogs.length }),
+    )
     const results: SessionInfo[] = []
     for (const log of logs) {
       const uuid = (log as any).sessionId as string
       const channelKey = this.registry.sessionKeyOf(uuid) ?? uuid
-      // Prefer an in-memory session entry's live title (auto-updated per turn),
-      // fall back to first-prompt enrichment (future: call enrichLogs() per session).
-      const entry = this.sessions.get(channelKey)
+      const title =
+        (log as any).customTitle
+          || ((log as any).firstPrompt ? String((log as any).firstPrompt).slice(0, 50) : '')
+          || 'Chat'
       results.push({
         id: channelKey,
-        title: entry?.title ?? 'Chat',
+        title,
         createdAt: new Date((log as any).created ?? 0).getTime() || 0,
         updatedAt: new Date((log as any).modified ?? 0).getTime() || 0,
       })
     }
-    // Merge with registry-only entries that have no transcript yet (user
-    // clicked "new chat" but hasn't sent a message). These wouldn't show
-    // up in getSessionFilesLite since no JSONL exists until recordTranscript
-    // materializes one on the first user message.
+    // Registry-only sessions (user hit "new chat" but hasn't sent a first
+    // message yet — no JSONL on disk). Show them so the sidebar reflects the
+    // fresh conversation slot; title is the sentinel `New Chat`.
     for (const [channelKey, entry] of this.sessions) {
       if (!results.some(r => r.id === channelKey)) {
         results.push({
@@ -396,11 +410,24 @@ export class EngineHost {
     clearSystemPromptSections()
   }
 
-  renameSession(sessionId: string, title: string): void {
-    const s = this.sessions.get(sessionId)
-    if (s) {
-      s.title = title
-      s.updatedAt = Date.now()
+  /**
+   * Rename via CC's saveCustomTitle — appends a `custom-title` entry to the
+   * session's JSONL so listSessions' enrichLogs can read it back. Same API
+   * the CLI's /rename uses. Falls back gracefully if the session has no
+   * transcript yet (still updates the in-memory entry for immediate UI).
+   */
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    const entry = this.ensureSession(sessionId)
+    const uuid = entry.uuid
+    const transcriptPath = join(getProjectDir(CANONICAL_CWD), `${uuid}.jsonl`)
+    entry.title = title
+    entry.updatedAt = Date.now()
+    if (existsSync(transcriptPath)) {
+      try {
+        await saveCustomTitle(uuid as any, title, transcriptPath, 'user')
+      } catch (err) {
+        console.warn('[Engine] saveCustomTitle failed:', err)
+      }
     }
   }
 
@@ -416,12 +443,14 @@ export class EngineHost {
     const filePath = join(projectDir, `${uuid}.jsonl`)
     if (!existsSync(filePath)) return []
     try {
-      const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
+      const { messages, leafUuids } = await loadTranscriptFile(filePath, { keepAllLeaves: false })
+      const leafUuid = leafUuids.values().next().value as string | undefined
+      const leaf = leafUuid ? messages.get(leafUuid as any) : undefined
+      if (!leaf) return []
+      const chain = buildConversationChain(messages, leaf)
       const out: ChatMessage[] = []
       let i = 0
-      // Rebuild chain via buildConversationChain? For our purposes simple
-      // insertion order is good enough — CC writes in chain order already.
-      for (const m of messages.values()) {
+      for (const m of chain) {
         if (m.type !== 'user' && m.type !== 'assistant') continue
         const content = (m as any).message?.content
         const text = typeof content === 'string'
@@ -453,6 +482,14 @@ export class EngineHost {
     options?: {
       onEvent?: (event: EngineEvent) => void
       onPermissionRequest?: (req: PermissionRequest) => void
+      /**
+       * Whether to emit a `user_message` chat event after the user turn is
+       * pushed. Desktop-UI chats already render the user bubble locally in
+       * send() for 0-latency feedback, so they pass false. Channel handlers
+       * (wechat / feishu / …) pass true — the renderer otherwise has no way
+       * to know the remote user said something.
+       */
+      emitUserMessage?: boolean
     },
   ): Promise<string> {
     // Serialize all chats — CC session state is module-global (STATE.sessionId /
@@ -473,6 +510,7 @@ export class EngineHost {
     options?: {
       onEvent?: (event: EngineEvent) => void
       onPermissionRequest?: (req: PermissionRequest) => void
+      emitUserMessage?: boolean
     },
   ): Promise<string> {
     // Register per-session forwarders. Only the caller that provided onEvent
@@ -498,19 +536,25 @@ export class EngineHost {
     switchSession(uuid as any, projectDir)
     await resetSessionFilePointer()
 
-    // Lazy-load history from CC's own JSONL via loadTranscriptFile.
-    // in-memory session.messages is cleared each turn then rebuilt, because
-    // CC's recordTranscript dedups by uuid via getSessionMessages — feeding
-    // it messages it already has is a no-op, but we still need the replay
-    // to supply the model with full context.
+    // Lazy-load history from CC's own JSONL. Uses buildConversationChain —
+    // the same function --resume uses — so parentUuid chain and sibling
+    // tool_result recovery are handled identically to the CLI. Without it
+    // we'd be feeding query() raw Map-iteration order which can drop
+    // parallel tool branches.
     if (session.messages.length === 0 && existsSync(transcriptPath)) {
       try {
-        const { messages } = await loadTranscriptFile(transcriptPath, { keepAllLeaves: true })
-        for (const m of messages.values()) {
-          if (m.type !== 'user' && m.type !== 'assistant') continue
-          session.messages.push(m as any)
+        const { messages, leafUuids } = await loadTranscriptFile(transcriptPath, { keepAllLeaves: false })
+        // Single-leaf main session (desktop never forks) — pick the one leaf.
+        const leafUuid = leafUuids.values().next().value as string | undefined
+        const leaf = leafUuid ? messages.get(leafUuid as any) : undefined
+        if (leaf) {
+          const chain = buildConversationChain(messages, leaf)
+          for (const m of chain) {
+            if (m.type !== 'user' && m.type !== 'assistant') continue
+            session.messages.push(m as any)
+          }
+          console.log(`[Engine] buildConversationChain → ${session.messages.length} message(s) for ${sessionId}`)
         }
-        console.log(`[Engine] loadTranscriptFile → ${session.messages.length} historical message(s) for ${sessionId}`)
       } catch (err) {
         console.warn('[Engine] Failed to load transcript:', err)
       }
@@ -557,10 +601,9 @@ export class EngineHost {
     session.isRunning = true
     session.updatedAt = Date.now()
 
-    // Auto-title from first message
-    if (session.messages.length === 0 && text.length > 0) {
-      session.title = text.slice(0, 50)
-    }
+    // No explicit auto-title — CC writes the first user message to JSONL via
+    // recordTranscript, then enrichLogs reads it back as `firstPrompt` which
+    // listSessions uses as the default title. The engine handles this end to end.
 
     // Persist-from-index: marks the tail of session.messages before this turn's
     // user msg is pushed. After query() we append [startIdx..] to disk, which
@@ -705,6 +748,11 @@ export class EngineHost {
         await recordTranscript([userMsg])
       } catch (err) {
         console.warn('[Engine] recordTranscript(user) failed:', err)
+      }
+      // Notify UI about inbound user turns (channel scenarios). Desktop UI
+      // chats already rendered the user bubble locally before calling chat().
+      if (options?.emitUserMessage) {
+        this.pushEvent({ type: 'user_message' as any, sessionId, message: userMsg })
       }
 
       // Build thinking config
@@ -1098,11 +1146,4 @@ export class EngineHost {
     // caller must ensure permission_mode=auto/bypass when no UI is available.
   }
 
-  // Public hook for main-process owners (main window, future tray badge, …) to
-  // receive a targeted 'session touched' notification whenever any channel
-  // produces a reply — used to refresh the sidebar for channel-created sessions.
-  // Mirrors Web 端 buildNotify in src/index.ts:202.
-  notifySessionTouched(sessionId: string, role: 'user' | 'assistant', text: string): void {
-    this.mainWindow?.webContents.send('session:touched', { sessionId, role, text })
-  }
 }

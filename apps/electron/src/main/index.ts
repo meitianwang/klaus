@@ -8,7 +8,7 @@ import { McpConfigManager } from './mcp-config.js'
 import { ChannelConfigManager } from './channel-config.js'
 import { CronScheduler } from './cron-scheduler.js'
 import { registerIpcHandlers } from './ipc-handlers.js'
-import { createMainWindow } from './window.js'
+import { createMainWindow, getMainWindow } from './window.js'
 import { createTray } from './tray.js'
 
 // Ensure we run as Electron app, not Node.js (Claude Code sets ELECTRON_RUN_AS_NODE=1)
@@ -118,15 +118,23 @@ app.whenReady().then(async () => {
     try {
       const { ChannelManager } = await import('../channels/manager.js')
 
-      // Channel handler: intentionally does NOT pass onEvent to engine.chat() —
-      // aligns with Web 端 handler at src/index.ts:132: external channels don't
-      // register a stream-event forwarder, so engine events never reach the
-      // desktop UI. Only the final reply text is used, delivered by the
-      // channel's own outbound adapter.
+      // Channel handler uses the SAME stream-event forwarder as the UI does
+      // (Electron main-process forwards chat:event IPC → renderer). This is
+      // the desktop-single-user simplification of the Web 端 gateway model:
+      // with just one consumer (mainWindow), there's no reason to split
+      // renderable events from "plain reply text". The renderer filters by
+      // `event.sessionId !== currentSessionId` so only the active tab
+      // animates; the rest fall through.
       const handler = async (msg: any): Promise<string | null> => {
         const sessionKey = msg.sessionKey || `channel:${msg.senderId || 'unknown'}`
         try {
-          const reply = await engineHost.chat(sessionKey, msg.text || '', msg.media)
+          const reply = await engineHost.chat(sessionKey, msg.text || '', msg.media, {
+            onEvent: (event) => getMainWindow()?.webContents.send('chat:event', event),
+            onPermissionRequest: (req) => getMainWindow()?.webContents.send('permission:request', req),
+            // Channel sessions need the renderer told about the incoming user
+            // turn — UI chats already append locally in send() so they skip this.
+            emitUserMessage: true,
+          })
           return reply || null
         } catch (err) {
           console.warn('[Klaus] Channel handler error:', err)
@@ -134,14 +142,10 @@ app.whenReady().then(async () => {
         }
       }
 
-      // buildNotify: mirrors Web 端 src/index.ts:202. Each time a channel sinks
-      // a message (role=user on inbound, role=assistant on outbound), push a
-      // session-touched notification to the main window so the sidebar can
-      // surface the new/updated session. This is the ONLY engine signal the
-      // UI receives for external-channel activity.
-      const notify = () => (sessionKey: string, role: 'user' | 'assistant', text: string) => {
-        engineHost.notifySessionTouched(sessionKey, role, text)
-      }
+      // buildNotify is a no-op now — the chat:event stream already carries
+      // a `done` event per turn which the renderer uses to refresh the
+      // sidebar, so we don't need a separate side-channel notification.
+      const notify = () => () => {}
 
       channelManager = new ChannelManager({
         handler,

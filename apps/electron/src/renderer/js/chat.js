@@ -704,12 +704,34 @@ window.handlePermission = function(requestId, decision) {
 
 // ==================== Events ====================
 
-// Server-side dispatch: main process only delivers events for the session the
-// renderer subscribed to (via chat:send's onEvent forwarder). External channels'
-// stream events never reach this listener. See engine-host.pushEvent.
+// Every chat — UI-originated and channel-originated alike — forwards its
+// engine events through this single IPC. Filter by currentSessionId so only
+// the active tab animates. When a `done` arrives for some other session
+// (channel just finished replying in the background), refresh the sidebar
+// so its title/mtime updates are visible.
 klausApi.on.chatEvent((event) => {
+  if (event.sessionId && event.sessionId !== currentSessionId) {
+    if (event.type === 'done') updateSessionInList()
+    return
+  }
 
   switch (event.type) {
+    case 'user_message': {
+      // Channel-originated user turn (wechat/feishu/…). UI-originated chats
+      // skip this (engine only emits it when caller passes emitUserMessage=true).
+      const content = event.message?.message?.content
+      const text = typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? content.filter(b => b && b.type === 'text').map(b => b.text || '').join('')
+          : ''
+      if (text) {
+        welcomeEl.style.display = 'none'
+        messagesEl.style.display = 'block'
+        appendUserMsg(text)
+      }
+      break
+    }
     case 'text_delta': appendStreamText(event.text); break
     case 'thinking_delta': thinkingUI.append(event.thinking); break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
@@ -1085,15 +1107,6 @@ klausApi.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-vi
 // user/assistant message. Mirrors Web 端 web-ui-chat-js.ts `channel_message`
 // handler: always refresh sidebar, and if the current session IS the touched
 // one, append the new message live so the user doesn't need to switch sessions.
-klausApi.on.sessionTouched?.((info) => {
-  updateSessionInList()
-  if (!info || info.sessionId !== currentSessionId) return
-  if (info.role === 'user') appendUserMsg(info.text)
-  else if (info.role === 'assistant') appendFinalAssistantMsg(info.text)
-  welcomeEl.style.display = 'none'
-  messagesEl.style.display = 'block'
-  scrollToBottom()
-})
 
 // --- Boot ---
 init()
