@@ -249,8 +249,17 @@ async function deleteSession(id) {
   sessions = sessions.filter(s => s.id !== id)
   sessionDom.delete(id)
   if (currentSessionId === id) {
+    // CRITICAL: clear currentSessionId + messagesEl BEFORE switchSession.
+    // Otherwise switchSession's opening block re-caches the deleted session's
+    // DOM into sessionDom[deletedId], and when the user later opens a freshly-
+    // recreated session with the same channelKey (e.g. same wechat senderId
+    // chatting again), switchSession reads the stale DOM cache and shows the
+    // old conversation instead of the new one.
+    messagesEl.innerHTML = ''
+    resetStreamState()
+    currentSessionId = null
     if (sessions.length > 0) await switchSession(sessions[0].id)
-    else { currentSessionId = null; messagesEl.style.display = 'none'; welcomeEl.style.display = 'flex' }
+    else { messagesEl.style.display = 'none'; welcomeEl.style.display = 'flex' }
   }
   renderSessionList()
 }

@@ -56,6 +56,7 @@ import {
   enrichLogs,
   saveCustomTitle,
   buildConversationChain,
+  clearSessionMetadata,
 } from '../engine/utils/sessionStorage.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
@@ -522,6 +523,13 @@ export class EngineHost {
     await this.init()
     console.log('[Engine] chat() init done, entering query')
 
+    // Tracks the uuid of the last message written to JSONL — passed to
+    // recordTranscript as startingParentUuidHint to build the parentUuid
+    // chain correctly. Without it every message's parentUuid is null, so
+    // buildConversationChain can only walk back to a single message (the
+    // leaf itself) — Cmd+R reload shows only the last turn.
+    let lastRecordedUuid: string | undefined = undefined
+
     const session = this.ensureSession(sessionId)
     const uuid = session.uuid
     const projectDir = getProjectDir(CANONICAL_CWD)
@@ -529,12 +537,20 @@ export class EngineHost {
 
     // Swap CC's ambient session id / project dir → subsequent recordTranscript
     // calls will write to ~/.klaus/projects/<sanitized-canonical>/<uuid>.jsonl.
-    // resetSessionFilePointer clears the Project singleton's cached sessionFile
-    // so the next recordTranscript re-derives the path from the new sessionId —
-    // without this, a prior chat()'s sessionFile persists and writes go to the
-    // wrong jsonl (see sessionStorage.ts:1369 resetSessionFilePointer docs).
+    //
+    // Three-step ritual matches CC CLI's session-switch sequence:
+    //  1. switchSession(uuid, projectDir) — atomically swap STATE.sessionId + STATE.sessionProjectDir
+    //  2. resetSessionFilePointer() — drop Project.sessionFile cache so the next
+    //     recordTranscript re-derives path from the new sessionId (see
+    //     sessionStorage.ts:1369). Without this writes go to the previous jsonl.
+    //  3. clearSessionMetadata() — drop Project.currentSession{Title,LastPrompt,Tag,...}
+    //     caches carried over from the previous chat. materializeSessionFile() calls
+    //     reAppendSessionMetadata() on first write (sessionStorage.ts:877), which
+    //     would otherwise leak the previous session's last-prompt into this new
+    //     session's jsonl head — causing the sidebar to show the wrong title.
     switchSession(uuid as any, projectDir)
     await resetSessionFilePointer()
+    clearSessionMetadata()
 
     // Lazy-load history from CC's own JSONL. Uses buildConversationChain —
     // the same function --resume uses — so parentUuid chain and sibling
@@ -552,6 +568,11 @@ export class EngineHost {
           for (const m of chain) {
             if (m.type !== 'user' && m.type !== 'assistant') continue
             session.messages.push(m as any)
+          }
+          // Seed the parent-chain cursor with the tail of restored history so
+          // this turn's new messages link up to it rather than starting fresh.
+          if (chain.length > 0) {
+            lastRecordedUuid = (chain[chain.length - 1] as any).uuid
           }
           console.log(`[Engine] buildConversationChain → ${session.messages.length} message(s) for ${sessionId}`)
         }
@@ -743,9 +764,13 @@ export class EngineHost {
       } as any
       session.messages.push(userMsg)
       // Persist via CC API — writes to <projectDir>/<uuid>.jsonl, format
-      // identical to CC CLI's sessions. No self-rolled storage involved.
+      // identical to CC CLI's sessions. Pass lastRecordedUuid so the user
+      // turn's parentUuid chains to any restored history (or stays null if
+      // this is the very first message), matching CC's recordTranscript
+      // contract.
       try {
-        await recordTranscript([userMsg])
+        const recorded = await recordTranscript([userMsg], undefined, lastRecordedUuid as any)
+        lastRecordedUuid = (recorded as any) ?? userMsg.uuid
       } catch (err) {
         console.warn('[Engine] recordTranscript(user) failed:', err)
       }
@@ -874,11 +899,14 @@ export class EngineHost {
           this.processStreamEvent(sessionId, event as any, session)
           // Flush each new assistant/user message to CC's JSONL as it arrives
           // — mirrors LocalMainSessionTask's per-event recordSidechainTranscript.
-          // CC dedups by uuid so re-feeding already-recorded messages is cheap.
+          // lastRecordedUuid threads the parentUuid chain: each new message
+          // points to the previous one's uuid so buildConversationChain can
+          // walk the whole conversation on Cmd+R reload.
           const t = (event as any)?.type
           if (t === 'assistant' || t === 'user') {
             try {
-              await recordTranscript([event as any])
+              const recorded = await recordTranscript([event as any], undefined, lastRecordedUuid as any)
+              lastRecordedUuid = (recorded as any) ?? (event as any).uuid ?? lastRecordedUuid
             } catch (err) {
               console.warn('[Engine] recordTranscript(' + t + ') failed:', err)
             }
