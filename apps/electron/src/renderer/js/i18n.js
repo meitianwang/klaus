@@ -144,7 +144,6 @@ const I18N = {
     // Login screen (Klaus user auth)
     login_welcome_title: 'Welcome to Klaus',
     login_welcome_subtitle: 'Your AI desktop assistant for everyone',
-    login_welcome_desc: 'Describe your task in plain language — Klaus plans, calls the right tools, and delivers the result.',
     login_btn: 'Sign in / Sign up',
     login_opening: 'Opening browser…',
     login_waiting: 'Finish sign-in in the browser — this screen will continue automatically.',
@@ -392,7 +391,6 @@ const I18N = {
     // Login screen (Klaus user auth)
     login_welcome_title: '欢迎使用 Klaus',
     login_welcome_subtitle: '面向所有人的 AI 桌面助手',
-    login_welcome_desc: '用自然语言描述你的需求，Klaus 自动规划、调用工具并交付结果。',
     login_btn: '登录/注册',
     login_opening: '正在打开浏览器…',
     login_waiting: '请在浏览器中完成登录，这里会自动继续',

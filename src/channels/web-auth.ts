@@ -873,39 +873,51 @@ export function handleDesktopAuthSuccess(
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Klaus — 登录成功</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; font-family: -apple-system, 'Segoe UI', sans-serif; background: #f8fafc; color: #0f172a; }
-  .card { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .inner { max-width: 420px; text-align: center; }
-  .check { width: 64px; height: 64px; border-radius: 50%; background: #10b981; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; }
-  .check svg { width: 32px; height: 32px; stroke: #fff; stroke-width: 3; fill: none; }
-  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-  p { font-size: 14px; color: #64748b; line-height: 1.6; margin-bottom: 20px; }
-  .btn { display: inline-block; padding: 10px 20px; background: #0f172a; color: #fff; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; }
-  .btn:hover { background: #334155; }
-  .hint { font-size: 12px; color: #94a3b8; margin-top: 12px; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #ffffff; --fg: #0f172a; --border: #e2e8f0;
+  --card-bg: #f8fafc; --accent: #020617; --accent-text: #ffffff;
+  --accent-hover: #334155; --muted: #64748b;
+  --font-main: 'Inter', -apple-system, sans-serif;
+}
+@media(prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a; --fg: #f8fafc; --border: #334155;
+    --card-bg: #1e293b; --accent: #f8fafc; --accent-text: #0f172a;
+    --accent-hover: #e2e8f0; --muted: #94a3b8;
+  }
+}
+html, body { height: 100%; font-family: var(--font-main); background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; }
+.container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.card { width: 100%; max-width: 400px; text-align: center; }
+.brand-icon { width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+.brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; }
+h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 8px; }
+p.sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 24px; }
+.btn { display: inline-block; width: auto; padding: 10px 24px; background: var(--accent); color: var(--accent-text); border: none; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; font-family: var(--font-main); transition: background 0.15s; }
+.btn:hover { background: var(--accent-hover); }
+.hint { font-size: 12px; color: var(--muted); margin-top: 16px; opacity: 0.8; }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="inner">
-    <div class="check">
-      <svg viewBox="0 0 24 24"><polyline points="4 13 10 19 20 7"/></svg>
-    </div>
+<div class="container">
+  <div class="card">
+    <div class="brand-icon"><img src="/logo.png" alt="Klaus" /></div>
     <h1>登录成功</h1>
-    <p>正在打开 Klaus 桌面应用… 如果没有自动跳转，请点击下方按钮。</p>
+    <p class="sub">正在打开 Klaus 桌面应用… 如果没有自动跳转，请点击下方按钮。</p>
     <a class="btn" id="open-btn" href="#">打开 Klaus</a>
-    <p class="hint">关闭此页面前请先确认 Klaus 桌面应用已接管登录。</p>
+    <p class="hint">关闭此页面前请先确认 Klaus 桌面应用已接管登录</p>
   </div>
 </div>
 <script>
   (function () {
     var url = ${safeCallbackJson};
     document.getElementById('open-btn').href = url;
-    // Auto-launch after a short delay so the browser shows the page first
     setTimeout(function () { window.location.href = url; }, 200);
   })();
 </script>
