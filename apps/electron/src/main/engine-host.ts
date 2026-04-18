@@ -140,6 +140,12 @@ export class EngineHost {
   private messageStore: MessageStore | null = null
   private mainWindow: BrowserWindow | null = null
   private initPromise: Promise<void> | null = null
+  // Per-session event/permission forwarders — mirrors Web 端 gateway：
+  // caller of chat() registers an onEvent callback and only that callback receives
+  // the engine's stream events. External channels (wechat/…) don't register a forwarder,
+  // so their stream events are NOT pushed to the UI at all. No client-side filtering needed.
+  private sessionEmitters = new Map<string, (event: EngineEvent) => void>()
+  private sessionPermissionEmitters = new Map<string, (req: PermissionRequest) => void>()
 
   constructor(store: SettingsStore) {
     this.store = store
@@ -342,7 +348,19 @@ export class EngineHost {
 
   // --- Chat ---
 
-  async chat(sessionId: string, text: string, _media?: any[]): Promise<void> {
+  async chat(
+    sessionId: string,
+    text: string,
+    _media?: any[],
+    options?: {
+      onEvent?: (event: EngineEvent) => void
+      onPermissionRequest?: (req: PermissionRequest) => void
+    },
+  ): Promise<string> {
+    // Register per-session forwarders. Only the caller that provided onEvent
+    // receives stream events — aligns with Web 端 gateway.createAgentEventForwarder pattern.
+    if (options?.onEvent) this.sessionEmitters.set(sessionId, options.onEvent)
+    if (options?.onPermissionRequest) this.sessionPermissionEmitters.set(sessionId, options.onPermissionRequest)
     console.log('[Engine] chat() called', { sessionId, textLen: text?.length })
     // 等待引擎初始化完成（init 仍在后台进行时，chat 自然排队，用户感知不到）
     await this.init()
@@ -400,7 +418,7 @@ export class EngineHost {
 
     if (session.isRunning) {
       this.pushEvent({ type: 'api_error', sessionId, error: 'Session is busy' })
-      return
+      return ''
     }
 
     // auth_mode 分叉 + 运行时切换
@@ -420,14 +438,14 @@ export class EngineHost {
       if (!token) {
         this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'not_logged_in', mode: 'subscription' })
         this.pushEvent({ type: 'done', sessionId })
-        return
+        return ''
       }
     } else {
       const m = this.store.getDefaultModel() as any
       if (!m || !m.apiKey) {
         this.pushEvent({ type: 'auth_required' as any, sessionId, reason: 'no_model', mode: 'custom' })
         this.pushEvent({ type: 'done', sessionId })
-        return
+        return ''
       }
       process.env.ANTHROPIC_API_KEY = m.apiKey
       if (m.baseUrl) process.env.ANTHROPIC_BASE_URL = m.baseUrl
@@ -525,7 +543,7 @@ export class EngineHost {
 
         const requestId = randomUUID()
 
-        this.pushPermissionRequest({
+        this.pushPermissionRequest(sessionId, {
           requestId,
           toolName: askTool.name,
           toolInput: askInput,
@@ -564,13 +582,24 @@ export class EngineHost {
       const canUseTool = createCanUseTool(onAsk)
 
       // Append user message
-      const userMsg: Message = {
-        type: 'user',
-        message: { role: 'user', content: text },
-        uuid: randomUUID(),
-        timestamp: new Date().toISOString(),
-      } as any
-      session.messages.push(userMsg)
+      // Only push the user msg if the lazy-loaded history doesn't already contain
+      // it as the tail. Channel plugins (wechat/feishu/…) transcribe the user msg
+      // to disk BEFORE calling handler→chat(), so readHistory above already put it
+      // into session.messages. Skipping here avoids the model seeing two identical
+      // user turns (which caused duplicated replies).
+      const tail = session.messages[session.messages.length - 1] as any
+      const tailIsSameUser = tail
+        && tail.type === 'user'
+        && (typeof tail.message?.content === 'string' ? tail.message.content : '') === text
+      if (!tailIsSameUser) {
+        const userMsg: Message = {
+          type: 'user',
+          message: { role: 'user', content: text },
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+        } as any
+        session.messages.push(userMsg)
+      }
 
       // Build thinking config
       const modelRecord = this.store.getDefaultModel()
@@ -710,27 +739,27 @@ export class EngineHost {
       session.isRunning = false
       session.abortController = null // 查询结束（无论成败/中断）都清，下次 chat 新建
       this.pushEvent({ type: 'done', sessionId })
-
-      // Persist messages
-      if (this.messageStore) {
-        try {
-          await this.messageStore.append(sessionId, 'user', text)
-          // Find last assistant message text
-          const lastMsg = [...session.messages].reverse().find(m => (m as any).type === 'assistant')
-          if (lastMsg) {
-            const content = (lastMsg as any).message?.content
-            const assistantText = Array.isArray(content)
-              ? content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
-              : typeof content === 'string' ? content : ''
-            if (assistantText) {
-              await this.messageStore.append(sessionId, 'assistant', assistantText)
-            }
-          }
-        } catch (err) {
-          console.warn('[MessageStore] Failed to persist:', err)
-        }
-      }
+      // Unregister per-session forwarders so late events from abandoned queries don't leak.
+      this.sessionEmitters.delete(sessionId)
+      this.sessionPermissionEmitters.delete(sessionId)
     }
+
+    // Extract final assistant text from session.messages — returned to the caller.
+    // Persistence is the CALLER's responsibility (aligns with Web 端 agent-manager,
+    // which never writes MessageStore itself — see src/agent-manager.ts):
+    //   - Channels write via ctx.transcript() in src/channels/manager.ts:340
+    //   - Desktop IPC chat:send writes after chat() returns (ipc-handlers.ts)
+    // Double-writing here would duplicate every message on disk.
+    let assistantText = ''
+    const lastMsg = [...session.messages].reverse().find(m => (m as any).type === 'assistant')
+    if (lastMsg) {
+      const content = (lastMsg as any).message?.content
+      assistantText = Array.isArray(content)
+        ? content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+        : typeof content === 'string' ? content : ''
+    }
+
+    return assistantText
   }
 
   interrupt(sessionId: string): void {
@@ -939,10 +968,26 @@ export class EngineHost {
   }
 
   private pushEvent(event: EngineEvent): void {
-    this.mainWindow?.webContents.send('chat:event', event)
+    // Server-side dispatch (mirrors Web 端 gateway): only the session's registered
+    // forwarder receives the event. External channels (no forwarder registered) never
+    // see engine stream events — removes the need for client-side sessionId filtering.
+    const sessionId = (event as any).sessionId
+    const emit = sessionId ? this.sessionEmitters.get(sessionId) : undefined
+    if (emit) emit(event)
   }
 
-  private pushPermissionRequest(req: PermissionRequest): void {
-    this.mainWindow?.webContents.send('permission:request', req)
+  private pushPermissionRequest(sessionId: string, req: PermissionRequest): void {
+    const emit = this.sessionPermissionEmitters.get(sessionId)
+    if (emit) emit(req)
+    // If no emitter registered (e.g. external channel), the onAsk await would hang —
+    // caller must ensure permission_mode=auto/bypass when no UI is available.
+  }
+
+  // Public hook for main-process owners (main window, future tray badge, …) to
+  // receive a targeted 'session touched' notification whenever any channel
+  // produces a reply — used to refresh the sidebar for channel-created sessions.
+  // Mirrors Web 端 buildNotify in src/index.ts:202.
+  notifySessionTouched(sessionId: string, role: 'user' | 'assistant', text: string): void {
+    this.mainWindow?.webContents.send('session:touched', { sessionId, role, text })
   }
 }

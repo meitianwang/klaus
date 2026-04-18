@@ -3,11 +3,13 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
+import { getMainWindow } from './window.js'
 import type { EngineHost } from './engine-host.js'
 import type { SettingsStore } from './settings-store.js'
 import type { SkillsManager } from './skills-manager.js'
 import type { McpConfigManager } from './mcp-config.js'
 import type { ChannelConfigManager } from './channel-config.js'
+import type { MessageStore } from './message-store.js'
 
 export function registerIpcHandlers(
   engine: EngineHost,
@@ -15,11 +17,30 @@ export function registerIpcHandlers(
   skills: SkillsManager,
   mcpConfig: McpConfigManager,
   channels: ChannelConfigManager,
+  messageStore: MessageStore,
 ): void {
   // --- Chat ---
+  // Register forwarders on chat():
+  // - onEvent forwards engine stream events to the renderer via 'chat:event'
+  // - onPermissionRequest forwards ask prompts via 'permission:request'
+  // External channels (wechat/…) call engine.chat() WITHOUT these, so their streams
+  // never reach the UI — aligns with Web 端 gateway per-user event dispatch.
   ipcMain.handle('chat:send', async (_e, { sessionId, text, media }) => {
     console.log('[IPC] chat:send received', { sessionId, textLen: text?.length })
-    engine.chat(sessionId, text, media).catch(err => {
+    // Persist user message first so it shows in history on next load even if
+    // chat() crashes. Assistant reply is persisted after chat() returns — mirrors
+    // Web 端 channel transcript semantics (src/channels/manager.ts:340).
+    messageStore.append(sessionId, 'user', text).catch(err =>
+      console.warn('[MessageStore] persist user failed:', err),
+    )
+    engine.chat(sessionId, text, media, {
+      onEvent: (event) => getMainWindow()?.webContents.send('chat:event', event),
+      onPermissionRequest: (req) => getMainWindow()?.webContents.send('permission:request', req),
+    }).then((reply) => {
+      if (reply) messageStore.append(sessionId, 'assistant', reply).catch(err =>
+        console.warn('[MessageStore] persist assistant failed:', err),
+      )
+    }).catch(err => {
       console.error('[IPC] chat:send error:', err)
     })
   })

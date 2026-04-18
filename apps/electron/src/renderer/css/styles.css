@@ -354,6 +354,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   border-radius: 20px;
   background: rgba(22,163,74,0.06);
 }
+#status:empty { display: none; }
 #status::before {
   content: '';
   display: inline-block;
@@ -833,7 +834,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   gap: 32px;
 }
 
-.settings-sidebar { width: 200px; position: sticky; top: 0; }
+.settings-sidebar { width: 200px; position: sticky; top: 0; align-self: flex-start; }
 .settings-back {
   display: flex;
   align-items: center;

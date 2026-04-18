@@ -89,7 +89,7 @@ app.whenReady().then(async () => {
     engineHost.setMessageStore(messageStore)
 
     // 5. IPC — pass all managers
-    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig)
+    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig, messageStore)
 
     // 6. Window
     const mainWindow = createMainWindow()
@@ -124,19 +124,30 @@ app.whenReady().then(async () => {
     try {
       const { ChannelManager } = await import('../channels/manager.js')
 
-      // Handler: routes inbound messages to engine
-      const handler = async (msg: any) => {
+      // Channel handler: intentionally does NOT pass onEvent to engine.chat() —
+      // aligns with Web 端 handler at src/index.ts:132: external channels don't
+      // register a stream-event forwarder, so engine events never reach the
+      // desktop UI. Only the final reply text is used, delivered by the
+      // channel's own outbound adapter.
+      const handler = async (msg: any): Promise<string | null> => {
         const sessionKey = msg.sessionKey || `channel:${msg.senderId || 'unknown'}`
-        const result = await new Promise<string | null>((resolve) => {
-          engineHost.chat(sessionKey, msg.text || '', msg.media).then(() => {
-            // Get last assistant message
-            resolve(null) // Chat pushes events via IPC, channels get reply via outbound
-          }).catch(() => resolve(null))
-        })
-        return result
+        try {
+          const reply = await engineHost.chat(sessionKey, msg.text || '', msg.media)
+          return reply || null
+        } catch (err) {
+          console.warn('[Klaus] Channel handler error:', err)
+          return null
+        }
       }
 
-      const notify = () => () => {} // Desktop app doesn't need gateway notifications
+      // buildNotify: mirrors Web 端 src/index.ts:202. Each time a channel sinks
+      // a message (role=user on inbound, role=assistant on outbound), push a
+      // session-touched notification to the main window so the sidebar can
+      // surface the new/updated session. This is the ONLY engine signal the
+      // UI receives for external-channel activity.
+      const notify = () => (sessionKey: string, role: 'user' | 'assistant', text: string) => {
+        engineHost.notifySessionTouched(sessionKey, role, text)
+      }
 
       channelManager = new ChannelManager({
         handler,

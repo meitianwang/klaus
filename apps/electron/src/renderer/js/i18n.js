@@ -236,6 +236,12 @@ const I18N = {
     toast_deleted: 'Deleted', toast_reconnected: 'Reconnected',
     toast_error_prefix: 'Error: ', toast_unknown: 'unknown',
     skills_install_btn: 'Install',
+    // Channel short names — used as sidebar badges on channel-sourced sessions
+    // (aligns with Web 端 src/channels/web-ui-chat-js.ts:176-181)
+    settings_ch_feishu: 'Feishu', settings_ch_dingtalk: 'DingTalk',
+    settings_ch_wechat: 'WeChat', settings_ch_wecom: 'WeCom',
+    settings_ch_qq: 'QQ', settings_ch_telegram: 'Telegram',
+    settings_ch_imessage: 'iMessage', settings_ch_whatsapp: 'WhatsApp',
   },
   zh: {
     // Chat
@@ -472,6 +478,11 @@ const I18N = {
     toast_deleted: '已删除', toast_reconnected: '已重连',
     toast_error_prefix: '错误：', toast_unknown: '未知',
     skills_install_btn: '安装',
+    // Channel short names — sidebar badges
+    settings_ch_feishu: '飞书', settings_ch_dingtalk: '钉钉',
+    settings_ch_wechat: '微信', settings_ch_wecom: '企微',
+    settings_ch_qq: 'QQ', settings_ch_telegram: 'Telegram',
+    settings_ch_imessage: 'iMessage', settings_ch_whatsapp: 'WhatsApp',
   },
 }
 

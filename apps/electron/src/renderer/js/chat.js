@@ -178,13 +178,24 @@ function updateWelcomeGreeting() {
 
 // ==================== Sessions ====================
 
+// Channel prefix → short label key (mirrors Web 端 web-ui-chat-js.ts:176-181).
+// When a session id carries one of these prefixes it was created by an external
+// channel plugin; show the channel badge in the sidebar so users can tell.
+const CHANNEL_PREFIXES = ['feishu', 'dingtalk', 'wechat', 'wecom', 'qq', 'telegram', 'imessage', 'whatsapp']
+function detectChannelPrefix(sessionId) {
+  for (const p of CHANNEL_PREFIXES) if (sessionId.startsWith(p + ':')) return p
+  return null
+}
+
 function renderSessionList() {
   sessionListEl.innerHTML = ''
   for (const s of sessions) {
     const div = document.createElement('div')
     div.className = 'session-item' + (s.id === currentSessionId ? ' active' : '')
     const displayTitle = s.title && s.title !== 'New Chat' ? s.title : tt('new_chat')
-    div.innerHTML = `<div class="s-title">${escapeHtml(displayTitle)}</div><button class="s-del" title="${escapeHtml(tt('delete_title'))}">&times;</button>`
+    const ch = detectChannelPrefix(s.id)
+    const badgeHtml = ch ? `<span class="s-channel-badge">${escapeHtml(tt('settings_ch_' + ch))}</span>` : ''
+    div.innerHTML = `${badgeHtml}<div class="s-title">${escapeHtml(displayTitle)}</div><button class="s-del" title="${escapeHtml(tt('delete_title'))}">&times;</button>`
     div.querySelector('.s-title').onclick = () => switchSession(s.id)
     div.querySelector('.s-del').onclick = (e) => { e.stopPropagation(); deleteSession(s.id) }
     sessionListEl.appendChild(div)
@@ -637,8 +648,10 @@ window.handlePermission = function(requestId, decision) {
 
 // ==================== Events ====================
 
+// Server-side dispatch: main process only delivers events for the session the
+// renderer subscribed to (via chat:send's onEvent forwarder). External channels'
+// stream events never reach this listener. See engine-host.pushEvent.
 klausApi.on.chatEvent((event) => {
-  if (event.sessionId && event.sessionId !== currentSessionId) return
 
   switch (event.type) {
     case 'text_delta': appendStreamText(event.text); break
@@ -1010,6 +1023,21 @@ inputEl.addEventListener('paste', (e) => {
 // Tray events
 klausApi.on.trayNewChat?.(() => newChat())
 klausApi.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-view').classList.contains('active')) toggleSettings() })
+
+// External channel activity (wechat/feishu/…). Engine stream events don't
+// reach this renderer; the main process fires one notification per persisted
+// user/assistant message. Mirrors Web 端 web-ui-chat-js.ts `channel_message`
+// handler: always refresh sidebar, and if the current session IS the touched
+// one, append the new message live so the user doesn't need to switch sessions.
+klausApi.on.sessionTouched?.((info) => {
+  updateSessionInList()
+  if (!info || info.sessionId !== currentSessionId) return
+  if (info.role === 'user') appendUserMsg(info.text)
+  else if (info.role === 'assistant') appendFinalAssistantMsg(info.text)
+  welcomeEl.style.display = 'none'
+  messagesEl.style.display = 'block'
+  scrollToBottom()
+})
 
 // --- Boot ---
 init()
