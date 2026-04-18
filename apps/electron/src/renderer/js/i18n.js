@@ -149,9 +149,6 @@ const I18N = {
     login_waiting: 'Finish sign-in in the browser — this screen will continue automatically.',
     login_failed_prefix: 'Sign in failed: ',
     login_retry: 'Retry',
-    login_server_link: 'Use a custom server…',
-    login_server_prompt: 'Klaus server URL:',
-    login_server_invalid: 'Invalid URL — must start with http:// or https://',
     // UI chrome
     toggle_sidebar: 'Toggle sidebar', close_btn: 'Close', attach_file: 'Attach file',
     send_stop: 'Send / Stop', drop_files: 'Drop files to upload',
@@ -396,9 +393,6 @@ const I18N = {
     login_waiting: '请在浏览器中完成登录，这里会自动继续',
     login_failed_prefix: '登录失败：',
     login_retry: '重试',
-    login_server_link: '使用自定义服务器…',
-    login_server_prompt: 'Klaus 服务器 URL：',
-    login_server_invalid: 'URL 无效，必须以 http:// 或 https:// 开头',
     // UI chrome
     toggle_sidebar: '切换侧栏', close_btn: '关闭', attach_file: '附加文件',
     send_stop: '发送 / 停止', drop_files: '拖放文件以上传',

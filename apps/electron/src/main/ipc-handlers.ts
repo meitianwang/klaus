@@ -184,11 +184,11 @@ export function registerIpcHandlers(
     return s
   })
 
-  ipcMain.handle('klausAuth:login', async (_e, { serverUrl }: { serverUrl?: string } = {}) => {
+  ipcMain.handle('klausAuth:login', async () => {
     try {
       const { startLogin } = await import('./klaus-auth.js')
-      const auth = await startLogin(serverUrl)
-      return { ok: true, user: auth.user, serverUrl: auth.serverUrl }
+      const auth = await startLogin()
+      return { ok: true, user: auth.user }
     } catch (err: any) {
       console.error('[KlausAuth] login failed:', err)
       return { ok: false, error: err?.message ?? String(err) }

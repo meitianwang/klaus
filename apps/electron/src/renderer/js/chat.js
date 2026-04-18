@@ -1130,14 +1130,9 @@ const loginScreen = document.getElementById('login-screen')
 const loginBtn = document.getElementById('login-btn')
 const loginBtnLabel = document.getElementById('login-btn-label')
 const loginErrorEl = document.getElementById('login-error')
-const loginServerBtn = document.getElementById('login-server-btn')
 const loginLangBtn = document.getElementById('login-lang-btn')
 const loginLangMenu = document.getElementById('login-lang-menu')
 const loginLangLabel = document.getElementById('login-lang-label')
-
-// Override server URL for the NEXT login attempt (persisted in klaus-auth.json
-// after success). null = use default / previously-stored value.
-let customServerUrl = null
 
 function showLoginScreen() {
   if (!loginScreen) return
@@ -1173,7 +1168,7 @@ loginBtn?.addEventListener('click', async () => {
   if (loginBtnLabel) loginBtnLabel.textContent = tt('login_opening')
   setLoginMessage(tt('login_waiting'), 'info')
   try {
-    const res = await klausApi.klausAuth.login(customServerUrl || undefined)
+    const res = await klausApi.klausAuth.login()
     if (res?.ok) {
       hideLoginScreen()
       await init()
@@ -1187,20 +1182,6 @@ loginBtn?.addEventListener('click', async () => {
     if (loginBtnLabel) loginBtnLabel.textContent = tt('login_retry')
     setLoginMessage(tt('login_failed_prefix') + (err?.message || String(err)))
   }
-})
-
-loginServerBtn?.addEventListener('click', () => {
-  const current = customServerUrl || ''
-  const input = window.prompt(tt('login_server_prompt'), current || 'https://klaus-ai.site')
-  if (input === null) return
-  const trimmed = input.trim()
-  if (!trimmed) { customServerUrl = null; setLoginMessage(''); return }
-  if (!/^https?:\/\//i.test(trimmed)) {
-    setLoginMessage(tt('login_server_invalid'))
-    return
-  }
-  customServerUrl = trimmed.replace(/\/+$/, '')
-  setLoginMessage('Server: ' + customServerUrl, 'info')
 })
 
 loginLangBtn?.addEventListener('click', (e) => {
@@ -1243,11 +1224,11 @@ async function boot() {
       try {
         await klausApi.settings.kv.set('display_name', status.user.displayName)
         await klausApi.settings.kv.set('email', status.user.email || '')
-        if (status.user.avatarUrl && status.serverUrl) {
-          await klausApi.settings.kv.set('avatar_data_url',
-            status.user.avatarUrl.startsWith('http')
-              ? status.user.avatarUrl
-              : status.serverUrl.replace(/\/+$/, '') + status.user.avatarUrl)
+        if (status.user.avatarUrl) {
+          const avatar = status.user.avatarUrl.startsWith('http')
+            ? status.user.avatarUrl
+            : 'https://klaus-ai.site' + status.user.avatarUrl
+          await klausApi.settings.kv.set('avatar_data_url', avatar)
         }
       } catch {}
     }

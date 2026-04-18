@@ -27,10 +27,9 @@ import { homedir } from 'node:os'
 // ---------- Config ----------
 
 const AUTH_FILE = join(homedir(), '.klaus', 'desktop-auth.json')
-const DEFAULT_SERVER_URL = 'https://klaus-ai.site'
+export const SERVER_URL = 'https://klaus-ai.site'
 
 export interface StoredAuth {
-  serverUrl: string
   token: string
   user: {
     id: string
@@ -98,14 +97,6 @@ function deleteStoredAuth(): void {
 let currentAuth: StoredAuth | null = readStoredAuth()
 let pendingRequest: PendingRequest | null = null
 
-function getServerUrl(): string {
-  // Preference order: currentAuth.serverUrl (user previously logged into) →
-  // env override → hardcoded default. Only used when starting a NEW login;
-  // validateToken etc. always use currentAuth.serverUrl.
-  if (currentAuth?.serverUrl) return currentAuth.serverUrl
-  return process.env.KLAUS_SERVER_URL || DEFAULT_SERVER_URL
-}
-
 // ---------- Public API ----------
 
 /** Currently stored auth (if any). */
@@ -116,7 +107,6 @@ export function getCurrentAuth(): StoredAuth | null {
 export interface AuthStatus {
   loggedIn: boolean
   user?: StoredAuth['user']
-  serverUrl?: string
 }
 
 export function getStatus(): AuthStatus {
@@ -124,7 +114,6 @@ export function getStatus(): AuthStatus {
   return {
     loggedIn: true,
     user: currentAuth.user,
-    serverUrl: currentAuth.serverUrl,
   }
 }
 
@@ -135,10 +124,8 @@ export function getStatus(): AuthStatus {
  *
  * Only one login can be in flight at a time — calling again while one is
  * pending rejects the previous request.
- *
- * @param serverUrl Override server URL (for private deployments)
  */
-export async function startLogin(serverUrl?: string): Promise<StoredAuth> {
+export async function startLogin(): Promise<StoredAuth> {
   // Cancel any in-flight attempt
   if (pendingRequest) {
     clearTimeout(pendingRequest.timer)
@@ -146,12 +133,11 @@ export async function startLogin(serverUrl?: string): Promise<StoredAuth> {
     pendingRequest = null
   }
 
-  const server = (serverUrl || getServerUrl()).replace(/\/+$/, '')
   const verifier = generateCodeVerifier()
   const challenge = generateCodeChallenge(verifier)
   const state = generateState()
 
-  const loginUrl = new URL('/login', server)
+  const loginUrl = new URL('/login', SERVER_URL)
   loginUrl.searchParams.set('desktop', '1')
   loginUrl.searchParams.set('state', state)
   loginUrl.searchParams.set('code_challenge', challenge)
@@ -177,10 +163,6 @@ export async function startLogin(serverUrl?: string): Promise<StoredAuth> {
       },
       timer,
     }
-
-    // Stash the server URL on the request so handleCallback knows where to
-    // redeem the code, even before we've saved auth.
-    ;(pendingRequest as any).serverUrl = server
 
     shell.openExternal(loginUrl.toString()).catch((err) => {
       if (pendingRequest?.state === state) {
@@ -234,10 +216,9 @@ export async function handleCallback(callbackUrl: string): Promise<void> {
   }
 
   const req = pendingRequest
-  const server = (req as any).serverUrl as string
 
   try {
-    const resp = await fetch(`${server}/api/auth/desktop/token`, {
+    const resp = await fetch(`${SERVER_URL}/api/auth/desktop/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -263,7 +244,6 @@ export async function handleCallback(callbackUrl: string): Promise<void> {
     }
 
     const auth: StoredAuth = {
-      serverUrl: server,
       token: data.token,
       user: data.user,
       loggedInAt: Date.now(),
@@ -286,7 +266,7 @@ export async function logout(): Promise<void> {
   const auth = currentAuth
   if (auth) {
     try {
-      await fetch(`${auth.serverUrl}/api/auth/desktop/logout`, {
+      await fetch(`${SERVER_URL}/api/auth/desktop/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` },
       })
@@ -307,7 +287,7 @@ export async function refreshMe(): Promise<StoredAuth['user'] | null> {
   if (!currentAuth) return null
   const auth = currentAuth
   try {
-    const resp = await fetch(`${auth.serverUrl}/api/auth/desktop/me`, {
+    const resp = await fetch(`${SERVER_URL}/api/auth/desktop/me`, {
       headers: { Authorization: `Bearer ${auth.token}` },
     })
     if (resp.status === 401) {

@@ -1547,10 +1547,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   font-size: 13px;
 }
-.login-footer-dot { color: var(--fg-quaternary); }
 
 .login-link {
   -webkit-app-region: no-drag;
