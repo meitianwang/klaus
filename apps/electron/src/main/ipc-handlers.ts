@@ -127,8 +127,8 @@ export function registerIpcHandlers(
   })
 
   // --- Permissions ---
-  ipcMain.handle('permission:respond', async (_e, { requestId, decision, acceptedSuggestionIndices }) => {
-    engine.resolvePermission(requestId, { decision, acceptedSuggestionIndices })
+  ipcMain.handle('permission:respond', async (_e, { requestId, decision, acceptedSuggestionIndices, updatedInput }) => {
+    engine.resolvePermission(requestId, { decision, acceptedSuggestionIndices, updatedInput })
   })
 
   // --- App: launch at login ---

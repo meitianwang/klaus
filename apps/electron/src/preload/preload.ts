@@ -60,8 +60,13 @@ contextBridge.exposeInMainWorld('klaus', {
 
   // Permission response
   permission: {
-    respond: (requestId: string, decision: 'allow' | 'deny', acceptedSuggestionIndices?: number[]) =>
-      ipcRenderer.invoke('permission:respond', { requestId, decision, acceptedSuggestionIndices }),
+    respond: (
+      requestId: string,
+      decision: 'allow' | 'deny',
+      acceptedSuggestionIndices?: number[],
+      updatedInput?: Record<string, unknown>,
+    ) =>
+      ipcRenderer.invoke('permission:respond', { requestId, decision, acceptedSuggestionIndices, updatedInput }),
   },
 
   // System-level privacy permissions (macOS only)

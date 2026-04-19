@@ -37,7 +37,7 @@ import { loadAllPermissionRulesFromDisk } from '../engine/utils/permissions/perm
 import { applyPermissionRulesToPermissionContext } from '../engine/utils/permissions/permissions.js'
 import { applyPermissionUpdate } from '../engine/utils/permissions/PermissionUpdate.js'
 import { addPermissionRulesToSettings } from '../engine/utils/permissions/permissionsLoader.js'
-import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession } from '../engine/bootstrap/state.js'
+import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession, setQuestionPreviewFormat } from '../engine/bootstrap/state.js'
 import { createContentReplacementState, type ContentReplacementState } from '../engine/utils/toolResultStorage.js'
 import { initContextCollapse } from '../engine/services/contextCollapse/index.js'
 import { runWithCwdOverride } from '../engine/utils/cwd.js'
@@ -265,6 +265,10 @@ export class EngineHost {
     setCwdState(defaultSessionDir)
     setProjectRoot(CONFIG_DIR)
     setIsInteractive(true)
+    // AskUserQuestion: opt-in to preview markdown rendering so the tool prompt
+    // includes the preview-field guidance and the renderer can show preview
+    // snippets in a monospace box (see renderer/js/chat.js showAskUserQuestion).
+    setQuestionPreviewFormat('markdown')
 
     initContextCollapse()
 

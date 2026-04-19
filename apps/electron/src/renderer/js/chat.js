@@ -678,6 +678,10 @@ function renderAgentPanel() {
 // ==================== Permission ====================
 
 function showPermissionRequest(req) {
+  if (req.toolName === 'AskUserQuestion') {
+    showAskUserQuestionRequest(req)
+    return
+  }
   const card = document.createElement('div')
   card.className = 'permission-card'
   card.id = 'perm-' + req.requestId
@@ -719,6 +723,239 @@ window.handlePermission = function(requestId, decision) {
     card.querySelector('.permission-actions').innerHTML = `<div class="permission-result ${decision === 'allow' ? 'permission-allowed' : 'permission-denied'}">${decision === 'allow' ? (tt('allowed')) : (tt('denied'))}${indices.length ? tt('permission_rules_saved') : ''}</div>`
     card.querySelector('.permission-timer').remove()
     card.classList.add('permission-resolved')
+  }
+}
+
+// ==================== AskUserQuestion ====================
+//
+// Per-question selection state is tracked on DOM dataset so we don't hold
+// a separate global map (card is unique per requestId). Answer shape:
+//   single-select → one label OR `__other__` (plus free-text)
+//   multi-select  → Set<label>    (stored in dataset as JSON)
+// On submit we translate to the tool's expected format:
+//   answers[questionText] = "label" or "label1, label2" (multi) or other text
+
+function showAskUserQuestionRequest(req) {
+  const input = req.toolInput || {}
+  const questions = Array.isArray(input.questions) ? input.questions : []
+  if (questions.length === 0) {
+    // Malformed input (schema would normally reject this, but fall back safely
+    // rather than leaving the engine hanging on a pending permission promise).
+    klausApi.permission.respond(req.requestId, 'deny')
+    return
+  }
+  const card = document.createElement('div')
+  card.className = 'question-card'
+  card.id = 'q-' + req.requestId
+
+  const kindLabel = questions.some(q => q.multiSelect) ? tt('question_multi') : tt('question_single')
+  const totalChip = questions.length > 1 ? ` · ${questions.length}` : ''
+  const header = `
+    <div class="question-chip">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6l-3 3V4a1 1 0 0 1 1-1z"/></svg>
+      <span>${escapeHtml(tt('question_chip'))}</span>
+      <span class="question-chip-sep">·</span>
+      <span class="question-chip-kind">${escapeHtml(kindLabel)}${totalChip}</span>
+    </div>`
+
+  const blocks = questions.map((q, qi) => renderQuestionBlock(q, qi)).join('')
+
+  const footer = `
+    <div class="question-footer">
+      <div class="question-footer-left"></div>
+      <div class="question-footer-right">
+        <button class="question-btn question-btn-skip" data-q-action="skip">${escapeHtml(tt('question_skip'))}</button>
+        <button class="question-btn question-btn-submit" data-q-action="submit" disabled>
+          <span>${escapeHtml(tt('question_submit'))}</span>
+          <span class="kbd">⏎</span>
+        </button>
+      </div>
+    </div>`
+
+  card.innerHTML = header + blocks + footer
+  messagesEl.appendChild(card)
+  scrollToBottom()
+
+  wireQuestionCard(card, req, questions)
+}
+
+function renderQuestionBlock(q, qi) {
+  const multi = !!q.multiSelect
+  const options = Array.isArray(q.options) ? q.options : []
+  const optsHtml = options.map((opt, oi) => {
+    const previewHtml = opt.preview
+      ? `<div class="question-option-preview">${escapeHtml(String(opt.preview))}</div>`
+      : ''
+    return `
+      <div class="question-option" data-q-idx="${qi}" data-opt-idx="${oi}" data-opt-label="${escapeHtml(opt.label || '')}">
+        <div class="question-option-badge">${oi + 1}</div>
+        <div class="question-option-body">
+          <div class="question-option-label">${escapeHtml(opt.label || '')}</div>
+          ${opt.description ? `<div class="question-option-desc">${escapeHtml(opt.description)}</div>` : ''}
+          ${previewHtml}
+        </div>
+      </div>`
+  }).join('')
+
+  const otherIdx = options.length
+  const otherBlock = `
+    <div class="question-option question-option-other" data-q-idx="${qi}" data-opt-idx="${otherIdx}" data-opt-label="__other__">
+      <div class="question-option-badge">${otherIdx + 1}</div>
+      <div class="question-option-body">
+        <div class="question-option-label">${escapeHtml(tt('question_other'))}</div>
+      </div>
+    </div>
+    <div class="question-other-input" data-q-idx="${qi}" style="display:none">
+      <textarea data-q-other-idx="${qi}" placeholder="${escapeHtml(tt('question_other_ph'))}"></textarea>
+    </div>`
+
+  const title = questions_withIndex(q, qi)
+  return `
+    <div class="question-block" data-q-idx="${qi}" data-multi="${multi ? '1' : '0'}" data-q-text="${escapeHtml(q.question || '')}">
+      ${title}
+      <div class="question-options">${optsHtml}${otherBlock}</div>
+    </div>`
+}
+
+function questions_withIndex(q, qi) {
+  return `<div class="question-title"><span class="question-title-index">${qi + 1}.</span><span>${escapeHtml(q.question || '')}</span></div>`
+}
+
+function wireQuestionCard(card, req, questions) {
+  // state: per-question { selected: Set<optIdx>, otherText: string, multi: bool }
+  const state = questions.map(q => ({ selected: new Set(), otherText: '', multi: !!q.multiSelect }))
+  const submitBtn = card.querySelector('[data-q-action="submit"]')
+  const skipBtn = card.querySelector('[data-q-action="skip"]')
+
+  const recompute = () => {
+    // All questions must have at least one selection, and if "Other" chosen then text required.
+    const ok = state.every((s, qi) => {
+      if (s.selected.size === 0) return false
+      const otherIdx = questions[qi].options.length
+      if (s.selected.has(otherIdx) && !s.otherText.trim()) return false
+      return true
+    })
+    submitBtn.disabled = !ok
+  }
+
+  card.querySelectorAll('.question-option').forEach(el => {
+    el.addEventListener('click', () => {
+      const qi = Number(el.dataset.qIdx)
+      const oi = Number(el.dataset.optIdx)
+      const s = state[qi]
+      if (s.multi) {
+        if (s.selected.has(oi)) s.selected.delete(oi)
+        else s.selected.add(oi)
+      } else {
+        s.selected.clear()
+        s.selected.add(oi)
+      }
+      // repaint this question's options
+      card.querySelectorAll(`.question-option[data-q-idx="${qi}"]`).forEach(node => {
+        const ni = Number(node.dataset.optIdx)
+        node.classList.toggle('is-selected', s.selected.has(ni))
+      })
+      // toggle other input visibility
+      const otherIdx = questions[qi].options.length
+      const otherBox = card.querySelector(`.question-other-input[data-q-idx="${qi}"]`)
+      if (otherBox) {
+        const show = s.selected.has(otherIdx)
+        otherBox.style.display = show ? '' : 'none'
+        if (show) {
+          const ta = otherBox.querySelector('textarea')
+          if (ta && document.activeElement !== ta) setTimeout(() => ta.focus(), 0)
+        }
+      }
+      recompute()
+    })
+  })
+
+  card.querySelectorAll('textarea[data-q-other-idx]').forEach(ta => {
+    ta.addEventListener('input', () => {
+      const qi = Number(ta.dataset.qOtherIdx)
+      state[qi].otherText = ta.value
+      recompute()
+    })
+  })
+
+  const submit = () => {
+    if (submitBtn.disabled) return
+    const answers = {}
+    const annotations = {}
+    questions.forEach((q, qi) => {
+      const s = state[qi]
+      const opts = q.options
+      const otherIdx = opts.length
+      const parts = []
+      let selectedOption = null
+      Array.from(s.selected).sort((a,b) => a-b).forEach(oi => {
+        if (oi === otherIdx) parts.push(s.otherText.trim())
+        else {
+          parts.push(opts[oi].label)
+          if (!selectedOption) selectedOption = opts[oi]
+        }
+      })
+      answers[q.question] = parts.join(', ')
+      // Annotation: for single-select non-multi, if focused option has preview, include it
+      if (!s.multi && selectedOption && selectedOption.preview) {
+        annotations[q.question] = { preview: String(selectedOption.preview) }
+      }
+    })
+    const updatedInput = {
+      ...req.toolInput,
+      answers,
+      ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
+    }
+    klausApi.permission.respond(req.requestId, 'allow', undefined, updatedInput)
+    finalizeQuestionCard(card, 'submitted', answers)
+  }
+
+  const skip = () => {
+    // Skip → deny. Semantically cleaner than "allow with empty answers":
+    // the model sees an explicit denial and can decide to proceed without
+    // the user's input, ask differently, or stop.
+    klausApi.permission.respond(req.requestId, 'deny')
+    finalizeQuestionCard(card, 'skipped', null)
+  }
+
+  submitBtn.addEventListener('click', submit)
+  skipBtn.addEventListener('click', skip)
+
+  // Enter submits while this card is the most recent unresolved question.
+  // Listens on document because clicking an option div doesn't move focus
+  // into the card, so a card-scoped keydown listener would never fire.
+  const onKey = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return
+    if (card.classList.contains('question-resolved')) return
+    // Any other unresolved question card after this one takes precedence.
+    const all = document.querySelectorAll('.question-card:not(.question-resolved)')
+    if (all.length && all[all.length - 1] !== card) return
+    const active = document.activeElement
+    // Don't steal Enter from the main chat textarea — but do steal from
+    // our own Other-input textarea's parent container (we still allow
+    // newline inside the textarea itself, so skip if it's focused).
+    if (active && active.tagName === 'TEXTAREA') {
+      if (!card.contains(active)) return
+      return // typing in Other — let them add newlines
+    }
+    if (!submitBtn.disabled) { e.preventDefault(); submit() }
+  }
+  document.addEventListener('keydown', onKey, true)
+  card._unbindKey = () => document.removeEventListener('keydown', onKey, true)
+}
+
+function finalizeQuestionCard(card, mode, answers) {
+  card.classList.add('question-resolved')
+  if (card._unbindKey) card._unbindKey()
+  const footer = card.querySelector('.question-footer')
+  if (!footer) return
+  if (mode === 'skipped') {
+    footer.innerHTML = `<div class="question-result question-result-skipped">${escapeHtml(tt('question_skipped'))}</div>`
+  } else {
+    const summary = answers
+      ? Object.values(answers).filter(v => v && v.length > 0).join(' · ')
+      : ''
+    footer.innerHTML = `<div class="question-result">${escapeHtml(tt('question_submitted'))}${summary ? ' — ' + escapeHtml(summary) : ''}</div>`
   }
 }
 

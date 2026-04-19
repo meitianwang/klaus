@@ -301,6 +301,16 @@ const I18N = {
     permission_show_input: 'Show input',
     permission_always_allow: 'Always allow',
     permission_rules_saved: ' (rules saved)',
+    // Ask user question
+    question_chip: 'Choose',
+    question_single: 'Single-select',
+    question_multi: 'Multi-select',
+    question_other: 'Other (specify)',
+    question_other_ph: 'Type your answer…',
+    question_skip: 'Skip',
+    question_submit: 'Continue',
+    question_submitted: 'Answer sent',
+    question_skipped: 'Skipped',
     // Agent panel
     agents: 'Agents', agent_running: 'running',
     agent_count_one: ' agent', agent_count_many: ' agents',
@@ -660,6 +670,16 @@ const I18N = {
     permission_show_input: '展开输入',
     permission_always_allow: '始终允许',
     permission_rules_saved: '（规则已保存）',
+    // Ask user question
+    question_chip: '选择',
+    question_single: '单选',
+    question_multi: '多选',
+    question_other: '其他（请说明）',
+    question_other_ph: '输入你的回答…',
+    question_skip: '跳过',
+    question_submit: '继续',
+    question_submitted: '回答已发送',
+    question_skipped: '已跳过',
     // Agent panel
     agents: '智能体', agent_running: '运行中',
     agent_count_one: ' 个智能体', agent_count_many: ' 个智能体',
