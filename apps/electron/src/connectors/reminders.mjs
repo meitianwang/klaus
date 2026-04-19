@@ -209,5 +209,105 @@ runServer({
         return { content: [{ type: 'text', text: `Deleted: ${name}` }] }
       },
     },
+
+    {
+      name: 'list_reminder_lists',
+      description: 'List all reminder lists (names only).',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const script = `tell application "Reminders" to get name of lists`
+        const raw = await osa(script)
+        const names = raw.split(', ').map(s => s.trim()).filter(Boolean)
+        return { content: [{ type: 'text', text: JSON.stringify({ count: names.length, lists: names }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'update_reminder',
+      description: 'Update a reminder: change its name, due date, body, or priority. Matches the first reminder with the given name.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Current name of the reminder' },
+          listName: { type: 'string' },
+          newName: { type: 'string' },
+          newDueDate: { type: 'string', description: 'ISO 8601 datetime, or empty string to clear' },
+          newBody: { type: 'string' },
+          priority: { type: 'number', description: '0 = none, 1 = high, 5 = medium, 9 = low' },
+        },
+        required: ['name'],
+      },
+      handler: async ({ name, listName, newName, newDueDate, newBody, priority }) => {
+        if (newName === undefined && newDueDate === undefined && newBody === undefined && priority === undefined) {
+          throw new Error('Provide at least one of newName / newDueDate / newBody / priority')
+        }
+        const scope = listName ? `tell list "${esc(listName)}"` : ''
+        const scopeEnd = listName ? 'end tell' : ''
+        const mutations = []
+        if (newName !== undefined) mutations.push(`set name of r to "${esc(newName)}"`)
+        if (newBody !== undefined) mutations.push(`set body of r to "${esc(newBody)}"`)
+        if (newDueDate !== undefined) {
+          mutations.push(newDueDate
+            ? `set due date of r to ${asDate(newDueDate)}`
+            : `set due date of r to missing value`)
+        }
+        if (priority !== undefined) mutations.push(`set priority of r to ${Math.floor(priority)}`)
+        const script = `
+          tell application "Reminders"
+            ${scope}
+              set hits to reminders whose name is "${esc(name)}"
+              if (count of hits) = 0 then error "not_found"
+              set r to item 1 of hits
+              ${mutations.join('\n              ')}
+            ${scopeEnd}
+          end tell
+          return "ok"
+        `
+        try { await osa(script) }
+        catch (err) {
+          if (String(err?.message || '').includes('not_found')) throw new Error(`Reminder not found: ${name}`)
+          throw err
+        }
+        return { content: [{ type: 'text', text: `Updated reminder "${name}"` }] }
+      },
+    },
+
+    {
+      name: 'create_reminder_list',
+      description: 'Create a new reminder list.',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+      handler: async ({ name }) => {
+        const script = `tell application "Reminders" to make new list with properties {name:"${esc(name)}"}`
+        await osa(script)
+        return { content: [{ type: 'text', text: `Created list: ${name}` }] }
+      },
+    },
+
+    {
+      name: 'delete_reminder_list',
+      description: 'Delete a reminder list (and all reminders inside it). Irreversible.',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+      handler: async ({ name }) => {
+        const script = `
+          tell application "Reminders"
+            set hits to lists whose name is "${esc(name)}"
+            if (count of hits) = 0 then return "not_found"
+            delete item 1 of hits
+            return "ok"
+          end tell
+        `
+        const r = await osa(script)
+        if (r === 'not_found') throw new Error(`List not found: ${name}`)
+        return { content: [{ type: 'text', text: `Deleted list: ${name}` }] }
+      },
+    },
   ],
 })

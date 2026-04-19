@@ -210,5 +210,130 @@ runServer({
         return { content: [{ type: 'text', text: `Deleted ${n} event(s)` }] }
       },
     },
+
+    {
+      name: 'list_calendars',
+      description: 'List all calendars on this Mac (name + account).',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const script = `
+          set output to ""
+          tell application "Calendar"
+            repeat with c in calendars
+              set output to output & (name of c) & linefeed
+            end repeat
+          end tell
+          return output
+        `
+        const raw = await osa(script)
+        const names = raw.split('\n').map(s => s.trim()).filter(Boolean)
+        return { content: [{ type: 'text', text: JSON.stringify({ count: names.length, calendars: names }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'get_event',
+      description: 'Get the full details of a single event by title + start date (first match). Returns all fields: calendar, summary, start/end, location, notes, attendees (by email), all-day flag.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          startDate: { type: 'string', description: 'ISO 8601 datetime' },
+        },
+        required: ['title', 'startDate'],
+      },
+      handler: async ({ title, startDate }) => {
+        const script = `
+          set output to ""
+          tell application "Calendar"
+            repeat with cal in calendars
+              tell cal
+                set evs to every event whose summary is "${esc(title)}" and start date is ${asDate(startDate)}
+                if (count of evs) > 0 then
+                  set e to item 1 of evs
+                  set calNm to name of cal
+                  set loc to ""
+                  try
+                    set loc to location of e
+                  end try
+                  set notesTxt to ""
+                  try
+                    set notesTxt to description of e
+                  end try
+                  set allDay to "false"
+                  try
+                    if allday event of e then set allDay to "true"
+                  end try
+                  set atts to ""
+                  try
+                    repeat with a in attendees of e
+                      set atts to atts & (email of a) & ","
+                    end repeat
+                  end try
+                  set output to calNm & linefeed & (summary of e) & linefeed & ((start date of e) as string) & linefeed & ((end date of e) as string) & linefeed & loc & linefeed & notesTxt & linefeed & allDay & linefeed & atts
+                  exit repeat
+                end if
+              end tell
+            end repeat
+          end tell
+          return output
+        `
+        const raw = await osa(script)
+        if (!raw) throw new Error(`Event not found: "${title}" at ${startDate}`)
+        const [calendar, summary, start, end, location, notes, allDay, attsStr] = raw.split('\n')
+        const attendees = (attsStr || '').split(',').map(s => s.trim()).filter(Boolean)
+        return { content: [{ type: 'text', text: JSON.stringify({ calendar, summary, start, end, location: location || null, notes: notes || null, allDay: allDay === 'true', attendees }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'update_event',
+      description: 'Update a calendar event: change title, time, location, or notes. Matches by current title + start date. Pass any combination of new* fields.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Current title' },
+          startDate: { type: 'string', description: 'Current start date (ISO 8601) — used to locate the event' },
+          newTitle: { type: 'string' },
+          newStart: { type: 'string', description: 'ISO 8601' },
+          newEnd: { type: 'string', description: 'ISO 8601' },
+          newLocation: { type: 'string' },
+          newNotes: { type: 'string' },
+        },
+        required: ['title', 'startDate'],
+      },
+      handler: async ({ title, startDate, newTitle, newStart, newEnd, newLocation, newNotes }) => {
+        if (newTitle === undefined && newStart === undefined && newEnd === undefined && newLocation === undefined && newNotes === undefined) {
+          throw new Error('Provide at least one new* field')
+        }
+        const mutations = []
+        if (newTitle !== undefined) mutations.push(`set summary of e to "${esc(newTitle)}"`)
+        if (newStart !== undefined) mutations.push(`set start date of e to ${asDate(newStart)}`)
+        if (newEnd !== undefined) mutations.push(`set end date of e to ${asDate(newEnd)}`)
+        if (newLocation !== undefined) mutations.push(`set location of e to "${esc(newLocation)}"`)
+        if (newNotes !== undefined) mutations.push(`set description of e to "${esc(newNotes)}"`)
+        const script = `
+          set updated to 0
+          tell application "Calendar"
+            repeat with cal in calendars
+              tell cal
+                set evs to every event whose summary is "${esc(title)}" and start date is ${asDate(startDate)}
+                if (count of evs) > 0 then
+                  set e to item 1 of evs
+                  ${mutations.join('\n                  ')}
+                  set updated to 1
+                  exit repeat
+                end if
+              end tell
+              if updated > 0 then exit repeat
+            end repeat
+          end tell
+          return updated as string
+        `
+        const raw = await osa(script)
+        if (raw === '0') throw new Error(`Event not found: "${title}" at ${startDate}`)
+        return { content: [{ type: 'text', text: `Updated event "${title}"` }] }
+      },
+    },
   ],
 })

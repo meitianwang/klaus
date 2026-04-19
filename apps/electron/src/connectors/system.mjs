@@ -97,5 +97,109 @@ runServer({
         return { content: [{ type: 'text', text: `Notification shown: ${title}` }] }
       },
     },
+
+    {
+      name: 'list_running_apps',
+      description: 'List the names of currently running applications (from System Events).',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const script = `
+          set output to ""
+          tell application "System Events"
+            repeat with p in (every application process where background only is false)
+              set output to output & (name of p) & linefeed
+            end repeat
+          end tell
+          return output
+        `
+        const raw = await osa(script)
+        const apps = raw.split('\n').map(s => s.trim()).filter(Boolean)
+        return { content: [{ type: 'text', text: JSON.stringify({ count: apps.length, apps }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'open_app',
+      description: 'Launch or activate an application by name (e.g. "Safari", "Messages", "TextEdit").',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+      handler: async ({ name }) => {
+        const script = `tell application "${esc(name)}" to activate`
+        await osa(script)
+        return { content: [{ type: 'text', text: `Activated ${name}` }] }
+      },
+    },
+
+    {
+      name: 'set_volume',
+      description: 'Set system output volume (0–100).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          level: { type: 'number', description: '0 (mute) to 100 (max)' },
+        },
+        required: ['level'],
+      },
+      handler: async ({ level }) => {
+        const n = Math.max(0, Math.min(100, Math.round(level)))
+        // `set volume output volume <0-100>` — AppleScript native
+        await osa(`set volume output volume ${n}`)
+        return { content: [{ type: 'text', text: `Volume set to ${n}` }] }
+      },
+    },
+
+    {
+      name: 'show_dialog',
+      description: 'Show a macOS system dialog. Returns the button the user clicked, or an error if they canceled / timed out. Useful for confirmation before destructive actions or asking user for a quick decision.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string' },
+          title: { type: 'string' },
+          buttons: { type: 'array', items: { type: 'string' }, description: 'Up to 3 button labels (default: ["OK"])' },
+          defaultButton: { type: 'string' },
+          timeoutSeconds: { type: 'number', default: 60 },
+        },
+        required: ['message'],
+      },
+      handler: async ({ message, title, buttons, defaultButton, timeoutSeconds = 60 }) => {
+        const btns = (buttons && buttons.length) ? buttons : ['OK']
+        const parts = [
+          `display dialog "${esc(message)}"`,
+          `buttons {${btns.map(b => `"${esc(b)}"`).join(', ')}}`,
+        ]
+        if (title) parts.push(`with title "${esc(title)}"`)
+        if (defaultButton) parts.push(`default button "${esc(defaultButton)}"`)
+        parts.push(`giving up after ${Math.max(5, Math.min(600, timeoutSeconds))}`)
+        const script = `
+          try
+            set r to ${parts.join(' ')}
+            if gave up of r then return "GAVE_UP"
+            return button returned of r
+          on error errMsg number errNum
+            if errNum = -128 then return "CANCELED"
+            error errMsg
+          end try
+        `
+        const raw = await osa(script, { timeout: (timeoutSeconds + 5) * 1000 })
+        if (raw === 'CANCELED') throw new Error('User canceled the dialog')
+        if (raw === 'GAVE_UP') throw new Error(`Dialog timed out after ${timeoutSeconds}s`)
+        return { content: [{ type: 'text', text: JSON.stringify({ button: raw }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'lock_screen',
+      description: 'Lock the screen immediately.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        // Uses the private but stable CGSession tool (shipped with macOS)
+        await run('/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession', ['-suspend'])
+        return { content: [{ type: 'text', text: 'Screen locked' }] }
+      },
+    },
   ],
 })

@@ -179,5 +179,161 @@ runServer({
         return { content: [{ type: 'text', text: `Draft created: ${subject}` }] }
       },
     },
+
+    {
+      name: 'send_message',
+      description: 'Send an email directly (skips the draft step). The message is delivered immediately through the sender\'s configured Mail account.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string' },
+          subject: { type: 'string' },
+          body: { type: 'string' },
+          cc: { type: 'string' },
+          bcc: { type: 'string' },
+        },
+        required: ['to', 'subject', 'body'],
+      },
+      handler: async ({ to, subject, body, cc, bcc }) => {
+        const lines = [
+          'tell application "Mail"',
+          '  set newMsg to make new outgoing message with properties {visible:false, subject:"' + esc(subject) + '", content:"' + esc(body) + '"}',
+          '  tell newMsg',
+          '    make new to recipient at end of to recipients with properties {address:"' + esc(to) + '"}',
+        ]
+        if (cc) lines.push('    make new cc recipient at end of cc recipients with properties {address:"' + esc(cc) + '"}')
+        if (bcc) lines.push('    make new bcc recipient at end of bcc recipients with properties {address:"' + esc(bcc) + '"}')
+        lines.push('    send')
+        lines.push('  end tell')
+        lines.push('end tell')
+        await osa(lines.join('\n'))
+        return { content: [{ type: 'text', text: `Sent to ${to}: ${subject}` }] }
+      },
+    },
+
+    {
+      name: 'mark_read',
+      description: 'Mark a specific message as read or unread (by id from search_messages).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          read: { type: 'boolean', description: 'true = mark read, false = mark unread', default: true },
+        },
+        required: ['id'],
+      },
+      handler: async ({ id, read = true }) => {
+        const script = `
+          set updated to false
+          tell application "Mail"
+            repeat with acc in accounts
+              tell acc
+                repeat with mb in mailboxes
+                  try
+                    tell mb
+                      set hits to messages whose id is ${Number(id) || 0}
+                      if (count of hits) > 0 then
+                        set read status of item 1 of hits to ${read ? 'true' : 'false'}
+                        set updated to true
+                        exit repeat
+                      end if
+                    end tell
+                  end try
+                end repeat
+              end tell
+              if updated then exit repeat
+            end repeat
+          end tell
+          if updated then return "ok"
+          return "not_found"
+        `
+        const r = await osa(script)
+        if (r === 'not_found') throw new Error(`Message not found: ${id}`)
+        return { content: [{ type: 'text', text: `Message ${id} marked ${read ? 'read' : 'unread'}` }] }
+      },
+    },
+
+    {
+      name: 'move_message',
+      description: 'Move a message to a different mailbox (e.g. to Archive or a user folder). Pass message id + target mailbox name and account.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          targetAccount: { type: 'string', description: 'Destination account name' },
+          targetMailbox: { type: 'string', description: 'Destination mailbox name (e.g. "Archive")' },
+        },
+        required: ['id', 'targetAccount', 'targetMailbox'],
+      },
+      handler: async ({ id, targetAccount, targetMailbox }) => {
+        const script = `
+          set moved to false
+          tell application "Mail"
+            set dest to mailbox "${esc(targetMailbox)}" of account "${esc(targetAccount)}"
+            repeat with acc in accounts
+              tell acc
+                repeat with mb in mailboxes
+                  try
+                    tell mb
+                      set hits to messages whose id is ${Number(id) || 0}
+                      if (count of hits) > 0 then
+                        move item 1 of hits to dest
+                        set moved to true
+                        exit repeat
+                      end if
+                    end tell
+                  end try
+                end repeat
+              end tell
+              if moved then exit repeat
+            end repeat
+          end tell
+          if moved then return "ok"
+          return "not_found"
+        `
+        const r = await osa(script)
+        if (r === 'not_found') throw new Error(`Message not found: ${id}`)
+        return { content: [{ type: 'text', text: `Moved message ${id} to ${targetAccount}/${targetMailbox}` }] }
+      },
+    },
+
+    {
+      name: 'delete_message',
+      description: 'Delete a message (moves to the account\'s Trash / Deleted Messages mailbox).',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+      },
+      handler: async ({ id }) => {
+        const script = `
+          set deleted to false
+          tell application "Mail"
+            repeat with acc in accounts
+              tell acc
+                repeat with mb in mailboxes
+                  try
+                    tell mb
+                      set hits to messages whose id is ${Number(id) || 0}
+                      if (count of hits) > 0 then
+                        delete item 1 of hits
+                        set deleted to true
+                        exit repeat
+                      end if
+                    end tell
+                  end try
+                end repeat
+              end tell
+              if deleted then exit repeat
+            end repeat
+          end tell
+          if deleted then return "ok"
+          return "not_found"
+        `
+        const r = await osa(script)
+        if (r === 'not_found') throw new Error(`Message not found: ${id}`)
+        return { content: [{ type: 'text', text: `Deleted message ${id}` }] }
+      },
+    },
   ],
 })

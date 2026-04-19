@@ -116,6 +116,39 @@ runServer({
     },
 
     {
+      name: 'search_messages',
+      description: 'Full-text search across all Messages conversations (LIKE match on text column). Requires Full Disk Access. Returns sender, chat_identifier, text, timestamp.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+          limit: { type: 'number', default: 50 },
+        },
+        required: ['query'],
+      },
+      handler: async ({ query: q, limit = 50 }) => {
+        const sql = `
+          SELECT m.text, m.date, m.is_from_me, h.id as sender, c.chat_identifier
+          FROM message m
+          LEFT JOIN handle h ON h.ROWID = m.handle_id
+          JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+          JOIN chat c ON c.ROWID = cmj.chat_id
+          WHERE m.text LIKE ?
+          ORDER BY m.date DESC
+          LIMIT ${Math.max(1, Math.min(500, limit))}
+        `
+        const rows = await query(sql, [`%${q}%`])
+        const hits = rows.map(r => ({
+          chat: r.chat_identifier,
+          sender: r.is_from_me ? 'me' : (r.sender || 'unknown'),
+          text: r.text,
+          timestamp: fmtDate(r.date),
+        }))
+        return { content: [{ type: 'text', text: JSON.stringify({ query: q, count: hits.length, matches: hits }, null, 2) }] }
+      },
+    },
+
+    {
       name: 'send_message',
       description: 'Send an iMessage to a phone number, email, or known buddy id. Triggers the Messages app to deliver via iMessage service. Requires Automation permission for Messages.',
       inputSchema: {

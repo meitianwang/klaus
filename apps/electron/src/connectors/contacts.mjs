@@ -127,5 +127,102 @@ runServer({
         return { content: [{ type: 'text', text: `Created contact: ${display}` }] }
       },
     },
+
+    {
+      name: 'list_groups',
+      description: 'List all contact groups.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const script = `
+          set output to ""
+          tell application "Contacts"
+            repeat with g in groups
+              set output to output & (name of g) & linefeed
+            end repeat
+          end tell
+          return output
+        `
+        const raw = await osa(script)
+        const names = raw.split('\n').map(s => s.trim()).filter(Boolean)
+        return { content: [{ type: 'text', text: JSON.stringify({ count: names.length, groups: names }, null, 2) }] }
+      },
+    },
+
+    {
+      name: 'update_contact',
+      description: 'Update an existing contact by exact name match. Replaces primary phone / email / organization / name fields when provided.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Current full name (first + last as displayed)' },
+          newFirstName: { type: 'string' },
+          newLastName: { type: 'string' },
+          newOrganization: { type: 'string' },
+          newPhone: { type: 'string', description: 'Replaces the first phone entry (or creates one)' },
+          newEmail: { type: 'string', description: 'Replaces the first email entry (or creates one)' },
+        },
+        required: ['name'],
+      },
+      handler: async ({ name, newFirstName, newLastName, newOrganization, newPhone, newEmail }) => {
+        if ([newFirstName, newLastName, newOrganization, newPhone, newEmail].every(v => v === undefined)) {
+          throw new Error('Provide at least one new* field')
+        }
+        const lines = [
+          'tell application "Contacts"',
+          `  set hits to people whose name is "${esc(name)}"`,
+          '  if (count of hits) = 0 then error "not_found"',
+          '  set p to item 1 of hits',
+        ]
+        if (newFirstName !== undefined) lines.push(`  set first name of p to "${esc(newFirstName)}"`)
+        if (newLastName !== undefined)  lines.push(`  set last name of p to "${esc(newLastName)}"`)
+        if (newOrganization !== undefined) lines.push(`  set organization of p to "${esc(newOrganization)}"`)
+        if (newPhone !== undefined) {
+          lines.push('  if (count of phones of p) > 0 then')
+          lines.push(`    set value of first phone of p to "${esc(newPhone)}"`)
+          lines.push('  else')
+          lines.push(`    make new phone at end of phones of p with properties {label:"mobile", value:"${esc(newPhone)}"}`)
+          lines.push('  end if')
+        }
+        if (newEmail !== undefined) {
+          lines.push('  if (count of emails of p) > 0 then')
+          lines.push(`    set value of first email of p to "${esc(newEmail)}"`)
+          lines.push('  else')
+          lines.push(`    make new email at end of emails of p with properties {label:"work", value:"${esc(newEmail)}"}`)
+          lines.push('  end if')
+        }
+        lines.push('  save')
+        lines.push('end tell')
+        try { await osa(lines.join('\n')) }
+        catch (err) {
+          if (String(err?.message || '').includes('not_found')) throw new Error(`Contact not found: ${name}`)
+          throw err
+        }
+        return { content: [{ type: 'text', text: `Updated contact: ${name}` }] }
+      },
+    },
+
+    {
+      name: 'delete_contact',
+      description: 'Delete a contact by exact name match. Irreversible.',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+      },
+      handler: async ({ name }) => {
+        const script = `
+          tell application "Contacts"
+            set hits to people whose name is "${esc(name)}"
+            if (count of hits) = 0 then return "not_found"
+            delete item 1 of hits
+            save
+            return "ok"
+          end tell
+        `
+        const r = await osa(script)
+        if (r === 'not_found') throw new Error(`Contact not found: ${name}`)
+        return { content: [{ type: 'text', text: `Deleted contact: ${name}` }] }
+      },
+    },
   ],
 })
