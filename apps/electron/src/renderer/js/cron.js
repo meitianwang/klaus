@@ -189,7 +189,7 @@
         // After a short delay, refresh runs so the new row appears
         setTimeout(() => loadRuns(), 800)
       } else {
-        alert(t('cron_run_failed', 'Could not start task') + ': ' + (res?.error || ''))
+        await window.klausDialog.alert(t('cron_run_failed', 'Could not start task') + ': ' + (res?.error || ''))
       }
     })
     pop.querySelector('[data-act="edit"]').addEventListener('click', (e) => {
@@ -197,7 +197,10 @@
     })
     pop.querySelector('[data-act="delete"]').addEventListener('click', async (e) => {
       e.stopPropagation(); closeMenu()
-      if (!confirm(t('cron_delete_confirm', 'Delete this task?'))) return
+      if (!(await window.klausDialog.confirm({
+        message: t('cron_delete_confirm', 'Delete this task?'),
+        danger: true,
+      }))) return
       await api.delete(task.id)
       loadTasks()
     })
@@ -307,7 +310,7 @@
     const schedule = fSchedule.value.trim()
     const prompt = fPrompt.value.trim()
     if (!schedule || !prompt) {
-      alert(t('cron_fields_required', 'Schedule and prompt are required.'))
+      await window.klausDialog.alert(t('cron_fields_required', 'Schedule and prompt are required.'))
       return
     }
     const now = Date.now()

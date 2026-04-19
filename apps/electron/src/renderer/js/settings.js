@@ -338,7 +338,7 @@ function bindSubscriptionHandlers(container) {
     }
   })
   container.querySelector('#auth-logout-btn')?.addEventListener('click', async () => {
-    if (!confirm(tt('sub_confirm_logout'))) return
+    if (!(await window.klausDialog.confirm(tt('sub_confirm_logout')))) return
     try {
       await window.klaus.auth.logout()
     } catch {}
@@ -368,7 +368,11 @@ window.setDefaultModel = async (id) => {
   window.dispatchEvent(new Event('klaus:auth-mode-changed'))
   loadSettingsTab('models')
 }
-window.deleteModel = async (id) => { if (confirm(tt('delete_model'))) { await settingsApi.models.delete(id); loadSettingsTab('models') } }
+window.deleteModel = async (id) => {
+  if (!(await window.klausDialog.confirm({ message: tt('delete_model'), danger: true }))) return
+  await settingsApi.models.delete(id)
+  loadSettingsTab('models')
+}
 
 // ==================== Channels ====================
 const FEISHU_PERMISSIONS_JSON = '{"scopes":{"tenant":["contact:contact.base:readonly","docx:document:readonly","im:chat:read","im:chat:update","im:message.group_at_msg:readonly","im:message.p2p_msg:readonly","im:message.pins:read","im:message.pins:write_only","im:message.reactions:read","im:message.reactions:write_only","im:message:readonly","im:message:recall","im:message:send_as_bot","im:message:send_multi_users","im:message:send_sys_msg","im:message:update","im:resource","application:application:self_manage","cardkit:card:write","cardkit:card:read"],"user":["contact:user.employee_id:readonly","offline_access"]}}'
@@ -536,7 +540,7 @@ async function openChannelModal(id) {
       <button class="s-btn s-btn-danger" id="ch-modal-disconnect">${tt('ch_disconnect')}</button>
     </div>`
     document.getElementById('ch-modal-disconnect').addEventListener('click', async () => {
-      if (!confirm(tt('settings_confirm_delete'))) return
+      if (!(await window.klausDialog.confirm({ message: tt('settings_confirm_delete'), danger: true }))) return
       await window.klaus.channels.disconnect(id)
       showToast(tt('settings_ch_disconnected'))
       document.getElementById('ch-modal-overlay').classList.remove('show')
@@ -608,7 +612,7 @@ function renderWechatFlow(body, connected, state) {
       </div>
     </div>`
     document.getElementById('ch-wx-disconnect').addEventListener('click', async () => {
-      if (!confirm(tt('settings_confirm_delete'))) return
+      if (!(await window.klausDialog.confirm({ message: tt('settings_confirm_delete'), danger: true }))) return
       await window.klaus.channels.disconnect('wechat')
       showToast(tt('settings_ch_disconnected'))
       closeChannelModal()
@@ -658,7 +662,7 @@ function renderWhatsappFlow(body, connected) {
       </div>
     </div>`
     document.getElementById('ch-wa-disconnect').addEventListener('click', async () => {
-      if (!confirm(tt('settings_confirm_delete'))) return
+      if (!(await window.klausDialog.confirm({ message: tt('settings_confirm_delete'), danger: true }))) return
       await window.klaus.channels.disconnect('whatsapp')
       showToast(tt('settings_ch_disconnected'))
       closeChannelModal()
@@ -782,7 +786,10 @@ function bindSkillEvents() {
   })
   document.querySelectorAll('[data-uninstall]').forEach(el => {
     el.addEventListener('click', async () => {
-      if (!confirm(tt('settings_skills_uninstall') + ': ' + el.dataset.uninstall + '?')) return
+      if (!(await window.klausDialog.confirm({
+        message: tt('settings_skills_uninstall') + ': ' + el.dataset.uninstall + '?',
+        danger: true,
+      }))) return
       await window.klaus.skills.uninstall(el.dataset.uninstall)
       showToast(tt('settings_skills_uninstalled_toast')); loadSettingsTab('skills')
     })
@@ -1081,14 +1088,17 @@ function bindMcpEvents(container) {
     })
 
     row.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
-      if (!confirm(tt('settings_mcp_delete_confirm') + ': ' + name + '?')) return
+      if (!(await window.klausDialog.confirm({
+        message: tt('settings_mcp_delete_confirm') + ': ' + name + '?',
+        danger: true,
+      }))) return
       await window.klaus.mcp.remove(name)
       showToast(tt('settings_deleted') || 'Deleted')
       loadSettingsTab('mcp')
     })
 
     row.querySelector('[data-action="reset"]')?.addEventListener('click', async () => {
-      if (!confirm(tt('mcp_reset_confirm'))) return
+      if (!(await window.klausDialog.confirm(tt('mcp_reset_confirm')))) return
       const r = await window.klaus.mcp.revokeAuth(name)
       if (r?.ok) { showToast(tt('mcp_reset_done')); setTimeout(() => loadSettingsTab('mcp'), 400) }
       else showToast(r?.error || tt('settings_failed') || 'Failed')

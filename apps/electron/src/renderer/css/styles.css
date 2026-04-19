@@ -1417,6 +1417,92 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 .cron-modal-footer .btn-secondary:hover { background: var(--bg-hover); }
 
+/* ===== Klaus Dialog (custom confirm / alert) ===== */
+.klaus-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+.klaus-dialog-overlay.active { opacity: 1; }
+.klaus-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+.klaus-dialog-card {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  width: min(92vw, 380px);
+  padding: 22px 22px 18px;
+  transform: scale(0.96);
+  transition: transform 0.16s ease;
+}
+.klaus-dialog-overlay.active .klaus-dialog-card { transform: scale(1); }
+.klaus-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.klaus-dialog-message {
+  font-size: 13.5px;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 20px;
+}
+.klaus-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.klaus-dialog-btn {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  min-width: 72px;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.klaus-dialog-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.klaus-dialog-cancel {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+.klaus-dialog-cancel:hover { background: var(--bg-hover); }
+.klaus-dialog-confirm {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.klaus-dialog-confirm:hover { background: var(--accent-hover); }
+.klaus-dialog-confirm.klaus-dialog-danger {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+.klaus-dialog-confirm.klaus-dialog-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
 .settings-field { margin-bottom: 20px; }
 .settings-row-field {
   display: flex;

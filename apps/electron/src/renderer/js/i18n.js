@@ -51,7 +51,7 @@ const I18N = {
     sys_auth_restart_now: 'Restart now',
     sys_auth_restart_later: 'Later',
     loading: 'Loading…',
-    cancel: 'Cancel', delete_title: 'Delete',
+    cancel: 'Cancel', delete_title: 'Delete', dialog_ok: 'OK',
     settings_saved: 'Saved', settings_failed: 'Failed', settings_deleted: 'Deleted',
     settings_confirm_delete: 'Are you sure?',
     // Profile
@@ -410,7 +410,7 @@ const I18N = {
     sys_auth_restart_now: '立即重启',
     sys_auth_restart_later: '稍后',
     loading: '加载中…',
-    cancel: '取消', delete_title: '删除',
+    cancel: '取消', delete_title: '删除', dialog_ok: '确定',
     settings_saved: '已保存', settings_failed: '失败', settings_deleted: '已删除',
     settings_confirm_delete: '确定要删除吗？',
     // Profile
