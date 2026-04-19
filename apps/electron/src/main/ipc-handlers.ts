@@ -1,14 +1,18 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell, app } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdirSync, writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync, accessSync, constants as fsConstants } from 'fs'
 import { randomUUID } from 'crypto'
+import { execFile } from 'child_process'
 import { getMainWindow } from './window.js'
 import type { EngineHost } from './engine-host.js'
 import type { SettingsStore } from './settings-store.js'
 import type { SkillsManager } from './skills-manager.js'
 import type { McpConfigManager } from './mcp-config.js'
 import type { ChannelConfigManager } from './channel-config.js'
+import type { ConnectorManager } from './connector-manager.js'
+import type { NotificationService } from './notification-service.js'
+import { connectorServerName } from './connectors-catalog.js'
 
 export function registerIpcHandlers(
   engine: EngineHost,
@@ -16,6 +20,8 @@ export function registerIpcHandlers(
   skills: SkillsManager,
   mcpConfig: McpConfigManager,
   channels: ChannelConfigManager,
+  connectors: ConnectorManager,
+  notify: NotificationService,
 ): void {
   // --- Chat ---
   // Register forwarders on chat():
@@ -29,8 +35,14 @@ export function registerIpcHandlers(
     // (including thinking / tool_use content blocks) are written so Cmd+R
     // restore matches the live stream. No need to re-append here.
     engine.chat(sessionId, text, media, {
-      onEvent: (event) => getMainWindow()?.webContents.send('chat:event', event),
-      onPermissionRequest: (req) => getMainWindow()?.webContents.send('permission:request', req),
+      onEvent: (event) => {
+        getMainWindow()?.webContents.send('chat:event', event)
+        if ((event as { type?: string })?.type === 'done') notify.notifyDone()
+      },
+      onPermissionRequest: (req) => {
+        getMainWindow()?.webContents.send('permission:request', req)
+        notify.notifyNeedInput(req?.message || 'Waiting for your approval')
+      },
     }).catch(err => {
       console.error('[IPC] chat:send error:', err)
     })
@@ -119,6 +131,20 @@ export function registerIpcHandlers(
     engine.resolvePermission(requestId, { decision, acceptedSuggestionIndices })
   })
 
+  // --- App: launch at login ---
+  ipcMain.handle('app:loginItem:get', async () => {
+    try { return { enabled: app.getLoginItemSettings().openAtLogin === true } }
+    catch { return { enabled: false } }
+  })
+  ipcMain.handle('app:loginItem:set', async (_e, { enabled }: { enabled: boolean }) => {
+    try {
+      app.setLoginItemSettings({ openAtLogin: !!enabled, openAsHidden: false })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   // --- MCP ---
   ipcMain.handle('mcp:reconnect', async () => {
     await engine.reconnectMcp()
@@ -144,6 +170,40 @@ export function registerIpcHandlers(
     if (result.imported.length > 0) engine.reconnectMcp().catch(() => {})
     return result
   })
+  ipcMain.handle('mcp:update', async (_e, { name, config }) => {
+    const result = mcpConfig.update(name, config)
+    if (result.ok) engine.reconnectMcp().catch(() => {})
+    return result
+  })
+  ipcMain.handle('mcp:revokeAuth', async (_e, { name }) => {
+    const result = await engine.revokeMcpAuth(name)
+    if (result.ok) engine.reconnectMcp().catch(() => {})
+    return result
+  })
+  ipcMain.handle('mcp:builtin:list', async () => mcpConfig.listBuiltin())
+  ipcMain.handle('mcp:builtin:install', async (_e, { id, env }) => {
+    const result = mcpConfig.installBuiltin(id, env || {})
+    if (result.ok) engine.reconnectMcp().catch(() => {})
+    return result
+  })
+
+  // --- Connectors (Klaus built-in system integrations) ---
+  ipcMain.handle('connectors:list', async () => connectors.list())
+  ipcMain.handle('connectors:toggle', async (_e, { id, enabled }: { id: string; enabled: boolean }) => {
+    const result = connectors.toggle(id, enabled)
+    if (result.ok) engine.reconnectMcp().catch(() => {})
+    return result
+  })
+  ipcMain.handle('connectors:setToolEnabled', async (_e, { id, toolName, enabled }: { id: string; toolName: string; enabled: boolean }) => {
+    return connectors.setToolEnabled(id, toolName, enabled)
+  })
+  ipcMain.handle('connectors:status', async () => {
+    // Filter the unified MCP status down to just connector servers (klaus- prefix)
+    return engine.getMcpStatus().filter(s => {
+      const list = connectors.list()
+      return list.some(c => s.name === connectorServerName(c.id))
+    })
+  })
 
   // --- Skills ---
   ipcMain.handle('skills:list', async () => skills.listAll())
@@ -168,6 +228,98 @@ export function registerIpcHandlers(
       writeFileSync(join(skillDir, name), Buffer.from(buffer))
     }
     return { ok: true, name: skillName }
+  })
+
+  // --- System permissions (macOS privacy settings) ---
+  // 只在 macOS 上有意义；其他平台统一返回空 list，前端据此隐藏该页。
+  // 4 项走 node-mac-permissions 的原生 ObjC API（和系统设置完全一致）；
+  // 自动化走 AEDeterminePermissionToAutomateTarget 的 osascript 探针；
+  // 通知走 ncprefs.plist 解析（Apple 没暴露 UNUserNotificationCenter 给 Node addon）。
+  ipcMain.handle('system:permissions:check', async () => {
+    if (process.platform !== 'darwin') {
+      return { platform: process.platform, supported: false, permissions: {} }
+    }
+
+    // node-mac-permissions 2.5.0 支持：accessibility / bluetooth / calendar / camera / contacts /
+    // full-disk-access / input-monitoring / location / microphone / music-library /
+    // reminders / screen / speech-recognition。没有 notifications / apple-events。
+    const perms = require('node-mac-permissions') as {
+      getAuthStatus: (t: string) =>
+        | 'not determined'
+        | 'denied'
+        | 'authorized'
+        | 'restricted'
+        | 'limited'
+    }
+
+    const toStatus = (v: string): 'granted' | 'denied' | 'unknown' => {
+      if (v === 'authorized' || v === 'limited') return 'granted'
+      if (v === 'denied' || v === 'restricted') return 'denied'
+      return 'unknown' // 'not determined' = 从未请求过
+    }
+
+    // Automation —— AEDeterminePermissionToAutomateTarget 没封装到 node-mac-permissions；
+    // 用 osascript 探 System Events：已授权静默返回 true，被拒返回 errAEEventNotPermitted，
+    // 从未询问过会触发系统授权对话框（正是用户进设置页想做的事）。
+    let automation: 'granted' | 'denied' | 'unknown' = 'unknown'
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          '/usr/bin/osascript',
+          ['-e', 'tell application "System Events" to return true'],
+          { timeout: 1500 },
+          (err) => (err ? reject(err) : resolve()),
+        )
+      })
+      automation = 'granted'
+    } catch {
+      automation = 'denied'
+    }
+
+    // Notifications —— 解析 ~/Library/Preferences/com.apple.ncprefs.plist 的 apps 数组。
+    // flags > 0 表示用户授权过；flags === 0 表示关闭；条目不存在表示从未请求过。
+    // 这是系统自己读的同一份配置文件，不是近似猜测。
+    const bundleId = app.isPackaged ? 'ai.klaus.desktop' : 'com.github.Electron'
+    const notification = await checkNotificationAuth(bundleId)
+
+    return {
+      platform: 'darwin',
+      supported: true,
+      permissions: {
+        fullDiskAccess: toStatus(perms.getAuthStatus('full-disk-access')),
+        screenRecording: toStatus(perms.getAuthStatus('screen')),
+        accessibility: toStatus(perms.getAuthStatus('accessibility')),
+        automation,
+        notification,
+        location: toStatus(perms.getAuthStatus('location')),
+      },
+    }
+  })
+
+  ipcMain.handle('system:permissions:open', async (_e, { type }: { type: string }) => {
+    if (process.platform !== 'darwin') return { ok: false, error: 'unsupported platform' }
+    const urls: Record<string, string> = {
+      fullDiskAccess: 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
+      screenRecording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+      automation: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation',
+      notification: 'x-apple.systempreferences:com.apple.preference.notifications',
+      location: 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices',
+    }
+    const url = urls[type]
+    if (!url) return { ok: false, error: 'unknown permission type' }
+    try {
+      await shell.openExternal(url)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  // macOS 缓存 TCC 决定对已运行进程生效，新授权的权限必须重启 app 才能激活
+  ipcMain.handle('system:restart-app', async () => {
+    app.relaunch()
+    app.exit(0)
   })
 
   // --- Klaus user auth (PKCE + klaus:// callback, talks to Klaus web server) ---
@@ -374,4 +526,34 @@ export function registerIpcHandlers(
     return { ok: true, status: 'waiting' }
   })
 
+}
+
+// 通知授权探测 —— 解析 ~/Library/Preferences/com.apple.ncprefs.plist 的 apps 数组。
+// macOS 的 "通知中心" 首选项就是读这份文件；flags 字段是位掩码，flags > 0 代表允许，
+// flags === 0 代表关闭。条目不存在说明 app 从未请求过通知权限。
+async function checkNotificationAuth(bundleId: string): Promise<'granted' | 'denied' | 'unknown'> {
+  const plistPath = join(homedir(), 'Library/Preferences/com.apple.ncprefs.plist')
+  try {
+    accessSync(plistPath, fsConstants.R_OK)
+  } catch {
+    return 'unknown'
+  }
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        '/usr/bin/plutil',
+        ['-convert', 'json', '-o', '-', plistPath],
+        { timeout: 2500, maxBuffer: 4 * 1024 * 1024 },
+        (err, so) => (err ? reject(err) : resolve(so)),
+      )
+    })
+    const data = JSON.parse(stdout)
+    const apps: Array<Record<string, any>> = Array.isArray(data?.apps) ? data.apps : []
+    const entry = apps.find(a => a?.['bundle-id'] === bundleId)
+    if (!entry) return 'unknown'
+    const flags = typeof entry.flags === 'number' ? entry.flags : 0
+    return flags > 0 ? 'granted' : 'denied'
+  } catch {
+    return 'unknown'
+  }
 }

@@ -46,6 +46,7 @@ import type { MCPServerConnection, ServerResource } from '../engine/services/mcp
 import type { Tool } from '../engine/Tool.js'
 import { getMcpToolsCommandsAndResources } from '../engine/services/mcp/client.js'
 import { getAllMcpConfigs } from '../engine/services/mcp/config.js'
+import { revokeServerTokens } from '../engine/services/mcp/auth.js'
 import {
   recordTranscript,
   loadTranscriptFile,
@@ -167,6 +168,9 @@ export class EngineHost {
   private store: SettingsStore
   private mainWindow: BrowserWindow | null = null
   private initPromise: Promise<void> | null = null
+  // Klaus built-in connectors (macOS system integrations). Wired in from
+  // main/index.ts; optional because tests may skip it.
+  private connectors: import('./connector-manager.js').ConnectorManager | null = null
   // Per-session event/permission forwarders — mirrors Web 端 gateway：
   // caller of chat() registers an onEvent callback and only that callback receives
   // the engine's stream events. External channels (wechat/…) don't register a forwarder,
@@ -221,6 +225,10 @@ export class EngineHost {
     this.mainWindow = win
   }
 
+  setConnectorManager(mgr: import('./connector-manager.js').ConnectorManager): void {
+    this.connectors = mgr
+  }
+
   init(): Promise<void> {
     if (!this.initPromise) this.initPromise = this._doInit()
     return this.initPromise
@@ -270,7 +278,11 @@ export class EngineHost {
 
   async initMcp(): Promise<void> {
     try {
-      const { servers } = await getAllMcpConfigs()
+      const { servers: userServers } = await getAllMcpConfigs()
+      // Merge Klaus built-in connector servers in memory (never written to
+      // .mcp.json, so the MCP tab doesn't see them).
+      const connectorServers = (this.connectors?.buildServers() ?? {}) as typeof userServers
+      const servers = { ...userServers, ...connectorServers }
       const state: McpState = { clients: [], tools: [], resources: {} }
 
       await getMcpToolsCommandsAndResources(
@@ -291,12 +303,30 @@ export class EngineHost {
     }
   }
 
-  getMcpStatus(): Array<{ name: string; status: string; toolCount: number }> {
-    return this.mcpState.clients.map(c => ({
-      name: (c as any).name ?? 'unknown',
-      status: (c as any).type === 'connected' ? 'connected' : 'disconnected',
-      toolCount: this.mcpState.tools.filter((t: any) => t.mcpInfo?.serverName === (c as any).name).length,
-    }))
+  getMcpStatus(): Array<{
+    name: string
+    status: string
+    toolCount: number
+    error?: string
+    tools: Array<{ name: string; description?: string }>
+  }> {
+    return this.mcpState.clients.map(c => {
+      const name = (c as any).name ?? 'unknown'
+      const type = (c as any).type
+      const tools = this.mcpState.tools
+        .filter((t: any) => t.mcpInfo?.serverName === name)
+        .map((t: any) => ({
+          name: t.mcpInfo?.originalToolName || t.name || 'unknown',
+          description: typeof t.description === 'string' ? t.description : undefined,
+        }))
+      return {
+        name,
+        status: type === 'connected' ? 'connected' : type === 'needs-auth' ? 'needs-auth' : type === 'pending' ? 'pending' : 'disconnected',
+        toolCount: tools.length,
+        error: type === 'failed' ? ((c as any).error || 'Connection failed') : undefined,
+        tools,
+      }
+    })
   }
 
   async reconnectMcp(): Promise<void> {
@@ -308,6 +338,23 @@ export class EngineHost {
     }
     this.mcpState = { clients: [], tools: [], resources: {} }
     await this.initMcp()
+  }
+
+  /** Revoke persisted OAuth tokens for a given MCP server (SSE/HTTP only) */
+  async revokeMcpAuth(name: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const { servers } = await getAllMcpConfigs()
+      const cfg = servers[name] as any
+      if (!cfg) return { ok: false, error: 'Server not found' }
+      const type = cfg.type
+      if (type !== 'sse' && type !== 'http') {
+        return { ok: false, error: 'Only SSE/HTTP servers support auth reset' }
+      }
+      await revokeServerTokens(name, cfg)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   }
 
   // --- Skills ---
@@ -709,6 +756,14 @@ export class EngineHost {
 
       // Permission callback — routes to renderer via IPC
       const onAsk: OnAskCallback = async ({ tool: askTool, input: askInput, message, suggestions }) => {
+        // Klaus connector short-circuit: checkbox IS the permission.
+        //   true  → tool checked by user → auto-allow
+        //   false → tool unchecked → auto-deny
+        //   null  → not a connector tool → fall through to normal flow
+        const connectorAllowed = this.connectors?.isConnectorToolAllowed(askTool.name) ?? null
+        if (connectorAllowed === true) return { decision: 'allow' as const }
+        if (connectorAllowed === false) return { decision: 'deny' as const }
+
         // Loop detection
         const loopResult = session!.loopDetector.check({ toolName: askTool.name, args: askInput })
         if (loopResult?.block) {

@@ -23,6 +23,7 @@ export default defineConfig([
     external: [
       'electron',
       'better-sqlite3',
+      'node-mac-permissions',
       'bun:sqlite',
       'bun:ffi',
     ],
@@ -34,6 +35,10 @@ export default defineConfig([
     alias: {
       'bun:bundle': './src/engine/shims/bun-bundle.ts',
     },
+    // Copy bundled connector scripts (ESM .mjs spawned as child processes) to
+    // dist/connectors/. They are NOT bundled by tsup — ConnectorManager
+    // spawns them directly via process.execPath (+ ELECTRON_RUN_AS_NODE).
+    onSuccess: 'mkdir -p dist/connectors && cp src/connectors/*.mjs dist/connectors/',
   },
   // Preload
   {

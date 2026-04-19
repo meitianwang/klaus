@@ -5,6 +5,7 @@ import { SettingsStore } from './settings-store.js'
 import { EngineHost } from './engine-host.js'
 import { SkillsManager } from './skills-manager.js'
 import { McpConfigManager } from './mcp-config.js'
+import { ConnectorManager } from './connector-manager.js'
 import { ChannelConfigManager } from './channel-config.js'
 import { CronScheduler } from './cron-scheduler.js'
 import { registerIpcHandlers } from './ipc-handlers.js'
@@ -88,13 +89,17 @@ app.whenReady().then(async () => {
     // 2. Managers (message persistence moved to CC engine — sessionStorage.ts)
     const skillsManager = new SkillsManager(settingsStore)
     const mcpConfig = new McpConfigManager(settingsStore)
+    const connectorManager = new ConnectorManager(settingsStore)
     const channelConfig = new ChannelConfigManager(settingsStore)
+    const { NotificationService } = await import('./notification-service.js')
+    const notificationService = new NotificationService(settingsStore)
 
     // 3. Engine (persistence via CC's recordTranscript — no external store)
     engineHost = new EngineHost(settingsStore)
+    engineHost.setConnectorManager(connectorManager)
 
     // 5. IPC — pass all managers
-    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig)
+    registerIpcHandlers(engineHost, settingsStore, skillsManager, mcpConfig, channelConfig, connectorManager, notificationService)
 
     // 6. Window
     const mainWindow = createMainWindow()

@@ -1,5 +1,5 @@
 // Klaus Desktop — Settings Panel
-// Tabs: Profile, Models, Channels, Skills, MCP
+// Tabs: Profile, Models, Channels, Connectors, Skills, MCP
 // Prompts are managed in the Klaus web admin panel (cloud).
 // Scheduled tasks live in their own view (cron.js, sidebar entry).
 
@@ -24,8 +24,10 @@ function loadSettingsTab(tab) {
     case 'preferences': loadPreferencesTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
+    case 'connectors': loadConnectorsTab(content); break
     case 'skills': loadSkillsTab(content); break
     case 'mcp': loadMcpTab(content); break
+    case 'systemAuth': loadSystemAuthTab(content); break
   }
 }
 
@@ -191,6 +193,23 @@ async function loadPreferencesTab(container) {
   const permMode = await settingsApi.kv.get('permission_mode') || 'default'
   let keepAwake = false
   try { keepAwake = (await settingsApi.cron.keepAwake.get())?.enabled === true } catch {}
+  let loginItem = false
+  try { loginItem = (await window.klaus.app.loginItem.get())?.enabled === true } catch {}
+  const notifyDesktop = (await settingsApi.kv.get('notification.desktop')) !== 'off'
+  const notifySound = (await settingsApi.kv.get('notification.sound')) !== 'off'
+
+  const row = (id, label, desc, checked) => `
+    <div class="pref-row">
+      <div class="pref-row-text">
+        <div class="pref-row-label">${label}</div>
+        <div class="pref-row-desc">${desc}</div>
+      </div>
+      <label class="pref-switch">
+        <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
+        <span class="pref-switch-track"></span>
+      </label>
+    </div>
+  `
 
   container.innerHTML = `<div class="settings-section">
     <div class="settings-field">
@@ -201,15 +220,12 @@ async function loadPreferencesTab(container) {
         <div class="settings-perm-card ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions"><div class="settings-perm-icon">🔓</div><div><div class="settings-perm-label">${tt('perm_bypass')}</div><div class="settings-perm-desc">${tt('perm_bypass_desc')}</div></div></div>
       </div>
     </div>
-    <div class="settings-field settings-row-field">
-      <div class="settings-row-text">
-        <div class="settings-row-label">${tt('cron_keep_awake')}</div>
-        <div class="settings-row-desc">${tt('cron_awake_hint')}</div>
-      </div>
-      <label class="cron-switch">
-        <input type="checkbox" id="pref-keep-awake" ${keepAwake ? 'checked' : ''}>
-        <span class="cron-switch-track"></span>
-      </label>
+
+    <div class="pref-card">
+      ${row('pref-login-item', tt('pref_login_item'), tt('pref_login_item_desc'), loginItem)}
+      ${row('pref-keep-awake', tt('cron_keep_awake'), tt('pref_keep_awake_desc'), keepAwake)}
+      ${row('pref-notify-desktop', tt('pref_notify_desktop'), tt('pref_notify_desktop_desc'), notifyDesktop)}
+      ${row('pref-notify-sound', tt('pref_notify_sound'), tt('pref_notify_sound_desc'), notifySound)}
     </div>
   </div>`
 
@@ -218,14 +234,24 @@ async function loadPreferencesTab(container) {
     container.querySelectorAll('.settings-perm-card').forEach(c => c.classList.toggle('active', c.dataset.perm === card.dataset.perm))
     await settingsApi.kv.set('permission_mode', card.dataset.perm); showToast(tt('perm_mode_saved'))
   })
+  container.querySelector('#pref-login-item')?.addEventListener('change', async (e) => {
+    const checked = e.target.checked
+    const res = await window.klaus.app.loginItem.set(checked)
+    if (!res?.ok) { e.target.checked = !checked; showToast(res?.error || 'Failed'); return }
+    showToast(tt('settings_saved'))
+  })
   container.querySelector('#pref-keep-awake')?.addEventListener('change', async (e) => {
     const checked = e.target.checked
     const res = await settingsApi.cron.keepAwake.set(checked)
-    if (!res?.ok) {
-      e.target.checked = !checked
-      showToast(res?.error || 'Failed')
-      return
-    }
+    if (!res?.ok) { e.target.checked = !checked; showToast(res?.error || 'Failed'); return }
+    showToast(tt('settings_saved'))
+  })
+  container.querySelector('#pref-notify-desktop')?.addEventListener('change', async (e) => {
+    await settingsApi.kv.set('notification.desktop', e.target.checked ? 'on' : 'off')
+    showToast(tt('settings_saved'))
+  })
+  container.querySelector('#pref-notify-sound')?.addEventListener('change', async (e) => {
+    await settingsApi.kv.set('notification.sound', e.target.checked ? 'on' : 'off')
     showToast(tt('settings_saved'))
   })
 }
@@ -790,143 +816,882 @@ window.filterSkills = function() {
 }
 
 // ==================== MCP (full management) ====================
+function mcpLocalizedText(item) {
+  const lang = document.documentElement.lang || 'zh'
+  const isZh = typeof lang === 'string' && lang.toLowerCase().startsWith('zh')
+  return { name: isZh ? item.nameZh : item.nameEn, desc: isZh ? item.descZh : item.descEn }
+}
+
+function mcpStatusDot(status) {
+  if (!status) return 'mcp-dot-gray'
+  if (status.status === 'connected') return 'mcp-dot-green'
+  if (status.status === 'needs-auth') return 'mcp-dot-yellow'
+  if (status.status === 'pending') return 'mcp-dot-gray'
+  return 'mcp-dot-red'
+}
+
 async function loadMcpTab(container) {
-  const [servers, status] = await Promise.all([window.klaus.mcp.list(), window.klaus.mcp.status()])
+  const [servers, status, builtin] = await Promise.all([
+    window.klaus.mcp.list(),
+    window.klaus.mcp.status(),
+    window.klaus.mcp.builtinList(),
+  ])
   const statusMap = new Map(status.map(s => [s.name, s]))
+  const builtinIds = new Set(builtin.map(b => b.id))
+  const customServers = servers.filter(s => !builtinIds.has(s.name))
 
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt("mcp")}</h3>
-      <div style="display:flex;gap:6px"><button class="btn-sm" id="mcp-add-manual">${tt("mcp")} +</button><button class="btn-sm" id="mcp-add-json">${tt('settings_mcp_import_json')}</button><button class="btn-sm" onclick="window.klaus.mcp.reconnect().then(()=>{showToast(tt('toast_reconnected'));loadSettingsTab('mcp')})">${tt('settings_mcp_reconnect')}</button></div></div>
+  container.innerHTML = `
+    <div class="settings-section mcp-section">
+      <div class="mcp-head">
+        <div>
+          <h2 class="mcp-title">${tt('mcp')}</h2>
+          <p class="mcp-subtitle">${tt('mcp_subtitle')} <em>${tt('mcp_banner')}</em></p>
+        </div>
+        <button class="mcp-refresh-btn" id="mcp-refresh" title="${tt('settings_mcp_reconnect')}" aria-label="${tt('settings_mcp_reconnect')}">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+            <path d="M21 21v-5h-5"/>
+          </svg>
+        </button>
+      </div>
 
-    <!-- Manual form (hidden) -->
-    <div id="mcp-manual-form" style="display:none"><div class="settings-card">
-      <div class="form-row"><label>Name</label><input id="mcpf-name" placeholder="server-name" class="s-form-input" style="width:100%"></div>
-      <div class="form-row"><label>Type</label><select id="mcpf-type" class="s-form-input" style="width:100%"><option value="stdio">stdio</option><option value="sse">SSE</option><option value="http">HTTP</option></select></div>
-      <div id="mcpf-command-wrap"><div class="form-row"><label>Command</label><input id="mcpf-command" placeholder='npx -y @modelcontextprotocol/server-everything' class="s-form-input" style="width:100%"></div></div>
-      <div id="mcpf-url-wrap" style="display:none"><div class="form-row"><label>URL</label><input id="mcpf-url" placeholder="https://..." class="s-form-input" style="width:100%"></div></div>
-      <div class="form-row"><label>Timeout (seconds, optional)</label><input id="mcpf-timeout" type="number" class="s-form-input" style="width:100%"></div>
-      <div class="form-row"><label>Environment Variables</label><div id="mcpf-env-rows"></div>
-        <div style="display:flex;gap:6px;margin-top:4px"><button class="btn-xs" id="mcpf-add-env">+ Add</button><button class="btn-xs" id="mcpf-paste-env">Paste</button></div></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-save">${tt('save')}</button><button class="btn-sm" id="mcpf-cancel">${tt('cancel')}</button></div></div></div>
+      <div class="mcp-add-card">
+        <div class="mcp-add-card-info">
+          <div class="mcp-add-card-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </div>
+          <div>
+            <div class="mcp-add-card-title">${tt('mcp_add_title')}</div>
+            <div class="mcp-add-card-desc">${tt('mcp_add_desc')}</div>
+          </div>
+        </div>
+        <div class="mcp-add-dropdown">
+          <button class="mcp-add-btn" id="mcp-add-btn">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+            <span>${tt('mcp_add')}</span>
+          </button>
+          <div class="mcp-add-menu" id="mcp-add-menu" hidden>
+            <button class="mcp-add-menu-item" data-action="manual">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              <span>${tt('mcp_add_manual')}</span>
+            </button>
+            <button class="mcp-add-menu-item" data-action="json">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <span>${tt('mcp_add_json')}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
-    <!-- JSON import form (hidden) -->
-    <div id="mcp-json-form" style="display:none"><div class="settings-card">
-      <div class="form-row"><label>Paste .mcp.json content</label><textarea id="mcpf-json" rows="8" class="prompt-editor" placeholder='{ "mcpServers": { "name": { "command": "..." } } }'></textarea></div>
-      <div class="form-actions"><button class="btn-sm btn-primary" id="mcpf-json-import">Import</button><button class="btn-sm" id="mcpf-json-cancel">${tt('cancel')}</button></div></div></div>
+      <div class="mcp-group-title">${tt('mcp_custom_servers')}</div>
+      <div class="mcp-list" id="mcp-custom-list">${
+        customServers.length === 0
+          ? `<div class="mcp-empty">${tt('mcp_no_custom')}</div>`
+          : customServers.map(s => renderMcpRow(s, statusMap.get(s.name))).join('')
+      }</div>
 
-    <!-- Server list -->
-    <div id="mcp-list">${servers.length === 0 ? `<p class="empty-text">${tt('no_mcp') || 'No MCP servers configured'}</p>` : `<div class="sk-grid">${servers.map(s => {
-      const st = statusMap.get(s.name)
-      const cfg = s.config || {}
-      const type = cfg.type || 'stdio'
-      let detail = ''
-      if (type === 'stdio') { detail = (cfg.command || '') + (cfg.args ? ' ' + cfg.args.join(' ') : '') }
-      else { detail = cfg.url || '' }
-      return `<div class="sk-card"><div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">🔌</div><div class="sk-card-name">${esc(s.name)}</div></div>
-        <label class="sk-toggle"><input type="checkbox" class="mcp-toggle-input" data-mcp="${esc(s.name)}" ${s.enabled ? 'checked' : ''}><span class="sk-slider"></span></label></div>
-        <div class="sk-card-desc">${esc(detail)}</div>
-        <div class="sk-card-actions"><button class="btn-xs btn-danger" data-delmcp="${esc(s.name)}">${tt('settings_skills_uninstall')}</button></div>
-        <div class="sk-card-badges"><span class="s-badge s-badge-gray">${esc(type.toUpperCase())}</span>${st ? `<span class="s-badge ${st.status === 'connected' ? 's-badge-green' : 's-badge-red'}">${st.toolCount} tools</span>` : ''}</div></div>`
-    }).join('')}</div>`}</div></div>`
+      <div class="mcp-group-title">${tt('mcp_builtin_servers')}</div>
+      <div class="mcp-list" id="mcp-builtin-list">${
+        builtin.map(b => renderBuiltinRow(b, statusMap.get(b.id))).join('')
+      }</div>
+    </div>
+  `
 
-  // Event bindings
-  document.getElementById('mcp-add-manual')?.addEventListener('click', () => {
-    document.getElementById('mcp-manual-form').style.display = 'block'
-    document.getElementById('mcp-list').style.display = 'none'
-  })
-  document.getElementById('mcp-add-json')?.addEventListener('click', () => {
-    document.getElementById('mcp-json-form').style.display = 'block'
-    document.getElementById('mcp-list').style.display = 'none'
-  })
-  document.getElementById('mcpf-cancel')?.addEventListener('click', () => {
-    document.getElementById('mcp-manual-form').style.display = 'none'
-    document.getElementById('mcp-list').style.display = ''
-  })
-  document.getElementById('mcpf-json-cancel')?.addEventListener('click', () => {
-    document.getElementById('mcp-json-form').style.display = 'none'
-    document.getElementById('mcp-list').style.display = ''
-  })
-  document.getElementById('mcpf-type')?.addEventListener('change', function() {
-    document.getElementById('mcpf-command-wrap').style.display = this.value === 'stdio' ? '' : 'none'
-    document.getElementById('mcpf-url-wrap').style.display = this.value === 'stdio' ? 'none' : ''
-  })
-  document.getElementById('mcpf-add-env')?.addEventListener('click', () => addMcpEnvRow('', ''))
-  document.getElementById('mcpf-paste-env')?.addEventListener('click', () => {
-    navigator.clipboard.readText().then(text => {
-      text.trim().split('\n').forEach(line => {
-        const eq = line.indexOf('=')
-        if (eq > 0) addMcpEnvRow(line.slice(0, eq).trim(), line.slice(eq + 1).trim())
-      })
-    }).catch(() => {})
-  })
-  document.getElementById('mcpf-save')?.addEventListener('click', async () => {
-    const name = gv('mcpf-name')
-    if (!name) { showToast('Name is required'); return }
-    const type = gv('mcpf-type')
-    const payload = { name }
-    if (type === 'stdio') {
-      const cmdStr = gv('mcpf-command')
-      if (!cmdStr) { showToast('Command is required'); return }
-      const parts = cmdStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [cmdStr]
-      payload.command = parts[0].replace(/^"|"$/g, '')
-      if (parts.length > 1) payload.args = parts.slice(1).map(p => p.replace(/^"|"$/g, ''))
-    } else {
-      const url = gv('mcpf-url')
-      if (!url) { showToast('URL is required'); return }
-      payload.type = type; payload.url = url
-    }
-    const env = getMcpEnvVars()
-    if (env) payload.env = env
-    const timeout = parseInt(gv('mcpf-timeout'))
-    if (timeout > 0) payload.timeout = timeout
-    const result = await window.klaus.mcp.create(payload)
-    if (result.ok) { showToast(tt('settings_saved')); loadSettingsTab('mcp') }
-    else showToast(result.error || tt('settings_failed'))
-  })
-  document.getElementById('mcpf-json-import')?.addEventListener('click', async () => {
-    const json = document.getElementById('mcpf-json')?.value?.trim()
-    if (!json) return
-    const result = await window.klaus.mcp.importJson(json)
-    if (result.imported?.length) showToast('Imported: ' + result.imported.join(', '))
-    if (result.errors?.length) showToast('Errors: ' + result.errors.join(', '))
+  bindMcpEvents(container)
+}
+
+function renderMcpRow(server, status) {
+  const cfg = server.config || {}
+  const type = cfg.type || 'stdio'
+  const detail = type === 'stdio'
+    ? (cfg.command || '') + (cfg.args ? ' ' + cfg.args.join(' ') : '')
+    : cfg.url || ''
+  const statusClass = mcpStatusDot(status)
+  const toolCount = status?.toolCount ?? 0
+  const hasError = !!status?.error
+  const isOauth = type === 'sse' || type === 'http'
+
+  return `
+    <div class="mcp-row" data-name="${esc(server.name)}">
+      <div class="mcp-row-main">
+        <button class="mcp-expand-btn" data-action="expand" aria-expanded="false" aria-label="expand">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 4 10 8 6 12"/></svg>
+        </button>
+        <span class="mcp-dot ${statusClass}" aria-hidden="true"></span>
+        <div class="mcp-row-name">
+          <span class="mcp-name-text">${esc(server.name)}</span>
+        </div>
+        <div class="mcp-row-actions">
+          ${hasError ? `<button class="mcp-action-btn mcp-action-primary" data-action="diagnose">${tt('mcp_diagnose')}</button>` : ''}
+          ${isOauth ? `<button class="mcp-action-btn" data-action="reset">${tt('mcp_reset')}</button>` : ''}
+          <span class="mcp-tool-count">${toolCount} tools</span>
+          <label class="mcp-toggle" title="${server.enabled ? tt('enabled') : tt('disabled')}">
+            <input type="checkbox" data-action="toggle" ${server.enabled ? 'checked' : ''}>
+            <span class="mcp-toggle-slider"></span>
+          </label>
+          <button class="mcp-icon-btn" data-action="edit" title="${tt('mcp_edit')}" aria-label="edit">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="mcp-icon-btn" data-action="delete" title="${tt('delete_title') || 'Delete'}" aria-label="delete">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          </button>
+        </div>
+      </div>
+      ${hasError ? `<div class="mcp-error-line" title="${esc(status.error)}">${esc(status.error)}</div>` : ''}
+      <div class="mcp-row-expand" data-expand-target hidden>
+        <div class="mcp-row-detail">
+          <span class="mcp-meta-label">Type</span><span class="mcp-meta-value">${esc(type.toUpperCase())}</span>
+          <span class="mcp-meta-label">Target</span><span class="mcp-meta-value mcp-meta-mono">${esc(detail) || '—'}</span>
+        </div>
+        <div class="mcp-tools-header">Tools (${toolCount})</div>
+        <div class="mcp-tools-list">${
+          status?.tools?.length
+            ? status.tools.map(t => `
+                <div class="mcp-tool-item">
+                  <div class="mcp-tool-name">${esc(t.name)}</div>
+                  ${t.description ? `<div class="mcp-tool-desc">${esc(t.description)}</div>` : ''}
+                </div>`).join('')
+            : `<div class="mcp-tool-empty">${tt('mcp_empty_tools')}</div>`
+        }</div>
+      </div>
+    </div>
+  `
+}
+
+function renderBuiltinRow(b, status) {
+  const text = mcpLocalizedText(b)
+  const installed = b.installed
+  const enabled = b.enabled
+  const statusClass = installed ? mcpStatusDot(status) : ''
+  const toolCount = status?.toolCount ?? 0
+  const hasError = installed && !!status?.error
+  const isOauth = b.auth === 'oauth'
+
+  return `
+    <div class="mcp-row mcp-row-builtin" data-name="${esc(b.id)}" data-builtin-id="${esc(b.id)}">
+      <div class="mcp-row-main">
+        ${installed ? `
+          <button class="mcp-expand-btn" data-action="expand" aria-expanded="false" aria-label="expand">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 4 10 8 6 12"/></svg>
+          </button>` : '<span class="mcp-expand-placeholder"></span>'}
+        <div class="mcp-logo">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${b.iconSvg || ''}</svg>
+        </div>
+        <div class="mcp-row-name mcp-row-name-stacked">
+          <div class="mcp-name-row">
+            <span class="mcp-name-text">${esc(text.name)}</span>
+            ${installed && status?.status === 'connected' ? `<span class="mcp-dot ${statusClass} mcp-dot-inline"></span>` : ''}
+          </div>
+          <div class="mcp-builtin-desc">${esc(text.desc)}</div>
+        </div>
+        <div class="mcp-row-actions">
+          ${installed && hasError ? `<button class="mcp-action-btn mcp-action-primary" data-action="diagnose">${tt('mcp_diagnose')}</button>` : ''}
+          ${installed && isOauth ? `<button class="mcp-action-btn" data-action="reset">${tt('mcp_reset')}</button>` : ''}
+          ${installed ? `<span class="mcp-tool-count">${toolCount} tools</span>` : ''}
+          <label class="mcp-toggle">
+            <input type="checkbox" data-action="${installed ? 'toggle' : 'install'}" ${enabled ? 'checked' : ''}>
+            <span class="mcp-toggle-slider"></span>
+          </label>
+          ${installed ? `
+            <button class="mcp-icon-btn" data-action="edit" title="${tt('mcp_edit')}" aria-label="edit">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button class="mcp-icon-btn" data-action="delete" title="${tt('delete_title') || 'Delete'}" aria-label="delete">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            </button>
+          ` : ''}
+        </div>
+      </div>
+      ${hasError ? `<div class="mcp-error-line" title="${esc(status.error)}">${esc(status.error)}</div>` : ''}
+      ${installed ? `
+        <div class="mcp-row-expand" data-expand-target hidden>
+          <div class="mcp-tools-header">Tools (${toolCount})</div>
+          <div class="mcp-tools-list">${
+            status?.tools?.length
+              ? status.tools.map(t => `
+                  <div class="mcp-tool-item">
+                    <div class="mcp-tool-name">${esc(t.name)}</div>
+                    ${t.description ? `<div class="mcp-tool-desc">${esc(t.description)}</div>` : ''}
+                  </div>`).join('')
+              : `<div class="mcp-tool-empty">${tt('mcp_empty_tools')}</div>`
+          }</div>
+        </div>` : ''}
+    </div>
+  `
+}
+
+function bindMcpEvents(container) {
+  container.querySelector('#mcp-refresh')?.addEventListener('click', async () => {
+    await window.klaus.mcp.reconnect()
+    showToast(tt('toast_reconnected') || tt('settings_mcp_reconnect'))
     loadSettingsTab('mcp')
   })
 
-  // Toggle + uninstall
-  container.querySelectorAll('.mcp-toggle-input').forEach(el => {
-    el.addEventListener('change', async () => {
-      await window.klaus.mcp.toggle(el.dataset.mcp, el.checked)
-      showToast(el.checked ? tt('enabled') : tt('disabled'))
-    })
+  const addBtn = container.querySelector('#mcp-add-btn')
+  const addMenu = container.querySelector('#mcp-add-menu')
+  addBtn?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (addMenu) addMenu.hidden = !addMenu.hidden
   })
-  container.querySelectorAll('[data-delmcp]').forEach(el => {
-    el.addEventListener('click', async () => {
-      if (!confirm(tt('settings_mcp_delete_confirm') + ': ' + el.dataset.delmcp + '?')) return
-      await window.klaus.mcp.remove(el.dataset.delmcp)
-      showToast(tt('settings_deleted')); loadSettingsTab('mcp')
+  addMenu?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mcp-add-menu-item')
+    if (!btn) return
+    addMenu.hidden = true
+    if (btn.dataset.action === 'manual') openMcpEditModal(null)
+    else if (btn.dataset.action === 'json') openMcpJsonModal()
+  })
+  const hideMenu = (e) => { if (addMenu && !addMenu.contains(e.target) && e.target !== addBtn) addMenu.hidden = true }
+  document.addEventListener('click', hideMenu)
+
+  container.querySelectorAll('.mcp-row').forEach(row => {
+    const name = row.dataset.name
+    const builtinId = row.dataset.builtinId
+
+    row.querySelector('[data-action="expand"]')?.addEventListener('click', () => {
+      const tgt = row.querySelector('[data-expand-target]')
+      if (!tgt) return
+      const showing = !tgt.hidden
+      tgt.hidden = showing
+      const btn = row.querySelector('[data-action="expand"]')
+      btn.setAttribute('aria-expanded', String(!showing))
+      btn.classList.toggle('mcp-expand-open', !showing)
+    })
+
+    row.querySelector('[data-action="toggle"]')?.addEventListener('change', async (e) => {
+      await window.klaus.mcp.toggle(name, e.target.checked)
+      showToast(e.target.checked ? (tt('enabled') || 'Enabled') : (tt('disabled') || 'Disabled'))
+      setTimeout(() => loadSettingsTab('mcp'), 300)
+    })
+
+    row.querySelector('[data-action="install"]')?.addEventListener('change', (e) => {
+      const checked = e.target.checked
+      e.target.checked = false
+      if (checked && builtinId) openBuiltinInstallModal(builtinId)
+    })
+
+    row.querySelector('[data-action="edit"]')?.addEventListener('click', async () => {
+      const list = await window.klaus.mcp.list()
+      const entry = list.find(x => x.name === name)
+      if (entry) openMcpEditModal(entry)
+    })
+
+    row.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+      if (!confirm(tt('settings_mcp_delete_confirm') + ': ' + name + '?')) return
+      await window.klaus.mcp.remove(name)
+      showToast(tt('settings_deleted') || 'Deleted')
+      loadSettingsTab('mcp')
+    })
+
+    row.querySelector('[data-action="reset"]')?.addEventListener('click', async () => {
+      if (!confirm(tt('mcp_reset_confirm'))) return
+      const r = await window.klaus.mcp.revokeAuth(name)
+      if (r?.ok) { showToast(tt('mcp_reset_done')); setTimeout(() => loadSettingsTab('mcp'), 400) }
+      else showToast(r?.error || tt('settings_failed') || 'Failed')
+    })
+
+    row.querySelector('[data-action="diagnose"]')?.addEventListener('click', async () => {
+      const status = await window.klaus.mcp.status()
+      const s = status.find(x => x.name === name)
+      openMcpDiagnoseModal(name, s?.error || 'Unknown error')
     })
   })
 }
 
-function addMcpEnvRow(key, val) {
-  const rows = document.getElementById('mcpf-env-rows')
-  const row = document.createElement('div')
-  row.style.cssText = 'display:flex;gap:8px;margin-bottom:4px;align-items:center'
-  row.innerHTML = `<input class="s-form-input" placeholder="KEY" value="${esc(key)}" style="flex:1" data-envkey><input class="s-form-input" placeholder="value" value="${esc(val)}" style="flex:1" data-envval><button class="s-btn" style="padding:4px 8px;font-size:16px;opacity:0.5" onclick="this.parentElement.remove()">&times;</button>`
-  rows.appendChild(row)
+function openMcpEditModal(existing) {
+  const isEdit = !!existing
+  const cfg = existing?.config || {}
+  const type = cfg.type || 'stdio'
+  const cmdStr = type === 'stdio'
+    ? (cfg.command || '') + (cfg.args ? ' ' + cfg.args.join(' ') : '')
+    : ''
+  const url = cfg.url || ''
+  const envEntries = Object.entries(cfg.env || {})
+  const timeout = cfg.timeout || ''
+
+  const modal = document.createElement('div')
+  modal.className = 'mcp-modal-overlay'
+  modal.innerHTML = `
+    <div class="mcp-modal">
+      <div class="mcp-modal-head">
+        <div>
+          <h3 class="mcp-modal-title">${isEdit ? tt('mcp_edit_title') : tt('mcp_add_modal_title')}</h3>
+          ${isEdit ? '' : `<p class="mcp-modal-subtitle">${tt('mcp_add_modal_subtitle')}</p>`}
+        </div>
+        <button class="mcp-modal-close" data-close aria-label="close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="mcp-modal-body">
+        <div class="mcp-field">
+          <label class="mcp-field-label">${tt('mcp_field_type')}</label>
+          <select class="mcp-input" id="mcpm-type" ${isEdit ? 'disabled' : ''}>
+            <option value="stdio" ${type === 'stdio' ? 'selected' : ''}>STDIO</option>
+            <option value="sse" ${type === 'sse' ? 'selected' : ''}>SSE</option>
+            <option value="http" ${type === 'http' ? 'selected' : ''}>HTTP</option>
+          </select>
+        </div>
+        <div class="mcp-field">
+          <label class="mcp-field-label">${tt('mcp_field_name')} <span class="mcp-required">*</span></label>
+          <input class="mcp-input" id="mcpm-name" placeholder="${tt('mcp_field_name_placeholder')}" value="${esc(existing?.name || '')}" ${isEdit ? 'readonly' : ''}>
+        </div>
+        <div class="mcp-field" id="mcpm-cmd-wrap" ${type !== 'stdio' ? 'hidden' : ''}>
+          <label class="mcp-field-label">${tt('mcp_field_command')} <span class="mcp-required">*</span></label>
+          <textarea class="mcp-input mcp-input-area" id="mcpm-cmd" rows="2" placeholder="npx -y @modelcontextprotocol/server-filesystem">${esc(cmdStr)}</textarea>
+          <div class="mcp-field-hint">${tt('mcp_field_command_hint')}</div>
+        </div>
+        <div class="mcp-field" id="mcpm-url-wrap" ${type === 'stdio' ? 'hidden' : ''}>
+          <label class="mcp-field-label">${tt('mcp_field_url')} <span class="mcp-required">*</span></label>
+          <input class="mcp-input" id="mcpm-url" placeholder="https://..." value="${esc(url)}">
+        </div>
+        <div class="mcp-field">
+          <label class="mcp-field-label mcp-field-label-row">
+            <span>${tt('mcp_field_env')} <span class="mcp-field-optional">${tt('mcp_field_env_optional')}</span></span>
+            <button class="mcp-field-inline-btn" id="mcpm-env-paste">${tt('mcp_field_env_paste')}</button>
+          </label>
+          <div id="mcpm-env-rows"></div>
+          <button class="mcp-field-add-btn" id="mcpm-env-add">${tt('mcp_field_env_add')}</button>
+        </div>
+        <div class="mcp-field">
+          <label class="mcp-field-label">${tt('mcp_field_timeout')} <span class="mcp-field-optional">${tt('mcp_field_timeout_optional')}</span></label>
+          <input class="mcp-input" id="mcpm-timeout" type="number" placeholder="60" value="${esc(String(timeout))}">
+        </div>
+      </div>
+      <div class="mcp-modal-foot">
+        <button class="mcp-submit-btn" id="mcpm-submit">${isEdit ? tt('mcp_save_submit') : tt('mcp_add_submit')}</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(modal)
+
+  const typeSel = modal.querySelector('#mcpm-type')
+  const cmdWrap = modal.querySelector('#mcpm-cmd-wrap')
+  const urlWrap = modal.querySelector('#mcpm-url-wrap')
+  typeSel.addEventListener('change', () => {
+    cmdWrap.hidden = typeSel.value !== 'stdio'
+    urlWrap.hidden = typeSel.value === 'stdio'
+  })
+
+  const envRows = modal.querySelector('#mcpm-env-rows')
+  const appendEnvRow = (k, v) => {
+    const row = document.createElement('div')
+    row.className = 'mcp-env-row'
+    row.innerHTML = `
+      <input class="mcp-input" placeholder="KEY" value="${esc(k || '')}" data-ek>
+      <input class="mcp-input" placeholder="value" value="${esc(v || '')}" data-ev>
+      <button class="mcp-env-del" aria-label="remove">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="4" y1="12" x2="12" y2="4"/></svg>
+      </button>
+    `
+    row.querySelector('.mcp-env-del').addEventListener('click', () => row.remove())
+    envRows.appendChild(row)
+  }
+  if (envEntries.length) envEntries.forEach(([k, v]) => appendEnvRow(k, String(v)))
+  modal.querySelector('#mcpm-env-add').addEventListener('click', () => appendEnvRow('', ''))
+  modal.querySelector('#mcpm-env-paste').addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      text.trim().split('\n').forEach(line => {
+        const eq = line.indexOf('=')
+        if (eq > 0) appendEnvRow(line.slice(0, eq).trim(), line.slice(eq + 1).trim())
+      })
+    } catch {}
+  })
+
+  const closeModal = () => modal.remove()
+  modal.querySelector('[data-close]').addEventListener('click', closeModal)
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal() })
+
+  modal.querySelector('#mcpm-submit').addEventListener('click', async () => {
+    const name = modal.querySelector('#mcpm-name').value.trim()
+    if (!name) { showToast(tt('settings_mcp_name_required')); return }
+    const t = typeSel.value
+    const newCfg = {}
+    if (t === 'stdio') {
+      const cmd = modal.querySelector('#mcpm-cmd').value.trim()
+      if (!cmd) { showToast('Command required'); return }
+      const parts = cmd.match(/(?:[^\s"]+|"[^"]*")+/g) || [cmd]
+      newCfg.command = parts[0].replace(/^"|"$/g, '')
+      if (parts.length > 1) newCfg.args = parts.slice(1).map(p => p.replace(/^"|"$/g, ''))
+    } else {
+      const u = modal.querySelector('#mcpm-url').value.trim()
+      if (!u) { showToast('URL required'); return }
+      newCfg.type = t
+      newCfg.url = u
+    }
+    const env = {}
+    modal.querySelectorAll('#mcpm-env-rows .mcp-env-row').forEach(r => {
+      const k = r.querySelector('[data-ek]').value.trim()
+      const v = r.querySelector('[data-ev]').value
+      if (k) env[k] = v
+    })
+    if (Object.keys(env).length) newCfg.env = env
+    const to = parseInt(modal.querySelector('#mcpm-timeout').value)
+    if (to > 0) newCfg.timeout = to
+
+    let result
+    if (isEdit) {
+      result = await window.klaus.mcp.update(name, newCfg)
+    } else {
+      result = await window.klaus.mcp.create({ name, ...newCfg })
+    }
+    if (result?.ok) {
+      showToast(tt('settings_saved') || 'Saved')
+      closeModal()
+      loadSettingsTab('mcp')
+    } else {
+      showToast(result?.error || tt('settings_failed') || 'Failed')
+    }
+  })
 }
 
-function getMcpEnvVars() {
-  const env = {}
-  document.querySelectorAll('#mcpf-env-rows [data-envkey]').forEach(el => {
-    const key = el.value.trim()
-    const val = el.parentElement.querySelector('[data-envval]').value
-    if (key) env[key] = val
+function openMcpJsonModal() {
+  const modal = document.createElement('div')
+  modal.className = 'mcp-modal-overlay'
+  modal.innerHTML = `
+    <div class="mcp-modal">
+      <div class="mcp-modal-head">
+        <div>
+          <h3 class="mcp-modal-title">${tt('mcp_json_modal_title')}</h3>
+          <p class="mcp-modal-subtitle">${tt('mcp_json_modal_subtitle')}</p>
+        </div>
+        <button class="mcp-modal-close" data-close aria-label="close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="mcp-modal-body">
+        <textarea class="mcp-input mcp-input-json" id="mcpm-json" rows="14" spellcheck="false" placeholder="${esc(tt('mcp_json_placeholder'))}"></textarea>
+      </div>
+      <div class="mcp-modal-foot">
+        <button class="mcp-submit-btn" id="mcpm-json-submit">${tt('mcp_json_submit')}</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(modal)
+  const closeModal = () => modal.remove()
+  modal.querySelector('[data-close]').addEventListener('click', closeModal)
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal() })
+  modal.querySelector('#mcpm-json-submit').addEventListener('click', async () => {
+    const raw = modal.querySelector('#mcpm-json').value.trim()
+    if (!raw) return
+    const r = await window.klaus.mcp.importJson(raw)
+    if (r.imported?.length) showToast((tt('settings_mcp_imported') || 'Imported') + ': ' + r.imported.join(', '))
+    if (r.errors?.length) showToast(r.errors.join('; '))
+    closeModal()
+    loadSettingsTab('mcp')
   })
-  return Object.keys(env).length ? env : undefined
+}
+
+function openBuiltinInstallModal(builtinId) {
+  window.klaus.mcp.builtinList().then(list => {
+    const entry = list.find(x => x.id === builtinId)
+    if (!entry) return
+    const text = mcpLocalizedText(entry)
+    const modal = document.createElement('div')
+    modal.className = 'mcp-modal-overlay'
+    modal.innerHTML = `
+      <div class="mcp-modal">
+        <div class="mcp-modal-head">
+          <div class="mcp-modal-head-with-logo">
+            <div class="mcp-logo mcp-logo-lg">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${entry.iconSvg || ''}</svg>
+            </div>
+            <div>
+              <h3 class="mcp-modal-title">${esc(tt('mcp_builtin_install_title')(text.name))}</h3>
+              <p class="mcp-modal-subtitle">${esc(text.desc)}</p>
+            </div>
+          </div>
+          <button class="mcp-modal-close" data-close aria-label="close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="mcp-modal-body">
+          ${entry.auth === 'oauth' ? `<div class="mcp-banner mcp-banner-muted"><span>${tt('mcp_needs_auth')}</span></div>` : ''}
+          ${(entry.envKeys || []).map(k => `
+            <div class="mcp-field">
+              <label class="mcp-field-label">${esc(k.label)}</label>
+              <input class="mcp-input" type="${k.secret ? 'password' : 'text'}" data-envkey="${esc(k.key)}" placeholder="${esc(k.key)}">
+            </div>
+          `).join('')}
+          ${!(entry.envKeys || []).length ? `<p class="mcp-field-hint">${tt('mcp_builtin_install_desc')}</p>` : ''}
+        </div>
+        <div class="mcp-modal-foot">
+          <button class="mcp-submit-btn" id="mcpm-install">${tt('mcp_builtin_install')}</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(modal)
+    const closeModal = () => modal.remove()
+    modal.querySelector('[data-close]').addEventListener('click', closeModal)
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal() })
+    modal.querySelector('#mcpm-install').addEventListener('click', async () => {
+      const env = {}
+      modal.querySelectorAll('[data-envkey]').forEach(el => { env[el.dataset.envkey] = el.value })
+      const r = await window.klaus.mcp.builtinInstall(builtinId, env)
+      if (r?.ok) { showToast(tt('settings_saved') || 'Enabled'); closeModal(); loadSettingsTab('mcp') }
+      else showToast(r?.error || 'Failed')
+    })
+  })
+}
+
+function openMcpDiagnoseModal(name, errText) {
+  const modal = document.createElement('div')
+  modal.className = 'mcp-modal-overlay'
+  modal.innerHTML = `
+    <div class="mcp-modal">
+      <div class="mcp-modal-head">
+        <div>
+          <h3 class="mcp-modal-title">${tt('mcp_diagnose_title')}</h3>
+          <p class="mcp-modal-subtitle">${esc(name)}</p>
+        </div>
+        <button class="mcp-modal-close" data-close aria-label="close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="mcp-modal-body">
+        <pre class="mcp-diagnose-text">${esc(errText)}</pre>
+      </div>
+      <div class="mcp-modal-foot">
+        <button class="mcp-submit-btn mcp-submit-secondary" id="mcpm-diag-copy">${tt('mcp_diagnose_copy')}</button>
+        <button class="mcp-submit-btn" id="mcpm-diag-retry">${tt('mcp_diagnose_retry')}</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(modal)
+  const closeModal = () => modal.remove()
+  modal.querySelector('[data-close]').addEventListener('click', closeModal)
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal() })
+  modal.querySelector('#mcpm-diag-copy').addEventListener('click', () => {
+    navigator.clipboard.writeText(errText).then(() => showToast(tt('mcp_diagnose_copied'))).catch(() => {})
+  })
+  modal.querySelector('#mcpm-diag-retry').addEventListener('click', async () => {
+    await window.klaus.mcp.reconnect()
+    closeModal()
+    loadSettingsTab('mcp')
+  })
+}
+
+// ==================== Connectors (Klaus built-in integrations) ====================
+// 独立于 MCP：零配置，Klaus 官方策展，per-connector 三态权限。
+// 数据源：window.klaus.connectors.list() / .status() / .toggle() / .setPolicy()
+
+// Line-style SVG icons matching QoderWork's macOS connectors visual language.
+// Keyed by connector id / group id. Rendered inline so they inherit currentColor
+// and theme well.
+const CONNECTOR_ICONS = {
+  // Apple logo for the macOS group head
+  'group:macos': '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17.05 12.69c-.02-2.04 1.67-3.02 1.74-3.07-.95-1.39-2.43-1.58-2.96-1.6-1.26-.13-2.46.74-3.1.74-.65 0-1.63-.72-2.69-.7-1.38.02-2.66.81-3.37 2.05-1.44 2.5-.37 6.18 1.03 8.2.69 1 1.49 2.11 2.55 2.07 1.03-.04 1.42-.66 2.66-.66 1.24 0 1.59.66 2.67.64 1.1-.02 1.8-1 2.48-2.01.78-1.15 1.1-2.27 1.12-2.33-.02-.01-2.15-.83-2.13-3.29zM15.01 7.4c.56-.69.95-1.63.84-2.58-.81.03-1.8.54-2.39 1.21-.53.6-1 1.57-.87 2.49.91.07 1.83-.46 2.42-1.12z"/></svg>',
+  // Reminders — notepad with a ring tab on top
+  'macos-reminders': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M11 3h2a1 1 0 011 1v1H10V4a1 1 0 011-1z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="13" y2="18"/></svg>',
+  // Calendar — box with two binding dots on top
+  'macos-calendar': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>',
+  // Notes — notebook with a spine on the left
+  'macos-notes': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="13" height="18" rx="1.5"/><line x1="6" y1="8" x2="9" y2="8"/><line x1="6" y1="12" x2="9" y2="12"/><line x1="6" y1="16" x2="9" y2="16"/></svg>',
+  // Mail — envelope
+  'macos-mail': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 8l9 6 9-6"/></svg>',
+  // Contacts — address book with side tabs
+  'macos-contacts': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="13" height="18" rx="1.5"/><circle cx="11.5" cy="10.5" r="2.2"/><path d="M8 17c0-2 1.6-3.2 3.5-3.2s3.5 1.2 3.5 3.2"/><line x1="18" y1="7" x2="20" y2="7"/><line x1="18" y1="12" x2="20" y2="12"/><line x1="18" y1="17" x2="20" y2="17"/></svg>',
+  // Messages — speech bubble
+  'macos-messages': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8-3.6 8-8 8c-1.3 0-2.6-.3-3.7-.9L4 20l1-3.5C4.4 15 4 13.6 4 12z"/></svg>',
+  // Safari — compass
+  'macos-safari': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polygon points="16,8 10.5,10.5 8,16 13.5,13.5" fill="currentColor" stroke="none"/></svg>',
+  // Shortcuts — lightning bolt in a rounded square
+  'macos-shortcuts': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M13 6l-5 8h3l-1 4 5-8h-3l1-4z" fill="currentColor" stroke="none"/></svg>',
+  // Finder — stylized face (smile)
+  'macos-finder': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><line x1="9" y1="9" x2="9" y2="11"/><line x1="15" y1="9" x2="15" y2="11"/><path d="M9 15c1 1 2 1.5 3 1.5s2-.5 3-1.5"/></svg>',
+  // System tools — wrench
+  'macos-system': '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 00-5.4 5.4l-6 6 2 2 6-6a4 4 0 005.4-5.4l-2.5 2.5-2-2 2.5-2.5z"/></svg>',
+}
+
+function connectorIcon(key) {
+  return CONNECTOR_ICONS[key] || ''
+}
+
+async function loadConnectorsTab(container) {
+  const [items, statuses] = await Promise.all([
+    window.klaus.connectors.list(),
+    window.klaus.connectors.status().catch(() => []),
+  ])
+  const statusMap = new Map(statuses.map(s => ({ name: s.name, ...s })).map(s => [s.name, s]))
+
+  // Group by catalog group field (currently just 'macos'; forward-compatible)
+  const groups = new Map()
+  for (const c of items) {
+    if (!c.availableOnThisPlatform) continue
+    if (!groups.has(c.group)) groups.set(c.group, [])
+    groups.get(c.group).push(c)
+  }
+
+  const groupTitles = { macos: tt('connectors_group_macos') }
+
+  const groupsHtml = [...groups.entries()].map(([groupId, list]) => {
+    const enabledCount = list.filter(c => c.enabled).length
+    const rows = list.map(c => renderConnectorRow(c, statusMap.get(`klaus-${c.id}`))).join('')
+    return `
+      <div class="connector-group" data-group="${esc(groupId)}">
+        <button class="connector-group-head" data-toggle-group="${esc(groupId)}">
+          <span class="connector-group-icon">${connectorIcon('group:' + groupId)}</span>
+          <span class="connector-group-title">${esc(groupTitles[groupId] || groupId)}</span>
+          <span class="connector-group-count">${tt('connectors_enabled_count').replace('{n}', enabledCount).replace('{total}', list.length)}</span>
+          <svg class="connector-group-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4,6 8,10 12,6"/></svg>
+        </button>
+        <div class="connector-group-body">${rows}</div>
+      </div>
+    `
+  }).join('')
+
+  container.innerHTML = `
+    <div class="connectors-wrap">
+      <h1 class="connectors-title">${tt('connectors')}</h1>
+      <p class="connectors-subtitle">${tt('connectors_subtitle')} <em>${tt('connectors_banner')}</em></p>
+      ${groups.size === 0 ? `<div class="connectors-empty">${tt('connectors_empty_platform')}</div>` : groupsHtml}
+    </div>
+  `
+
+  // Expand/collapse group
+  container.querySelectorAll('[data-toggle-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.connector-group')
+      group.classList.toggle('collapsed')
+    })
+  })
+
+  // Per-connector switch — enable/disable
+  container.querySelectorAll('[data-connector-toggle]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.dataset.connectorToggle
+      const enabled = input.checked
+      const r = await window.klaus.connectors.toggle(id, enabled)
+      if (!r?.ok) {
+        input.checked = !enabled
+        showToast(r?.error || tt('settings_failed'))
+        return
+      }
+      showToast(enabled ? tt('enabled') : tt('disabled'))
+      // Reconnect happens in main; re-load to refresh status/tool counts.
+      setTimeout(() => loadSettingsTab('connectors'), 400)
+    })
+  })
+
+  // Expand/collapse the row's tool list — the status line is the affordance
+  container.querySelectorAll('[data-toggle-row]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.connector-row')
+      row.classList.toggle('is-expanded')
+    })
+  })
+
+  // Per-tool checkbox
+  container.querySelectorAll('[data-tool-enabled]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.dataset.connectorId
+      const toolName = input.dataset.tool
+      const r = await window.klaus.connectors.setToolEnabled(id, toolName, input.checked)
+      if (!r?.ok) {
+        input.checked = !input.checked
+        showToast(r?.error || tt('settings_failed'))
+      }
+    })
+  })
+}
+
+function renderConnectorRow(c, status) {
+  // currentLang is defined in i18n.js (classic script, shared global scope)
+  const isZh = (typeof currentLang !== 'undefined' ? currentLang : 'zh') !== 'en'
+  const nameKey = `connectors_${c.id.replace(/-/g, '_')}_name`
+  const descKey = `connectors_${c.id.replace(/-/g, '_')}_desc`
+  const name = tt(nameKey) || c.nameZh
+  const desc = tt(descKey) || c.descZh
+
+  // Status line (shown only when connector is enabled) — doubles as the
+  // expand/collapse affordance. Count reflects checked tools / total tools.
+  let statusSection = ''
+  if (c.enabled) {
+    const total = c.tools.length
+    const enabledCount = c.tools.filter(t => t.enabled).length
+    const st = status?.status
+    let dotClass = 'gray'
+    let label = tt('connectors_status_disconnected')
+    if (st === 'connected') { dotClass = 'green'; label = tt('connectors_status_connected') }
+    else if (st === 'failed') { dotClass = 'red'; label = `${tt('connectors_status_failed')}${status?.error ? ` · ${esc(status.error)}` : ''}` }
+    statusSection = `
+      <button class="connector-status-row" data-toggle-row="${esc(c.id)}">
+        <span class="connector-dot ${dotClass}"></span>
+        <span class="connector-status-text">${label} · ${tt('connectors_tools_enabled_count').replace('{n}', enabledCount).replace('{total}', total)}</span>
+        <svg class="connector-row-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4,6 8,10 12,6"/></svg>
+      </button>
+    `
+  }
+
+  // Tools grouped by readOnly flag → "读取" / "写入"
+  const readTools = c.tools.filter(t => t.readOnly)
+  const writeTools = c.tools.filter(t => !t.readOnly)
+  const renderTool = t => {
+    const label = isZh ? t.labelZh : t.labelEn
+    const tip = isZh ? t.descZh : t.descEn
+    return `
+      <label class="connector-tool-item" title="${esc(tip)}">
+        <input type="checkbox" class="connector-tool-check"
+               data-tool-enabled data-connector-id="${esc(c.id)}" data-tool="${esc(t.name)}"
+               ${t.enabled ? 'checked' : ''}>
+        <span class="connector-tool-label">${esc(label)}</span>
+      </label>
+    `
+  }
+
+  const toolsGrid = c.enabled ? `
+    <div class="connector-tools">
+      ${readTools.length ? `
+        <div class="connector-tools-group">
+          <div class="connector-tools-heading">${tt('connectors_group_read')}</div>
+          <div class="connector-tools-row">${readTools.map(renderTool).join('')}</div>
+        </div>
+      ` : ''}
+      ${writeTools.length ? `
+        <div class="connector-tools-group">
+          <div class="connector-tools-heading">${tt('connectors_group_write')}</div>
+          <div class="connector-tools-row">${writeTools.map(renderTool).join('')}</div>
+        </div>
+      ` : ''}
+    </div>
+  ` : ''
+
+  return `
+    <div class="connector-row ${c.enabled ? 'is-enabled' : ''}" data-connector="${esc(c.id)}">
+      <div class="connector-row-main">
+        <div class="connector-row-icon">${connectorIcon(c.id) || esc(c.icon)}</div>
+        <div class="connector-row-text">
+          <div class="connector-row-name">${esc(name)}</div>
+          <div class="connector-row-desc">${esc(desc)}</div>
+        </div>
+        <label class="connector-switch">
+          <input type="checkbox" data-connector-toggle="${esc(c.id)}" ${c.enabled ? 'checked' : ''}>
+          <span class="connector-slider"></span>
+        </label>
+      </div>
+      ${c.enabled ? `<div class="connector-row-expand">${statusSection}${toolsGrid}</div>` : ''}
+    </div>
+  `
 }
 
 // ==================== Preferences ====================
 // loadPreferencesTab 已合并到 loadProfileTab
+
+// ==================== System Authorization ====================
+// macOS 隐私与安全授权状态查看 + 一键跳转系统设置对应面板
+const SYSTEM_AUTH_ITEMS = [
+  { key: 'fullDiskAccess', i18nTitle: 'sys_auth_full_disk', i18nDesc: 'sys_auth_full_disk_desc' },
+  { key: 'screenRecording', i18nTitle: 'sys_auth_screen', i18nDesc: 'sys_auth_screen_desc' },
+  { key: 'accessibility', i18nTitle: 'sys_auth_accessibility', i18nDesc: 'sys_auth_accessibility_desc' },
+  { key: 'automation', i18nTitle: 'sys_auth_automation', i18nDesc: 'sys_auth_automation_desc' },
+  { key: 'notification', i18nTitle: 'sys_auth_notification', i18nDesc: 'sys_auth_notification_desc' },
+  { key: 'location', i18nTitle: 'sys_auth_location', i18nDesc: 'sys_auth_location_desc' },
+]
+
+async function loadSystemAuthTab(container) {
+  const api = window.klaus.systemPermissions
+  container.innerHTML = `<div class="sys-auth-wrap">
+    <h1 class="sys-auth-title">${tt('sys_auth_title')}</h1>
+    <p class="sys-auth-subtitle">${tt('sys_auth_subtitle')}</p>
+    <div class="sys-auth-card" id="sys-auth-list">
+      <div class="sys-auth-loading">${tt('loading') || 'Loading…'}</div>
+    </div>
+    <div class="sys-auth-footer">
+      <span class="sys-auth-hint">${tt('sys_auth_restart_hint')}</span>
+      <button class="btn-sm" id="sys-auth-refresh">${tt('sys_auth_refresh')}</button>
+    </div>
+  </div>`
+
+  const listEl = container.querySelector('#sys-auth-list')
+
+  async function render() {
+    listEl.innerHTML = `<div class="sys-auth-loading">${tt('loading') || 'Loading…'}</div>`
+    let result
+    try {
+      result = await api.check()
+    } catch (err) {
+      listEl.innerHTML = `<div class="sys-auth-empty">${esc(String(err?.message || err))}</div>`
+      return
+    }
+    if (!result?.supported) {
+      listEl.innerHTML = `<div class="sys-auth-empty">${tt('sys_auth_macos_only')}</div>`
+      return
+    }
+    const perms = result.permissions || {}
+    listEl.innerHTML = SYSTEM_AUTH_ITEMS.map((item, idx) => {
+      const status = perms[item.key] || 'unknown'
+      const granted = status === 'granted'
+      const badgeCls = granted ? 'sys-auth-badge granted' : (status === 'denied' ? 'sys-auth-badge denied' : 'sys-auth-badge unknown')
+      const badgeText = granted ? tt('sys_auth_granted') : (status === 'denied' ? tt('sys_auth_denied') : tt('sys_auth_unknown'))
+      const icon = granted
+        ? `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V5l8-3z"/><polyline points="8.5,12 11,14.5 15.5,9.5"/></svg>`
+        : `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V5l8-3z"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12" y2="16.01"/></svg>`
+      const btn = granted ? '' : `<button class="sys-auth-btn" data-sys-grant="${item.key}">
+        <span>${tt('sys_auth_grant_btn')}</span>
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h7v7"/><path d="M13 3L7 9"/><path d="M11 9v4H3V5h4"/></svg>
+      </button>`
+      return `<div class="sys-auth-row ${granted ? 'is-granted' : ''}" ${idx === 0 ? '' : 'data-sep="1"'}>
+        <div class="sys-auth-row-icon">${icon}</div>
+        <div class="sys-auth-row-main">
+          <div class="sys-auth-row-head">
+            <span class="sys-auth-row-title">${tt(item.i18nTitle)}</span>
+            <span class="${badgeCls}">${badgeText}</span>
+          </div>
+          <div class="sys-auth-row-desc">${tt(item.i18nDesc)}</div>
+        </div>
+        <div class="sys-auth-row-action">${btn}</div>
+      </div>`
+    }).join('')
+
+    listEl.querySelectorAll('[data-sys-grant]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const type = btn.dataset.sysGrant
+        const res = await api.openSettings(type)
+        if (!res?.ok) {
+          showToast(res?.error || 'Failed')
+          return
+        }
+        showRestartPrompt()
+      })
+    })
+  }
+
+  container.querySelector('#sys-auth-refresh')?.addEventListener('click', () => {
+    render()
+  })
+
+  render()
+}
+
+// 授权完成后 macOS 对已运行进程缓存了 TCC 决定，新权限必须重启 Klaus 才能生效
+function showRestartPrompt() {
+  if (document.getElementById('sys-auth-restart-modal')) return
+  const modal = document.createElement('div')
+  modal.id = 'sys-auth-restart-modal'
+  modal.className = 'sys-auth-modal'
+  modal.innerHTML = `
+    <div class="sys-auth-modal-backdrop"></div>
+    <div class="sys-auth-modal-card">
+      <div class="sys-auth-modal-title">${tt('sys_auth_restart_title')}</div>
+      <div class="sys-auth-modal-body">${tt('sys_auth_restart_body')}</div>
+      <div class="sys-auth-modal-footer">
+        <button class="btn-sm" id="sys-auth-restart-later">${tt('sys_auth_restart_later')}</button>
+        <button class="btn-sm btn-primary" id="sys-auth-restart-now">${tt('sys_auth_restart_now')}</button>
+      </div>
+    </div>`
+  document.body.appendChild(modal)
+  const close = () => modal.remove()
+  modal.querySelector('.sys-auth-modal-backdrop')?.addEventListener('click', close)
+  modal.querySelector('#sys-auth-restart-later')?.addEventListener('click', close)
+  modal.querySelector('#sys-auth-restart-now')?.addEventListener('click', async () => {
+    try { await window.klaus.systemPermissions.restartApp() }
+    catch (err) { showToast(String(err?.message || err)) }
+  })
+}
 
 // ==================== Utils ====================
 function esc(str) { return str ? String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : '' }

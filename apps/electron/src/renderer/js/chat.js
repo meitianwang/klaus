@@ -718,6 +718,30 @@ window.handlePermission = function(requestId, decision) {
 
 // ==================== Events ====================
 
+// Plays a short beep when the agent finishes or needs input while the
+// user is away. Uses Web Audio so we don't ship an asset file.
+function playNotifySound(kind) {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.value = kind === 'input' ? 660 : 880
+    const now = ctx.currentTime
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32)
+    osc.start(now)
+    osc.stop(now + 0.34)
+    osc.onended = () => { try { ctx.close() } catch {} }
+  } catch {}
+}
+klausApi.on.notifySound?.((kind) => playNotifySound(kind))
+
 // Every chat — UI-originated and channel-originated alike — forwards its
 // engine events through this single IPC. Filter by currentSessionId so only
 // the active tab animates. When a `done` arrives for some other session

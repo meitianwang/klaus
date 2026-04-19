@@ -12,3 +12,7 @@ files:
   - src/renderer/**/*
   - node_modules/**/*
   - package.json
+# Bundled connector scripts must be spawnable — asar blocks execution of
+# JS files packed inside it, so unpack them to app.asar.unpacked/.
+asarUnpack:
+  - dist/connectors/**/*

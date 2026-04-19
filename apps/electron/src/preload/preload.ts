@@ -50,10 +50,25 @@ contextBridge.exposeInMainWorld('klaus', {
     },
   },
 
+  // App lifecycle
+  app: {
+    loginItem: {
+      get: () => ipcRenderer.invoke('app:loginItem:get'),
+      set: (enabled: boolean) => ipcRenderer.invoke('app:loginItem:set', { enabled }),
+    },
+  },
+
   // Permission response
   permission: {
     respond: (requestId: string, decision: 'allow' | 'deny', acceptedSuggestionIndices?: number[]) =>
       ipcRenderer.invoke('permission:respond', { requestId, decision, acceptedSuggestionIndices }),
+  },
+
+  // System-level privacy permissions (macOS only)
+  systemPermissions: {
+    check: () => ipcRenderer.invoke('system:permissions:check'),
+    openSettings: (type: string) => ipcRenderer.invoke('system:permissions:open', { type }),
+    restartApp: () => ipcRenderer.invoke('system:restart-app'),
   },
 
   // MCP
@@ -62,9 +77,24 @@ contextBridge.exposeInMainWorld('klaus', {
     status: () => ipcRenderer.invoke('mcp:status'),
     list: () => ipcRenderer.invoke('mcp:list'),
     create: (input: any) => ipcRenderer.invoke('mcp:create', input),
+    update: (name: string, config: any) => ipcRenderer.invoke('mcp:update', { name, config }),
     toggle: (name: string, enabled: boolean) => ipcRenderer.invoke('mcp:toggle', { name, enabled }),
     remove: (name: string) => ipcRenderer.invoke('mcp:remove', { name }),
     importJson: (json: string) => ipcRenderer.invoke('mcp:import', { json }),
+    revokeAuth: (name: string) => ipcRenderer.invoke('mcp:revokeAuth', { name }),
+    builtinList: () => ipcRenderer.invoke('mcp:builtin:list'),
+    builtinInstall: (id: string, env: Record<string, string>) =>
+      ipcRenderer.invoke('mcp:builtin:install', { id, env }),
+  },
+
+  // Connectors (Klaus built-in system integrations)
+  connectors: {
+    list: () => ipcRenderer.invoke('connectors:list'),
+    toggle: (id: string, enabled: boolean) =>
+      ipcRenderer.invoke('connectors:toggle', { id, enabled }),
+    setToolEnabled: (id: string, toolName: string, enabled: boolean) =>
+      ipcRenderer.invoke('connectors:setToolEnabled', { id, toolName, enabled }),
+    status: () => ipcRenderer.invoke('connectors:status'),
   },
 
   // Skills
@@ -112,6 +142,9 @@ contextBridge.exposeInMainWorld('klaus', {
     },
     engineStatus: (cb: (status: any) => void) => {
       ipcRenderer.on('engine:status', (_e, status) => cb(status))
+    },
+    notifySound: (cb: (kind: 'done' | 'input') => void) => {
+      ipcRenderer.on('notify:sound', (_e, kind) => cb(kind))
     },
     trayNewChat: (cb: () => void) => {
       ipcRenderer.on('tray:new-chat', () => cb())
