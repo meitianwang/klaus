@@ -14,6 +14,7 @@ export interface SkillInfo {
   userEnabled: boolean
   installed: boolean
   dirName: string
+  emoji?: string
 }
 
 export class SkillsManager {
@@ -43,6 +44,7 @@ export class SkillsManager {
           userEnabled: enabled,
           installed: true,
           dirName: dir,
+          emoji: meta.emoji,
         })
       }
     }
@@ -67,6 +69,7 @@ export class SkillsManager {
         userEnabled: false,
         installed: installed.has(dir),
         dirName: dir,
+        emoji: meta.emoji,
       })
     }
 
@@ -118,7 +121,7 @@ export class SkillsManager {
   }
 }
 
-function readSkillMd(dir: string): { name?: string; description?: string } {
+function readSkillMd(dir: string): { name?: string; description?: string; emoji?: string } {
   const mdPath = join(dir, 'SKILL.md')
   if (!existsSync(mdPath)) return {}
   try {
@@ -129,15 +132,18 @@ function readSkillMd(dir: string): { name?: string; description?: string } {
   }
 }
 
-function parseSkillFrontmatter(content: string): { name?: string; description?: string } {
+function parseSkillFrontmatter(content: string): { name?: string; description?: string; emoji?: string } {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/)
   if (!match) return {}
   const frontmatter = match[1]!
-  const result: { name?: string; description?: string } = {}
+  const result: { name?: string; description?: string; emoji?: string } = {}
   const nameMatch = frontmatter.match(/^name:\s*(.+)$/m)
   if (nameMatch) result.name = nameMatch[1]!.trim().replace(/^['"]|['"]$/g, '')
   const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
   if (descMatch) result.description = descMatch[1]!.trim().replace(/^['"]|['"]$/g, '')
+  // Pluck emoji from embedded JSON in `metadata: { "klaus": { "emoji": "🐙", ... } }`
+  const emojiMatch = frontmatter.match(/"emoji"\s*:\s*"([^"]+)"/)
+  if (emojiMatch) result.emoji = emojiMatch[1]
   return result
 }
 

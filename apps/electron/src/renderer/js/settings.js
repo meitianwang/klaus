@@ -6,7 +6,9 @@
 const settingsApi = window.klaus.settings
 let settingsVisible = false
 let currentSettingsTab = 'profile'
-let skillsView = 'installed' // installed | builtin | market | enabled | disabled
+let skillsView = 'market' // market | builtin | installed
+let skillsFilter = 'all' // all | enabled | disabled (only applied on installed tab)
+let skillsSearchQuery = ''
 
 function toggleSettings() {
   settingsVisible = !settingsVisible
@@ -780,37 +782,149 @@ function renderWhatsappFlow(body, connected) {
   })
 }
 
-// ==================== Skills (5 views + search + install) ====================
+// ==================== Skills (3 tabs: market / builtin / installed) ====================
 async function loadSkillsTab(container) {
   const [installed, market] = await Promise.all([window.klaus.skills.list(), window.klaus.skills.market()])
 
   const builtin = installed.filter(s => s.source === 'builtin')
   const userInstalled = installed.filter(s => s.source !== 'builtin')
-  const views = { installed: userInstalled, builtin, market, enabled: installed.filter(s => s.userEnabled), disabled: installed.filter(s => !s.userEnabled) }
-  const current = views[skillsView] || views.installed
 
-  container.innerHTML = `<div class="settings-section"><div class="settings-section-header"><h3>${tt('skills')}</h3><button class="btn-sm" id="sk-upload-btn">${tt('settings_skills_upload') || 'Upload Skill'}</button></div>
-    <!-- Upload modal -->
-    <div id="sk-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1100;align-items:center;justify-content:center">
-      <div style="background:var(--bg);border-radius:var(--radius-md);padding:24px;max-width:400px;width:100%">
-        <h4 style="margin-bottom:12px">${tt('settings_skills_upload') || 'Upload Skill'}</h4>
-        <div id="sk-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px;text-align:center;cursor:pointer;color:var(--fg-tertiary);font-size:14px;transition:border-color var(--transition)">
-          Drop a ZIP or SKILL.md here, or click to browse
-          <input type="file" id="sk-file-input" hidden accept=".zip,.md">
+  const tabs = [
+    { key: 'market', label: tt('skills_tab_market'), count: market.length, showBadge: false },
+    { key: 'builtin', label: tt('skills_tab_builtin'), count: builtin.length, showBadge: builtin.length > 0 },
+    { key: 'installed', label: tt('skills_tab_installed'), count: userInstalled.length, showBadge: userInstalled.length > 0 },
+  ]
+
+  const baseList = skillsView === 'market' ? market
+    : skillsView === 'builtin' ? builtin
+    : userInstalled
+  const filtered = applySkillsFilters(baseList, skillsView)
+
+  const refreshSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 5a5.5 5.5 0 1 0 .5 4"/><polyline points="13.5,2 13.5,5 10.5,5"/></svg>`
+  const searchSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg>`
+  const klausSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v1m0 10v1m-6-6h1m10 0h1m-8.5-4.5l.7.7m5.6 5.6l.7.7m0-7l-.7.7m-5.6 5.6l-.7.7"/><circle cx="8" cy="8" r="2.5"/></svg>`
+  const plusSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>`
+
+  container.innerHTML = `
+    <div class="settings-section sk-section">
+      <div class="sk-topbar">
+        <button class="cron-icon-btn" id="sk-refresh" title="${tt('skills_refresh')}" aria-label="${tt('skills_refresh')}">${refreshSvg}</button>
+        <div class="sk-search-wrap">
+          <span class="sk-search-icon">${searchSvg}</span>
+          <input type="text" id="sk-search" class="sk-search-input" placeholder="${tt('skills_search_ph')}" value="${esc(skillsSearchQuery)}">
         </div>
-        <div id="sk-upload-status" style="display:none;margin-top:8px;font-size:13px;color:var(--fg-secondary)"></div>
-        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-sm" onclick="document.getElementById('sk-upload-modal').style.display='none'">${tt('cancel')}</button></div>
+        <button class="cron-pill-btn" id="sk-via-klaus">${klausSvg}<span>${tt('skills_via_klaus')}</span></button>
+        <button class="cron-new-btn" id="sk-upload-btn">${plusSvg}<span>${tt('skills_install_btn')}</span></button>
       </div>
-    </div>
-    <div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap">
-      ${['installed','builtin','market','enabled','disabled'].map(v => `<button class="btn-sm ${skillsView === v ? 'btn-primary' : ''}" onclick="switchSkillsView('${v}')">${tt(v) || v.charAt(0).toUpperCase() + v.slice(1)}</button>`).join('')}
-    </div>
-    <div style="margin-bottom:12px"><input class="s-form-input" id="sk-search" placeholder="Search skills..." style="width:100%" oninput="filterSkills()"></div>
-    <div class="sk-grid" id="sk-grid">${renderSkillCards(current, skillsView)}</div></div>`
+
+      <div class="sk-tabbar">
+        <div class="sk-tabs">
+          ${tabs.map(t => `<button class="sk-tab ${skillsView === t.key ? 'active' : ''}" data-skill-tab="${t.key}">${esc(t.label)}${t.showBadge ? ` <span class="sk-tab-count">${t.count}</span>` : ''}</button>`).join('')}
+        </div>
+        ${skillsView === 'installed' ? `
+          <div class="sk-filters">
+            <select class="sk-select" id="sk-filter">
+              <option value="all" ${skillsFilter === 'all' ? 'selected' : ''}>${tt('skills_filter_all')}</option>
+              <option value="enabled" ${skillsFilter === 'enabled' ? 'selected' : ''}>${tt('skills_filter_enabled')}</option>
+              <option value="disabled" ${skillsFilter === 'disabled' ? 'selected' : ''}>${tt('skills_filter_disabled')}</option>
+            </select>
+          </div>` : ''}
+      </div>
+
+      ${skillsView === 'market' ? `<div class="sk-section-label">${tt('skills_section_official')}</div>` : ''}
+      ${skillsView === 'builtin' && builtin.length === 0 ? `<p class="empty-text sk-empty">${tt('skills_section_builtin_empty')}</p>` : ''}
+      <div class="sk-grid" id="sk-grid">${renderSkillCards(filtered, skillsView)}</div>
+
+      <!-- Upload modal -->
+      <div id="sk-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1100;align-items:center;justify-content:center">
+        <div style="background:var(--bg);border-radius:var(--radius-md);padding:24px;max-width:400px;width:100%">
+          <h4 style="margin-bottom:12px">${tt('settings_skills_upload') || 'Upload Skill'}</h4>
+          <div id="sk-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px;text-align:center;cursor:pointer;color:var(--fg-tertiary);font-size:14px;transition:border-color var(--transition)">
+            Drop a ZIP or SKILL.md here, or click to browse
+            <input type="file" id="sk-file-input" hidden accept=".zip,.md">
+          </div>
+          <div id="sk-upload-status" style="display:none;margin-top:8px;font-size:13px;color:var(--fg-secondary)"></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn-sm" onclick="document.getElementById('sk-upload-modal').style.display='none'">${tt('cancel')}</button></div>
+        </div>
+      </div>
+    </div>`
 
   bindSkillEvents()
+  bindSkillTopbarEvents()
+}
 
-  // Upload modal
+function applySkillsFilters(list, view) {
+  let out = list
+  if (view === 'installed') {
+    if (skillsFilter === 'enabled') out = out.filter(s => s.userEnabled)
+    else if (skillsFilter === 'disabled') out = out.filter(s => !s.userEnabled)
+  }
+  const q = skillsSearchQuery.trim().toLowerCase()
+  if (q) {
+    out = out.filter(s => {
+      const n = (s.name || '').toLowerCase()
+      const d = (s.description || '').toLowerCase()
+      return n.includes(q) || d.includes(q)
+    })
+  }
+  return out
+}
+
+function renderSkillCards(skills, view) {
+  if (skills.length === 0) return `<p class="empty-text sk-empty">${tt('no_skills') || 'No skills found'}</p>`
+  return skills.map(s => {
+    const isMarket = view === 'market'
+    const toggle = view === 'installed' ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
+    const installBtn = isMarket ? `<button class="btn-xs ${s.installed ? '' : 'btn-primary'}" data-install="${esc(s.dirName || s.name)}" ${s.installed ? 'disabled' : ''}>${s.installed ? tt('installed') : tt('settings_skills_install') || tt('skills_install_btn')}</button>` : ''
+    const uninstallBtn = view === 'installed' && s.source === 'installed' ? `<button class="btn-xs btn-danger" data-uninstall="${esc(s.dirName || s.name)}">${tt('settings_skills_uninstall')}</button>` : ''
+    const emoji = s.emoji || '🧩'
+    return `<div class="sk-card" data-name="${esc(s.name)}">
+      <div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">${esc(emoji)}</div><div class="sk-card-name">${esc(s.name)}</div></div>${toggle}</div>
+      <div class="sk-card-desc">${esc(s.description || '')}</div>
+      ${installBtn || uninstallBtn ? `<div class="sk-card-actions">${installBtn}${uninstallBtn}</div>` : ''}
+    </div>`
+  }).join('')
+}
+
+function bindSkillTopbarEvents() {
+  // Tab switching
+  document.querySelectorAll('[data-skill-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      skillsView = btn.dataset.skillTab
+      loadSettingsTab('skills')
+    })
+  })
+  // Filter dropdown (installed tab only)
+  document.getElementById('sk-filter')?.addEventListener('change', (e) => {
+    skillsFilter = e.target.value
+    loadSettingsTab('skills')
+  })
+  // Search box — debounced reload so input focus survives
+  const searchInput = document.getElementById('sk-search')
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      skillsSearchQuery = searchInput.value
+      clearTimeout(window.__skSearchTimer)
+      window.__skSearchTimer = setTimeout(() => {
+        loadSettingsTab('skills')
+        // Restore focus + caret after rerender
+        setTimeout(() => {
+          const el = document.getElementById('sk-search')
+          if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length) }
+        }, 0)
+      }, 180)
+    })
+  }
+  // Refresh
+  document.getElementById('sk-refresh')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget
+    btn.classList.add('spinning')
+    loadSettingsTab('skills')
+    setTimeout(() => btn.classList.remove('spinning'), 600)
+  })
+  // Create via Klaus — mirror cron.js pattern
+  document.getElementById('sk-via-klaus')?.addEventListener('click', createSkillViaKlaus)
+  // Upload modal trigger
   document.getElementById('sk-upload-btn')?.addEventListener('click', () => {
     document.getElementById('sk-upload-modal').style.display = 'flex'
     document.getElementById('sk-upload-status').style.display = 'none'
@@ -824,19 +938,22 @@ async function loadSkillsTab(container) {
   skFileInput?.addEventListener('change', () => { if (skFileInput.files?.length) uploadSkillFile(skFileInput.files[0]); skFileInput.value = '' })
 }
 
-function renderSkillCards(skills, view) {
-  if (skills.length === 0) return `<p class="empty-text">${tt('no_skills') || 'No skills found'}</p>`
-  return skills.map(s => {
-    const isMarket = view === 'market'
-    const toggle = !isMarket ? `<label class="sk-toggle"><input type="checkbox" class="sk-toggle-input" data-skill="${esc(s.dirName || s.name)}" ${s.userEnabled ? 'checked' : ''}><span class="sk-slider"></span></label>` : ''
-    const installBtn = isMarket ? `<button class="btn-xs ${s.installed ? '' : 'btn-primary'}" data-install="${esc(s.dirName || s.name)}" ${s.installed ? 'disabled' : ''}>${s.installed ? tt('installed') : tt('settings_skills_install')}</button>` : ''
-    const uninstallBtn = !isMarket && s.source === 'installed' ? `<button class="btn-xs btn-danger" data-uninstall="${esc(s.dirName || s.name)}">${tt('settings_skills_uninstall')}</button>` : ''
-    const srcBadge = `<span class="s-badge s-badge-gray">${esc(s.source)}</span>`
-    return `<div class="sk-card" data-name="${esc(s.name)}"><div class="sk-card-head"><div class="sk-card-info"><div class="sk-card-emoji">🧩</div><div class="sk-card-name">${esc(s.name)}</div></div>${toggle}</div>
-      <div class="sk-card-desc">${esc(s.description || '')}</div>
-      <div class="sk-card-actions">${installBtn}${uninstallBtn}</div>
-      <div class="sk-card-badges">${srcBadge}</div></div>`
-  }).join('')
+function createSkillViaKlaus() {
+  const seed = tt('skills_via_klaus_seed') || 'Help me create a skill. First, ask me what the skill should do.'
+  // Close settings overlay
+  if (settingsVisible) toggleSettings()
+  // Fresh chat, then seed the prompt after DOM settles
+  setTimeout(() => {
+    try { document.getElementById('btn-new-chat')?.click() } catch {}
+    setTimeout(() => {
+      const inp = document.getElementById('input')
+      if (inp) {
+        inp.value = seed
+        inp.dispatchEvent(new Event('input'))
+        inp.focus()
+      }
+    }, 100)
+  }, 50)
 }
 
 function bindSkillEvents() {
@@ -883,14 +1000,6 @@ async function uploadSkillFile(file) {
   }
 }
 
-window.switchSkillsView = function(view) { skillsView = view; loadSettingsTab('skills') }
-window.filterSkills = function() {
-  const q = document.getElementById('sk-search')?.value?.toLowerCase() || ''
-  document.querySelectorAll('.sk-card').forEach(card => {
-    const name = card.dataset.name?.toLowerCase() || ''
-    card.style.display = !q || name.includes(q) ? '' : 'none'
-  })
-}
 
 // ==================== MCP (full management) ====================
 function mcpLocalizedText(item) {

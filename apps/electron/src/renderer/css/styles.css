@@ -2371,21 +2371,147 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 /* ===== Permission timer ===== */
 .permission-timer { font-size: 10px; color: var(--fg-quaternary); margin-top: 4px; }
 
-/* ===== Skill cards (settings) ===== */
-.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+/* ===== Skills page (settings → skills tab) ===== */
+.sk-section { padding-top: 4px; }
+
+/* Top bar: refresh · search · via-klaus · install */
+.sk-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.sk-search-wrap { flex: 1; position: relative; min-width: 0; }
+.sk-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-quaternary);
+  pointer-events: none;
+}
+.sk-search-icon svg { width: 14px; height: 14px; }
+.sk-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 34px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.sk-search-input::placeholder { color: var(--fg-quaternary); }
+.sk-search-input:focus { border-color: var(--fg-quaternary); }
+
+/* Tab row */
+.sk-tabbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.sk-tabs { display: inline-flex; gap: 20px; }
+.sk-tab {
+  background: none;
+  border: none;
+  padding: 6px 0;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition), border-color var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sk-tab:hover { color: var(--fg-secondary); }
+.sk-tab.active { color: var(--fg); border-bottom-color: var(--fg); }
+.sk-tab-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-tertiary);
+  background: var(--bg-hover);
+  padding: 1px 7px;
+  border-radius: 999px;
+  min-width: 20px;
+  text-align: center;
+}
+.sk-tab.active .sk-tab-count { color: var(--fg); background: var(--bg-surface); }
+
+.sk-filters { display: inline-flex; gap: 8px; align-items: center; }
+.sk-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 28px 6px 12px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2394a3b8' stroke-width='1.5'%3E%3Cpath d='M3 4.5l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  min-width: 110px;
+}
+.sk-select:focus { outline: none; border-color: var(--fg-quaternary); }
+
+.sk-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+  margin: 4px 0 12px;
+  letter-spacing: 0.02em;
+}
+
+.sk-empty {
+  padding: 24px 0;
+  color: var(--fg-tertiary);
+  text-align: center;
+  font-size: 13px;
+}
+
+/* Skill cards */
+.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .sk-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  transition: border-color var(--transition), background var(--transition);
 }
-.sk-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.sk-card-info { display: flex; align-items: center; gap: 8px; }
-.sk-card-emoji { font-size: 18px; }
-.sk-card-name { font-size: 14px; font-weight: 600; color: var(--fg); }
-.sk-card-desc { font-size: 12px; color: var(--fg-tertiary); line-height: 1.4; margin-bottom: 8px; }
-.sk-card-actions { display: flex; gap: 6px; }
-.sk-card-badges { margin-top: 6px; }
+.sk-card:hover { border-color: var(--border); }
+.sk-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+.sk-card-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.sk-card-emoji {
+  font-size: 20px;
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg); border-radius: 10px; flex-shrink: 0;
+}
+.sk-card-name { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-card-desc {
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sk-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* Toggle switch */
 .sk-toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
