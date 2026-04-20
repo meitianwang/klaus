@@ -127,6 +127,7 @@ export type EngineEvent =
   | { type: 'file'; sessionId: string; name?: string; url?: string }
   | { type: 'team_created'; sessionId: string; teamName: string }
   | { type: 'mcp_auth_url'; sessionId: string; url?: string; serverName?: string }
+  | { type: 'permission_cancelled'; sessionId: string; requestId: string }
   | { type: 'done'; sessionId: string }
 
 export interface PermissionRequest {

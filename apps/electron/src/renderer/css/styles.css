@@ -697,8 +697,50 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .question-chip .question-chip-sep { opacity: 0.5; }
 .question-chip .question-chip-kind { font-weight: 500; color: var(--fg-secondary); }
 
+/* Navigation tabs (multi-question forms only) */
+.question-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.question-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.question-tab:hover { background: var(--bg-hover); color: var(--fg-secondary); }
+.question-tab.is-current { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.question-tab.is-answered .question-tab-check::before { content: '✓'; color: inherit; }
+.question-tab-check {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.8;
+}
 .question-block { margin-bottom: 10px; }
 .question-block + .question-block { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--border-subtle); }
+/* When only one block is visible at a time (the inline display comes from JS),
+   the dashed separator on sibling blocks shouldn't apply — but because
+   question-block siblings that are hidden still match `+`, override here. */
+.question-card:not(.question-resolved) .question-block + .question-block {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 
 .question-title {
   font-size: 15px;

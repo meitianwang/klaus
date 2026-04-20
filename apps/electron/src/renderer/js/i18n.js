@@ -311,6 +311,8 @@ const I18N = {
     question_submit: 'Continue',
     question_submitted: 'Answer sent',
     question_skipped: 'Skipped',
+    question_next: 'Next',
+    question_review: 'Submit all',
     // Agent panel
     agents: 'Agents', agent_running: 'running',
     agent_count_one: ' agent', agent_count_many: ' agents',
@@ -680,6 +682,8 @@ const I18N = {
     question_submit: '继续',
     question_submitted: '回答已发送',
     question_skipped: '已跳过',
+    question_next: '下一题',
+    question_review: '汇总提交',
     // Agent panel
     agents: '智能体', agent_running: '运行中',
     agent_count_one: ' 个智能体', agent_count_many: ' 个智能体',

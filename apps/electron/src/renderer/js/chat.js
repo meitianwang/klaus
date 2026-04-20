@@ -447,11 +447,18 @@ function appendAssistantFromBlocks(blocks) {
     done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
     messagesEl.appendChild(done)
   }
-  // Tool cards (simplified, matches live tool-start/end visual)
-  if (toolBlocks.length > 0) {
+  // Tool cards (simplified, matches live tool-start/end visual). Any
+  // AskUserQuestion blocks rebuild their resolved interactive card below.
+  const askBlocks = []
+  const plainToolBlocks = []
+  for (const tb of toolBlocks) {
+    if (tb?.name === 'AskUserQuestion') askBlocks.push(tb)
+    else plainToolBlocks.push(tb)
+  }
+  if (plainToolBlocks.length > 0) {
     const container = document.createElement('div')
     container.className = 'tool-container'
-    for (const tb of toolBlocks) {
+    for (const tb of plainToolBlocks) {
       const cat = getToolCategory(tb.name || '')
       const item = document.createElement('div')
       item.className = 'tool-item done' + (cat ? ' ' + cat : '')
@@ -467,6 +474,9 @@ function appendAssistantFromBlocks(blocks) {
       container.appendChild(item)
     }
     messagesEl.appendChild(container)
+  }
+  for (const tb of askBlocks) {
+    rebuildAskUserQuestionCard(tb)
   }
   // Main text bubble
   if (mainText.trim()) appendFinalAssistantMsg(mainText)
@@ -732,19 +742,21 @@ window.handlePermission = function(requestId, decision) {
 
 // ==================== AskUserQuestion ====================
 //
-// Per-question selection state is tracked on DOM dataset so we don't hold
-// a separate global map (card is unique per requestId). Answer shape:
-//   single-select → one label OR `__other__` (plus free-text)
-//   multi-select  → Set<label>    (stored in dataset as JSON)
-// On submit we translate to the tool's expected format:
-//   answers[questionText] = "label" or "label1, label2" (multi) or other text
+// Multi-question flow modeled after CC's
+// AskUserQuestionPermissionRequest: one question is shown at a time, a tab
+// bar at the top tracks progress (checkbox per question + a final "submit"
+// tab). Single-select click auto-advances to the next unanswered step;
+// multi-select waits for explicit next. All answers submit together at the
+// review step.
+//
+// Answer shape sent back via updatedInput.answers:
+//   single-select → "Label" (or free text if Other)
+//   multi-select  → "Label A, Label B"
 
 function showAskUserQuestionRequest(req) {
   const input = req.toolInput || {}
   const questions = Array.isArray(input.questions) ? input.questions : []
   if (questions.length === 0) {
-    // Malformed input (schema would normally reject this, but fall back safely
-    // rather than leaving the engine hanging on a pending permission promise).
     klausApi.permission.respond(req.requestId, 'deny')
     return
   }
@@ -762,6 +774,7 @@ function showAskUserQuestionRequest(req) {
       <span class="question-chip-kind">${escapeHtml(kindLabel)}${totalChip}</span>
     </div>`
 
+  const nav = questions.length > 1 ? renderQuestionNav(questions) : ''
   const blocks = questions.map((q, qi) => renderQuestionBlock(q, qi)).join('')
 
   const footer = `
@@ -769,24 +782,40 @@ function showAskUserQuestionRequest(req) {
       <div class="question-footer-left"></div>
       <div class="question-footer-right">
         <button class="question-btn question-btn-skip" data-q-action="skip">${escapeHtml(tt('question_skip'))}</button>
-        <button class="question-btn question-btn-submit" data-q-action="submit" disabled>
-          <span>${escapeHtml(tt('question_submit'))}</span>
+        <button class="question-btn question-btn-submit" data-q-action="primary" disabled>
+          <span class="question-btn-label">${escapeHtml(tt('question_submit'))}</span>
           <span class="kbd">⏎</span>
         </button>
       </div>
     </div>`
 
-  card.innerHTML = header + blocks + footer
-  // Attach to the tool-container of this specific tool_use so the card sits
-  // right under the "AskUserQuestion" tool-item instead of at the bottom of
-  // messagesEl (where subsequent thinking/text blocks would push it out of
-  // chronological order).
+  card.innerHTML = header + nav + blocks + footer
+  // Place the card as a SIBLING right after the tool-container of this
+  // tool_use — not inside it. The container has a left-border indent
+  // (matching the thinking-content visual) which, if we nested, would make
+  // the card look like it belongs inside the thinking box.
   const toolItem = req.toolCallId ? document.getElementById('tool-' + req.toolCallId) : null
-  const host = toolItem?.closest('.tool-container') || messagesEl
-  host.appendChild(card)
+  const toolContainer = toolItem?.closest('.tool-container')
+  if (toolContainer?.parentElement) {
+    toolContainer.parentElement.insertBefore(card, toolContainer.nextSibling)
+  } else {
+    messagesEl.appendChild(card)
+  }
   scrollToBottom()
 
   wireQuestionCard(card, req, questions)
+}
+
+function renderQuestionNav(questions) {
+  const tabs = questions.map((q, qi) => {
+    const label = (q.header || `Q${qi + 1}`).toString()
+    return `
+      <button class="question-tab" data-q-tab="${qi}" type="button">
+        <span class="question-tab-check" aria-hidden="true"></span>
+        <span class="question-tab-label">${escapeHtml(label)}</span>
+      </button>`
+  }).join('')
+  return `<div class="question-nav">${tabs}</div>`
 }
 
 function renderQuestionBlock(q, qi) {
@@ -831,21 +860,136 @@ function questions_withIndex(q, qi) {
   return `<div class="question-title"><span class="question-title-index">${qi + 1}.</span><span>${escapeHtml(q.question || '')}</span></div>`
 }
 
+// Rebuild a resolved AskUserQuestion card from a persisted tool_use block on
+// history load. getHistory parses the matching tool_result text and attaches
+// it as input.__resolution; we reconstruct the state/questions that
+// finalizeQuestionCard consumes so the DOM matches what the user saw live.
+function rebuildAskUserQuestionCard(tb) {
+  const input = tb?.input || {}
+  const questions = Array.isArray(input.questions) ? input.questions : []
+  if (questions.length === 0) return
+  const resolution = input.__resolution || {}
+  const answersMap = resolution.status === 'answered' ? (resolution.answers || {}) : {}
+
+  const card = document.createElement('div')
+  card.className = 'question-card'
+
+  const kindLabel = questions.some(q => q.multiSelect) ? tt('question_multi') : tt('question_single')
+  const totalChip = questions.length > 1 ? ` · ${questions.length}` : ''
+  const header = `
+    <div class="question-chip">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6l-3 3V4a1 1 0 0 1 1-1z"/></svg>
+      <span>${escapeHtml(tt('question_chip'))}</span>
+      <span class="question-chip-sep">·</span>
+      <span class="question-chip-kind">${escapeHtml(kindLabel)}${totalChip}</span>
+    </div>`
+  const blocks = questions.map((q, qi) => renderQuestionBlock(q, qi)).join('')
+  card.innerHTML = header + blocks
+
+  // Reconstruct per-question state from the parsed answer strings. Multi-
+  // select answers are comma-joined (see engine's mapToolResultToToolResult
+  // BlockParam), so split by ", " and match each part to an option label;
+  // any unmatched fragment is treated as Other-freeform text.
+  const state = questions.map(q => {
+    const selected = new Set()
+    const s = { selected, otherText: '', multi: !!q.multiSelect }
+    const answerStr = answersMap[q.question]
+    if (!answerStr) return s
+    const parts = q.multiSelect ? answerStr.split(/,\s+/) : [answerStr]
+    const otherIdx = q.options.length
+    for (const part of parts) {
+      const oi = q.options.findIndex(o => (o.label || '') === part)
+      if (oi >= 0) selected.add(oi)
+      else { selected.add(otherIdx); s.otherText = part }
+    }
+    return s
+  })
+
+  messagesEl.appendChild(card)
+  const mode = resolution.status === 'answered' ? 'submitted' : 'skipped'
+  finalizeQuestionCard(card, mode, answersMap, questions, state)
+}
+
 function wireQuestionCard(card, req, questions) {
-  // state: per-question { selected: Set<optIdx>, otherText: string, multi: bool }
-  const state = questions.map(q => ({ selected: new Set(), otherText: '', multi: !!q.multiSelect }))
-  const submitBtn = card.querySelector('[data-q-action="submit"]')
+  // Per-question state. Single-select questions pre-select option 0 so that
+  // the model's "(Recommended)" first option can be accepted with a single
+  // Enter press (matches CC's use-select-state.ts:138-144).
+  const state = questions.map(q => {
+    const selected = new Set()
+    if (!q.multiSelect && Array.isArray(q.options) && q.options.length > 0) {
+      selected.add(0)
+    }
+    return { selected, otherText: '', multi: !!q.multiSelect }
+  })
+  // currentIndex ranges 0..questions.length-1. On the final question the
+  // primary button becomes "汇总提交" and submits directly — no separate
+  // review screen (users can still jump back via the tab bar).
+  const isMulti = questions.length > 1
+  const lastIndex = questions.length - 1
+  let currentIndex = 0
+
+  const primaryBtn = card.querySelector('[data-q-action="primary"]')
+  const primaryLabelEl = primaryBtn.querySelector('.question-btn-label')
   const skipBtn = card.querySelector('[data-q-action="skip"]')
 
-  const recompute = () => {
-    // All questions must have at least one selection, and if "Other" chosen then text required.
-    const ok = state.every((s, qi) => {
-      if (s.selected.size === 0) return false
-      const otherIdx = questions[qi].options.length
-      if (s.selected.has(otherIdx) && !s.otherText.trim()) return false
-      return true
+  // Paint initial selection highlight for pre-selected options.
+  state.forEach((s, qi) => {
+    s.selected.forEach(oi => {
+      card.querySelector(`.question-option[data-q-idx="${qi}"][data-opt-idx="${oi}"]`)
+        ?.classList.add('is-selected')
     })
-    submitBtn.disabled = !ok
+  })
+
+  const questionComplete = qi => {
+    const s = state[qi]
+    if (s.selected.size === 0) return false
+    const otherIdx = questions[qi].options.length
+    if (s.selected.has(otherIdx) && !s.otherText.trim()) return false
+    return true
+  }
+
+  const render = () => {
+    // Show only the current question block.
+    card.querySelectorAll('.question-block').forEach(block => {
+      const qi = Number(block.dataset.qIdx)
+      block.style.display = qi === currentIndex ? '' : 'none'
+    })
+    // Tab state: answered checkbox + current highlight.
+    card.querySelectorAll('.question-tab').forEach(tab => {
+      const idx = Number(tab.dataset.qTab)
+      tab.classList.toggle('is-current', idx === currentIndex)
+      tab.classList.toggle('is-answered', questionComplete(idx))
+    })
+    // Primary button: on the last question it becomes the submit action
+    // (label = 汇总提交 for multi-question, 继续 for single-question), and
+    // requires every question to be complete. Otherwise it's "下一题" and
+    // only needs the current question complete.
+    if (currentIndex === lastIndex) {
+      primaryLabelEl.textContent = tt(isMulti ? 'question_review' : 'question_submit')
+      primaryBtn.disabled = !questions.every((_, qi) => questionComplete(qi))
+    } else {
+      primaryLabelEl.textContent = tt('question_next')
+      primaryBtn.disabled = !questionComplete(currentIndex)
+    }
+    scrollToBottom()
+  }
+
+  const repaintCurrentOptions = qi => {
+    const s = state[qi]
+    card.querySelectorAll(`.question-option[data-q-idx="${qi}"]`).forEach(node => {
+      const ni = Number(node.dataset.optIdx)
+      node.classList.toggle('is-selected', s.selected.has(ni))
+    })
+    const otherIdx = questions[qi].options.length
+    const otherBox = card.querySelector(`.question-other-input[data-q-idx="${qi}"]`)
+    if (otherBox) {
+      const show = s.selected.has(otherIdx)
+      otherBox.style.display = show ? '' : 'none'
+      if (show) {
+        const ta = otherBox.querySelector('textarea')
+        if (ta && document.activeElement !== ta) setTimeout(() => ta.focus(), 0)
+      }
+    }
   }
 
   card.querySelectorAll('.question-option').forEach(el => {
@@ -860,23 +1004,17 @@ function wireQuestionCard(card, req, questions) {
         s.selected.clear()
         s.selected.add(oi)
       }
-      // repaint this question's options
-      card.querySelectorAll(`.question-option[data-q-idx="${qi}"]`).forEach(node => {
-        const ni = Number(node.dataset.optIdx)
-        node.classList.toggle('is-selected', s.selected.has(ni))
-      })
-      // toggle other input visibility
+      repaintCurrentOptions(qi)
+      // Auto-advance: single-select click on a non-"Other" option moves to
+      // the next question — but only if we're not already on the last one
+      // (on the last question the primary button is "汇总提交" and clicking
+      // an option just updates the selection; the user then hits submit).
       const otherIdx = questions[qi].options.length
-      const otherBox = card.querySelector(`.question-other-input[data-q-idx="${qi}"]`)
-      if (otherBox) {
-        const show = s.selected.has(otherIdx)
-        otherBox.style.display = show ? '' : 'none'
-        if (show) {
-          const ta = otherBox.querySelector('textarea')
-          if (ta && document.activeElement !== ta) setTimeout(() => ta.focus(), 0)
-        }
+      const isOther = oi === otherIdx
+      if (!s.multi && !isOther && currentIndex < lastIndex) {
+        currentIndex += 1
       }
-      recompute()
+      render()
     })
   })
 
@@ -884,16 +1022,33 @@ function wireQuestionCard(card, req, questions) {
     ta.addEventListener('input', () => {
       const qi = Number(ta.dataset.qOtherIdx)
       state[qi].otherText = ta.value
-      recompute()
+      render()
     })
   })
 
+  card.querySelectorAll('.question-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      currentIndex = Number(tab.dataset.qTab)
+      render()
+    })
+  })
+
+  const advanceOrSubmit = () => {
+    if (primaryBtn.disabled) return
+    if (currentIndex === lastIndex) {
+      submit()
+      return
+    }
+    currentIndex += 1
+    render()
+  }
+
   const submit = () => {
-    if (submitBtn.disabled) return
     const answers = {}
     const annotations = {}
     questions.forEach((q, qi) => {
       const s = state[qi]
+      if (!questionComplete(qi)) return
       const opts = q.options
       const otherIdx = opts.length
       const parts = []
@@ -906,7 +1061,6 @@ function wireQuestionCard(card, req, questions) {
         }
       })
       answers[q.question] = parts.join(', ')
-      // Annotation: for single-select non-multi, if focused option has preview, include it
       if (!s.multi && selectedOption && selectedOption.preview) {
         annotations[q.question] = { preview: String(selectedOption.preview) }
       }
@@ -917,56 +1071,95 @@ function wireQuestionCard(card, req, questions) {
       ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
     }
     klausApi.permission.respond(req.requestId, 'allow', undefined, updatedInput)
-    finalizeQuestionCard(card, 'submitted', answers)
+    finalizeQuestionCard(card, 'submitted', answers, questions, state)
   }
 
   const skip = () => {
-    // Skip → deny. Semantically cleaner than "allow with empty answers":
-    // the model sees an explicit denial and can decide to proceed without
-    // the user's input, ask differently, or stop.
+    // Esc / 跳过 cancels the whole form (matches CC's onCancel at
+    // QuestionView.tsx:146-148). Partial answers are discarded.
     klausApi.permission.respond(req.requestId, 'deny')
-    finalizeQuestionCard(card, 'skipped', null)
+    finalizeQuestionCard(card, 'skipped', null, questions, state)
   }
 
-  submitBtn.addEventListener('click', submit)
+  primaryBtn.addEventListener('click', advanceOrSubmit)
   skipBtn.addEventListener('click', skip)
 
-  // Enter submits while this card is the most recent unresolved question.
-  // Listens on document because clicking an option div doesn't move focus
-  // into the card, so a card-scoped keydown listener would never fire.
+  // Enter = primary action (next / submit). Esc = skip. Only active when
+  // this card is the latest unresolved one, and never when the user is
+  // typing in a textarea (letting them add newlines to the Other input).
   const onKey = (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return
     if (card.classList.contains('question-resolved')) return
-    // Any other unresolved question card after this one takes precedence.
     const all = document.querySelectorAll('.question-card:not(.question-resolved)')
     if (all.length && all[all.length - 1] !== card) return
     const active = document.activeElement
-    // Don't steal Enter from the main chat textarea — but do steal from
-    // our own Other-input textarea's parent container (we still allow
-    // newline inside the textarea itself, so skip if it's focused).
-    if (active && active.tagName === 'TEXTAREA') {
-      if (!card.contains(active)) return
-      return // typing in Other — let them add newlines
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (active && active.tagName === 'TEXTAREA') {
+        if (!card.contains(active)) return
+        return
+      }
+      if (!primaryBtn.disabled) { e.preventDefault(); advanceOrSubmit() }
+    } else if (e.key === 'Escape') {
+      // Don't swallow Escape if user is in an unrelated textarea.
+      if (active && active.tagName === 'TEXTAREA' && !card.contains(active)) return
+      e.preventDefault()
+      skip()
     }
-    if (!submitBtn.disabled) { e.preventDefault(); submit() }
   }
   document.addEventListener('keydown', onKey, true)
   card._unbindKey = () => document.removeEventListener('keydown', onKey, true)
+
+  render()
 }
 
-function finalizeQuestionCard(card, mode, answers) {
-  card.classList.add('question-resolved')
+function finalizeQuestionCard(card, mode, _answers, questions, state) {
+  // CC behaviour (AskUserQuestionTool.tsx:83-107): once the user submits, the
+  // interactive card collapses into a read-only "Q → A" record so the chat
+  // transcript preserves context even if the user scrolls back later. We
+  // restrict the DOM to the original question blocks with only the selected
+  // options kept — no new CSS is introduced.
+  card.classList.add('question-resolved', `question-resolved-${mode}`)
   if (card._unbindKey) card._unbindKey()
-  const footer = card.querySelector('.question-footer')
-  if (!footer) return
+
+  // Tear down interaction affordances.
+  card.querySelector('.question-footer')?.remove()
+  card.querySelector('.question-nav')?.remove()
+  card.querySelectorAll('.question-other-input').forEach(el => el.remove())
+  // Question blocks were show/hidden via style.display; unhide them all so the
+  // full Q→A record is visible in history.
+  card.querySelectorAll('.question-block').forEach(block => {
+    block.style.display = ''
+  })
+
   if (mode === 'skipped') {
-    footer.innerHTML = `<div class="question-result question-result-skipped">${escapeHtml(tt('question_skipped'))}</div>`
-  } else {
-    const summary = answers
-      ? Object.values(answers).filter(v => v && v.length > 0).join(' · ')
-      : ''
-    footer.innerHTML = `<div class="question-result">${escapeHtml(tt('question_submitted'))}${summary ? ' — ' + escapeHtml(summary) : ''}</div>`
+    card.querySelectorAll('.question-block').forEach(block => {
+      block.querySelector('.question-options')?.remove()
+      const skipped = document.createElement('div')
+      skipped.className = 'question-result question-result-skipped'
+      skipped.textContent = tt('question_skipped')
+      block.appendChild(skipped)
+    })
+    return
   }
+
+  card.querySelectorAll('.question-block').forEach(block => {
+    const qi = Number(block.dataset.qIdx)
+    const s = state?.[qi]
+    const q = questions?.[qi]
+    if (!s || !q) return
+    const otherIdx = q.options.length
+    block.querySelectorAll('.question-option').forEach(optEl => {
+      const oi = Number(optEl.dataset.optIdx)
+      if (!s.selected.has(oi)) {
+        optEl.remove()
+        return
+      }
+      if (oi === otherIdx) {
+        const labelEl = optEl.querySelector('.question-option-label')
+        if (labelEl) labelEl.textContent = s.otherText.trim() || labelEl.textContent
+        optEl.classList.remove('question-option-other')
+      }
+    })
+  })
 }
 
 // ==================== Events ====================
@@ -1051,6 +1244,13 @@ klausApi.on.chatEvent((event) => {
     case 'file': if (event.name && event.url) appendFileCard(event.name, event.url); break
     // MCP OAuth
     case 'mcp_auth_url': if (event.url) { window.open(event.url, '_blank'); appendSystemMsg(tt('mcp_auth_opened_prefix') + (event.serverName || tt('mcp_auth_opened_fallback'))) }; break
+    // Pending permission cancelled by engine (e.g., user hit Stop mid-ask).
+    // Tear down the card so the interrupt visibly takes effect.
+    case 'permission_cancelled': {
+      const card = document.getElementById('q-' + event.requestId)
+      if (card) finalizeQuestionCard(card, 'skipped', null, [], [])
+      break
+    }
     case 'done':
       thinkingUI.finalize(); finalizeStream()
       busy = false

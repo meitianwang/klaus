@@ -175,6 +175,31 @@ const pendingPermissions = new Map<string, {
   resolve: (resp: PermissionResponse) => void
 }>()
 
+// Parse the tool_result string produced by AskUserQuestionTool's
+// mapToolResultToToolResultBlockParam back into a {question: answer} map, so
+// the renderer can rebuild the resolved question card on history load. If the
+// user denied/interrupted instead, returns { status: 'denied' }.
+function parseAskUserQuestionResult(text: string):
+  | { status: 'answered'; answers: Record<string, string> }
+  | { status: 'denied' } {
+  // Engine writes "User denied permission" when canUseTool returns deny.
+  if (/^user\s+denied\s+permission/i.test(text.trim())) {
+    return { status: 'denied' }
+  }
+  // Answered format:
+  //   User has answered your questions: "Q1"="A1", "Q2"="A2". You can now ...
+  // Answers can contain commas (multi-select joined by ", "), so we match
+  // "Q"="A" pairs directly rather than splitting on commas.
+  const answers: Record<string, string> = {}
+  const re = /"([^"]+)"="([^"]*)"/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    answers[match[1]] = match[2]
+  }
+  if (Object.keys(answers).length === 0) return { status: 'denied' }
+  return { status: 'answered', answers }
+}
+
 export class EngineHost {
   // in-memory session state — mirrored by CC's own JSONL on disk.
   // `id` here is the channel-key (e.g. "wechat:o9cq..."), not the engine uuid.
@@ -533,6 +558,34 @@ export class EngineHost {
       // client restart re-starts with parentUuid=null). Chain-walking returned
       // just one turn and silently dropped the rest.
       const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
+
+      // First pass: collect tool_result payloads keyed by tool_use_id, so that
+      // the second pass can attach the final answers back onto the matching
+      // AskUserQuestion tool_use block (the interactive card is rebuilt from
+      // this on history load). Tool_result content is either a raw string or
+      // a content-block array containing a text block.
+      const toolResultById = new Map<string, string>()
+      for (const m of messages.values()) {
+        if (m.type !== 'user') continue
+        if ((m as any).isSidechain) continue
+        const c = (m as any).message?.content
+        if (!Array.isArray(c)) continue
+        for (const b of c) {
+          if (!b || b.type !== 'tool_result') continue
+          const id = b.tool_use_id
+          if (typeof id !== 'string') continue
+          let text = ''
+          if (typeof b.content === 'string') text = b.content
+          else if (Array.isArray(b.content)) {
+            text = b.content
+              .filter((x: any) => x && x.type === 'text' && typeof x.text === 'string')
+              .map((x: any) => x.text)
+              .join('\n')
+          }
+          if (text) toolResultById.set(id, text)
+        }
+      }
+
       const out: ChatMessage[] = []
       let i = 0
       for (const m of messages.values()) {
@@ -540,12 +593,27 @@ export class EngineHost {
         // Subagent (Task tool) internals — don't render in the main transcript.
         if ((m as any).isSidechain) continue
         const content = (m as any).message?.content
-        const blocks = Array.isArray(content) ? content : undefined
+        let blocks = Array.isArray(content) ? content : undefined
         // Skip user rows that are pure tool_result replies (the renderer's
         // tool cards on the assistant side already show the outcome).
         if (m.type === 'user' && blocks && blocks.length > 0
             && blocks.every((b: any) => b?.type === 'tool_result')) {
           continue
+        }
+        // For AskUserQuestion tool_use blocks, clone and attach the parsed
+        // answers (+ denied flag) so the renderer can rebuild the resolved
+        // question card instead of just showing a bare tool-item chip.
+        if (m.type === 'assistant' && blocks) {
+          blocks = blocks.map((b: any) => {
+            if (b?.type === 'tool_use' && b.name === 'AskUserQuestion' && typeof b.id === 'string') {
+              const resultText = toolResultById.get(b.id)
+              if (resultText) {
+                const res = parseAskUserQuestionResult(resultText)
+                return { ...b, input: { ...b.input, __resolution: res } }
+              }
+            }
+            return b
+          })
         }
         const text = typeof content === 'string'
           ? content
@@ -799,7 +867,7 @@ export class EngineHost {
       }
 
       // Permission callback — routes to renderer via IPC
-      const onAsk: OnAskCallback = async ({ tool: askTool, input: askInput, message, suggestions, toolUseID }) => {
+      const onAsk: OnAskCallback = async ({ tool: askTool, input: askInput, message, suggestions, toolUseContext, toolUseID }) => {
         // Klaus connector short-circuit: checkbox IS the permission.
         //   true  → tool checked by user → auto-allow
         //   false → tool unchecked → auto-deny
@@ -825,9 +893,32 @@ export class EngineHost {
           toolCallId: toolUseID,
         })
 
-        // Wait for renderer response
+        // Wait for renderer response OR for the session's abort signal
+        // (interrupt button). Without the abort hookup the promise hangs
+        // forever when the user clicks stop while a question card is up,
+        // because resolvePermission is only reachable via the renderer.
         const response = await new Promise<PermissionResponse>((resolve) => {
-          pendingPermissions.set(requestId, { resolve })
+          const abortSignal = toolUseContext.abortController.signal
+          const cleanupOnAbort = () => {
+            if (!pendingPermissions.has(requestId)) return
+            pendingPermissions.delete(requestId)
+            // Tell the renderer to tear down its card so the user sees the
+            // interrupt take effect immediately.
+            this.pushEvent({ type: 'permission_cancelled', sessionId, requestId } as any)
+            resolve({ decision: 'deny' })
+          }
+          if (abortSignal.aborted) {
+            // Already aborted (e.g., race between abort and onAsk entry).
+            cleanupOnAbort()
+            return
+          }
+          abortSignal.addEventListener('abort', cleanupOnAbort, { once: true })
+          pendingPermissions.set(requestId, {
+            resolve: (resp) => {
+              abortSignal.removeEventListener('abort', cleanupOnAbort)
+              resolve(resp)
+            },
+          })
         })
 
         // Persist accepted suggestions
