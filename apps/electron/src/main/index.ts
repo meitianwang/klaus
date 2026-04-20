@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, nativeImage } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { SettingsStore } from './settings-store.js'
@@ -82,6 +82,20 @@ export function getChannelManager() { return channelManager }
 
 app.whenReady().then(async () => {
   try {
+    // Dock icon (macOS, dev + packaged). 打包后 Info.plist 会读 resources/icon.icns，
+    // 但 dev 下跑的是 Electron 二进制，Dock 默认显示它自带的原子 logo；主动 setIcon 让两边一致。
+    if (process.platform === 'darwin' && app.dock) {
+      try {
+        // 用 src/renderer/logo.png（已打包进 files）而不是 resources/，
+        // 避免 dev / 打包后路径不一致
+        const iconPath = join(__dirname, '../../src/renderer/logo.png')
+        const icon = nativeImage.createFromPath(iconPath)
+        if (!icon.isEmpty()) app.dock.setIcon(icon)
+      } catch (err) {
+        console.warn('[Klaus] Failed to set dock icon:', err)
+      }
+    }
+
     // 1. Settings
     settingsStore = new SettingsStore()
     settingsStore.applyModelEnvOverrides()
