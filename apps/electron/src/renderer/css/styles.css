@@ -2979,7 +2979,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .connector-slider {
   position: absolute;
   inset: 0;
-  background: #d1d5db;
+  background: var(--fg-quaternary);
   border-radius: 999px;
   cursor: pointer;
   transition: background var(--transition);
@@ -2991,14 +2991,13 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   width: 18px;
   left: 2px;
   top: 2px;
-  background: white;
+  background: #fff;
   border-radius: 50%;
   transition: transform var(--transition);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
-.connector-switch input:checked + .connector-slider { background: #10b981; }
+.connector-switch input:checked + .connector-slider { background: var(--accent); }
 .connector-switch input:checked + .connector-slider::before { transform: translateX(18px); }
-[data-theme="dark"] .connector-slider { background: #475569; }
 
 .connector-row-expand {
   margin-top: 10px;
@@ -3033,12 +3032,12 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #9ca3af;
+  background: var(--fg-quaternary);
   flex-shrink: 0;
 }
-.connector-dot.green { background: #10b981; }
-.connector-dot.red { background: #ef4444; }
-.connector-dot.gray { background: #9ca3af; }
+.connector-dot.green { background: var(--accent); }
+.connector-dot.red { background: #dc2626; }
+.connector-dot.gray { background: var(--fg-quaternary); }
 
 .connector-tools {
   padding: 8px 0 12px 46px;
