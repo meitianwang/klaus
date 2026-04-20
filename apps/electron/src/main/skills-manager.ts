@@ -1,10 +1,24 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, readdirSync, readFileSync, existsSync, cpSync, rmSync } from 'fs'
+import { app } from 'electron'
 import type { SettingsStore } from './settings-store.js'
 
 const SKILLS_DIR = join(homedir(), '.klaus', '.claude', 'skills')
-const SKILLS_MARKET_DIR = join(process.cwd(), 'skills-market')
+
+// skills-market/ lives at the repo root in dev; gets copied to Resources/ in
+// production via electron-builder's `extraResources`. process.cwd() is NOT
+// reliable — in dev it's apps/electron/, in prod it's the app bundle's Contents/.
+const SKILLS_MARKET_DIR = (() => {
+  if (app?.isPackaged) return join(process.resourcesPath, 'skills-market')
+  // Dev: __dirname is apps/electron/dist/main/, walk up 4 levels to repo root
+  const candidates = [
+    join(__dirname, '..', '..', '..', '..', 'skills-market'),
+    join(process.cwd(), '..', '..', 'skills-market'),
+    join(process.cwd(), 'skills-market'),
+  ]
+  return candidates.find(p => existsSync(p)) || candidates[0]!
+})()
 
 export interface SkillInfo {
   name: string

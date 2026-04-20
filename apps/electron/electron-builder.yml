@@ -16,3 +16,10 @@ files:
 # JS files packed inside it, so unpack them to app.asar.unpacked/.
 asarUnpack:
   - dist/connectors/**/*
+# Ship the skills marketplace alongside the app — SkillsManager resolves it
+# from process.resourcesPath in production.
+extraResources:
+  - from: ../../skills-market
+    to: skills-market
+    filter:
+      - "**/*"
