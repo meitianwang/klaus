@@ -1964,6 +1964,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   cursor: pointer;
 }
 .btn-xs:hover { background: var(--bg-hover); }
+.btn-xs.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn-xs.btn-primary:hover { background: var(--accent-hover); }
 .btn-danger { color: #dc2626; border-color: #fecaca; }
 .btn-danger:hover { background: #fef2f2; }
 
@@ -2493,36 +2495,41 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   font-size: 13px;
 }
 
-/* Skill cards */
-.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+/* Skill cards — align with Klaus visual language (see mcp-add-card, connector-row) */
+.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .sk-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   transition: border-color var(--transition), background var(--transition);
 }
 .sk-card:hover { border-color: var(--border); }
-.sk-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+.sk-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sk-card-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .sk-card-emoji {
-  font-size: 20px;
-  width: 36px; height: 36px;
+  font-size: 18px;
+  width: 32px; height: 32px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--bg); border-radius: 10px; flex-shrink: 0;
+  flex-shrink: 0;
+  color: var(--fg);
+  /* plain emoji, no box — matches .connector-row-icon */
 }
-.sk-card-name { font-size: 14px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-card-name { font-size: 13px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-card-desc {
   font-size: 12px;
   color: var(--fg-tertiary);
-  line-height: 1.5;
-  margin-bottom: 12px;
+  line-height: 1.45;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  margin: 0;
 }
-.sk-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.sk-card-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 2px; }
 
 /* Toggle switch */
 .sk-toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
