@@ -1691,6 +1691,100 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 
 /* Custom dropdown: button trigger + floating panel (Klaus-styled, not native). */
+/* ---- Unified custom dropdown (.kls-select) ---------------------------
+   Generic replacement for native <select>. Extracted from .cron-dd-* so
+   every page (cron, settings, skills, mcp) shares one visual language.
+   JS helper: renderer/js/ui-select.js. */
+.kls-select { position: relative; display: inline-block; }
+.kls-select-block { display: block; width: 100%; }
+.kls-select-block .kls-select-trigger { width: 100%; }
+.kls-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 128px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.kls-select-trigger:hover { background: var(--bg-hover); }
+.kls-select.open .kls-select-trigger,
+.kls-select-trigger:focus-visible {
+  border-color: var(--fg-quaternary);
+  outline: none;
+}
+.kls-select-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.kls-select-text.is-placeholder { color: var(--fg-tertiary); }
+.kls-select-caret {
+  width: 12px;
+  height: 12px;
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+.kls-select.open .kls-select-caret { transform: rotate(180deg); }
+.kls-select.is-disabled .kls-select-trigger {
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.kls-select-panel {
+  position: fixed;
+  min-width: 128px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 1200;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.kls-select-panel[hidden] { display: none; }
+.kls-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+.kls-select-item:hover { background: var(--bg-hover); }
+.kls-select-item.is-selected { color: var(--fg); font-weight: 500; }
+.kls-select-item.is-selected::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3,8 7,12 13,4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3,8 7,12 13,4'/%3E%3C/svg%3E") center / contain no-repeat;
+  color: var(--fg-secondary);
+  flex-shrink: 0;
+}
+
 .cron-dd { position: relative; display: inline-block; }
 .cron-dd-trigger {
   display: inline-flex;

@@ -191,22 +191,12 @@
             <div class="cron-filters">
               <!-- Tasks tab: sort dropdown -->
               <div class="cron-filter-group" data-for-tab="tasks">
-                <select id="cron-sort" class="cron-select">
-                  <option value="created_desc" data-i18n="cron_sort_created_desc">Newest first</option>
-                  <option value="created_asc" data-i18n="cron_sort_created_asc">Oldest first</option>
-                  <option value="name_asc" data-i18n="cron_sort_name_asc">Name A-Z</option>
-                  <option value="enabled_first" data-i18n="cron_sort_enabled_first">Enabled first</option>
-                </select>
+                <div id="cron-sort" class="kls-select"></div>
               </div>
               <!-- Runs tab: task + status filters -->
               <div class="cron-filter-group" data-for-tab="runs" style="display:none">
-                <select id="cron-runs-task" class="cron-select"></select>
-                <select id="cron-runs-status" class="cron-select">
-                  <option value="" data-i18n="cron_status_all">All statuses</option>
-                  <option value="success" data-i18n="cron_status_success">Success</option>
-                  <option value="failed" data-i18n="cron_status_failed">Failed</option>
-                  <option value="running" data-i18n="cron_status_running">Running</option>
-                </select>
+                <div id="cron-runs-task" class="kls-select"></div>
+                <div id="cron-runs-status" class="kls-select"></div>
               </div>
             </div>
           </div>
@@ -426,6 +416,7 @@
   </div>
 
   <script src="js/i18n.js"></script>
+  <script src="js/ui-select.js"></script>
   <script src="js/sessions.js"></script>
   <script src="js/permissions.js"></script>
   <script src="js/dialog.js"></script>

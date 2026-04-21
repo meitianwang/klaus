@@ -394,21 +394,27 @@ window.showModelForm = async function(modelId) {
   const form = document.getElementById('model-form'); form.style.display = 'block'
   const title = existing ? tt('edit_model_title') : tt('add_model_title')
   const v = (k, fallback = '') => existing ? (existing[k] ?? fallback) : fallback
-  const providers = ['anthropic', 'bedrock', 'vertex']
-  const thinkings = ['off', 'low', 'medium', 'high']
-  const selProvider = providers.map(p =>
-    `<option value="${p}" ${v('provider', 'anthropic') === p ? 'selected' : ''}>${p === 'anthropic' ? 'Anthropic' : p === 'bedrock' ? 'AWS Bedrock' : 'Google Vertex'}</option>`).join('')
-  const selThinking = thinkings.map(t =>
-    `<option value="${t}" ${v('thinking', 'off') === t ? 'selected' : ''}>${tt('thinking_' + t)}</option>`).join('')
   form.innerHTML = `<div class="settings-card"><h4 style="margin-bottom:12px">${title}</h4>
     <div class="form-row"><label>${tt('model_field_name')}</label><input id="mf-name" placeholder="${esc(tt('model_placeholder_name'))}" value="${esc(v('name'))}"></div>
     <div class="form-row"><label>${tt('model_field_model_id')}</label><input id="mf-model" placeholder="claude-sonnet-4-20250514" value="${esc(v('model'))}"></div>
     <div class="form-row"><label>${tt('model_field_api_key')}</label><input id="mf-apikey" type="password" placeholder="sk-ant-..." value="${esc(v('apiKey'))}"></div>
-    <div class="form-row"><label>${tt('model_field_provider')}</label><select id="mf-provider">${selProvider}</select></div>
+    <div class="form-row"><label>${tt('model_field_provider')}</label><div id="mf-provider" class="kls-select kls-select-block"></div></div>
     <div class="form-row"><label>${tt('model_field_base_url')}</label><input id="mf-baseurl" value="${esc(v('baseUrl'))}"></div>
     <div class="form-row"><label>${tt('model_field_max_tokens')}</label><input id="mf-tokens" type="number" value="${v('maxContextTokens', 200000)}"></div>
-    <div class="form-row"><label>${tt('model_field_thinking')}</label><select id="mf-thinking">${selThinking}</select></div>
+    <div class="form-row"><label>${tt('model_field_thinking')}</label><div id="mf-thinking" class="kls-select kls-select-block"></div></div>
     <div class="form-actions"><button class="btn-sm btn-primary" onclick="saveModel()">${tt('save')}</button><button class="btn-sm" onclick="document.getElementById('model-form').style.display='none'">${tt('cancel')}</button></div></div>`
+  window.klsSelect.bind(document.getElementById('mf-provider'), {
+    items: [
+      { value: 'anthropic', label: 'Anthropic' },
+      { value: 'bedrock',   label: 'AWS Bedrock' },
+      { value: 'vertex',    label: 'Google Vertex' },
+    ],
+    value: v('provider', 'anthropic'),
+  })
+  window.klsSelect.bind(document.getElementById('mf-thinking'), {
+    items: ['off', 'low', 'medium', 'high'].map(k => ({ value: k, i18nKey: 'thinking_' + k })),
+    value: v('thinking', 'off'),
+  })
 }
 // 兼容旧入口名
 window.showAddModelForm = () => window.showModelForm()
@@ -824,11 +830,7 @@ async function loadSkillsTab(container) {
         </div>
         ${skillsView === 'installed' ? `
           <div class="sk-filters">
-            <select class="sk-select" id="sk-filter">
-              <option value="all" ${skillsFilter === 'all' ? 'selected' : ''}>${tt('skills_filter_all')}</option>
-              <option value="enabled" ${skillsFilter === 'enabled' ? 'selected' : ''}>${tt('skills_filter_enabled')}</option>
-              <option value="disabled" ${skillsFilter === 'disabled' ? 'selected' : ''}>${tt('skills_filter_disabled')}</option>
-            </select>
+            <div id="sk-filter" class="kls-select"></div>
           </div>` : ''}
       </div>
 
@@ -895,10 +897,18 @@ function bindSkillTopbarEvents() {
     })
   })
   // Filter dropdown (installed tab only)
-  document.getElementById('sk-filter')?.addEventListener('change', (e) => {
-    skillsFilter = e.target.value
-    loadSettingsTab('skills')
-  })
+  const skFilterEl = document.getElementById('sk-filter')
+  if (skFilterEl) {
+    window.klsSelect.bind(skFilterEl, {
+      items: [
+        { value: 'all',      i18nKey: 'skills_filter_all' },
+        { value: 'enabled',  i18nKey: 'skills_filter_enabled' },
+        { value: 'disabled', i18nKey: 'skills_filter_disabled' },
+      ],
+      value: skillsFilter,
+      onChange: (v) => { skillsFilter = v; loadSettingsTab('skills') },
+    })
+  }
   // Search box — debounced reload so input focus survives
   const searchInput = document.getElementById('sk-search')
   if (searchInput) {
@@ -1318,11 +1328,7 @@ function openMcpEditModal(existing) {
       <div class="mcp-modal-body">
         <div class="mcp-field">
           <label class="mcp-field-label">${tt('mcp_field_type')}</label>
-          <select class="mcp-input" id="mcpm-type" ${isEdit ? 'disabled' : ''}>
-            <option value="stdio" ${type === 'stdio' ? 'selected' : ''}>STDIO</option>
-            <option value="sse" ${type === 'sse' ? 'selected' : ''}>SSE</option>
-            <option value="http" ${type === 'http' ? 'selected' : ''}>HTTP</option>
-          </select>
+          <div id="mcpm-type" class="kls-select kls-select-block"></div>
         </div>
         <div class="mcp-field">
           <label class="mcp-field-label">${tt('mcp_field_name')} <span class="mcp-required">*</span></label>
@@ -1357,12 +1363,20 @@ function openMcpEditModal(existing) {
   `
   document.body.appendChild(modal)
 
-  const typeSel = modal.querySelector('#mcpm-type')
   const cmdWrap = modal.querySelector('#mcpm-cmd-wrap')
   const urlWrap = modal.querySelector('#mcpm-url-wrap')
-  typeSel.addEventListener('change', () => {
-    cmdWrap.hidden = typeSel.value !== 'stdio'
-    urlWrap.hidden = typeSel.value === 'stdio'
+  const typeSel = window.klsSelect.bind(modal.querySelector('#mcpm-type'), {
+    items: [
+      { value: 'stdio', label: 'STDIO' },
+      { value: 'sse',   label: 'SSE' },
+      { value: 'http',  label: 'HTTP' },
+    ],
+    value: type,
+    disabled: isEdit,
+    onChange: (v) => {
+      cmdWrap.hidden = v !== 'stdio'
+      urlWrap.hidden = v === 'stdio'
+    },
   })
 
   const envRows = modal.querySelector('#mcpm-env-rows')
@@ -1398,7 +1412,7 @@ function openMcpEditModal(existing) {
   modal.querySelector('#mcpm-submit').addEventListener('click', async () => {
     const name = modal.querySelector('#mcpm-name').value.trim()
     if (!name) { showToast(tt('settings_mcp_name_required')); return }
-    const t = typeSel.value
+    const t = typeSel.getValue()
     const newCfg = {}
     if (t === 'stdio') {
       const cmd = modal.querySelector('#mcpm-cmd').value.trim()

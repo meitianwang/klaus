@@ -16,9 +16,32 @@
   const paneRuns = document.getElementById('cron-pane-runs')
   const filterGroupTasks = view.querySelector('[data-for-tab="tasks"]')
   const filterGroupRuns = view.querySelector('[data-for-tab="runs"]')
-  const sortSelect = document.getElementById('cron-sort')
-  const runsTaskFilter = document.getElementById('cron-runs-task')
-  const runsStatusFilter = document.getElementById('cron-runs-status')
+  const sortSelectEl = document.getElementById('cron-sort')
+  const sortSelect = window.klsSelect.bind(sortSelectEl, {
+    items: [
+      { value: 'created_desc',  i18nKey: 'cron_sort_created_desc' },
+      { value: 'created_asc',   i18nKey: 'cron_sort_created_asc' },
+      { value: 'name_asc',      i18nKey: 'cron_sort_name_asc' },
+      { value: 'enabled_first', i18nKey: 'cron_sort_enabled_first' },
+    ],
+    value: 'created_desc',
+    onChange: (v) => { currentSort = v; renderTasks() },
+  })
+  const runsTaskFilter = window.klsSelect.bind(document.getElementById('cron-runs-task'), {
+    items: [{ value: '', i18nKey: 'cron_task_all' }],
+    value: '',
+    onChange: () => loadRuns(),
+  })
+  const runsStatusFilter = window.klsSelect.bind(document.getElementById('cron-runs-status'), {
+    items: [
+      { value: '',        i18nKey: 'cron_status_all' },
+      { value: 'success', i18nKey: 'cron_status_success' },
+      { value: 'failed',  i18nKey: 'cron_status_failed' },
+      { value: 'running', i18nKey: 'cron_status_running' },
+    ],
+    value: '',
+    onChange: () => loadRuns(),
+  })
   const grid = document.getElementById('cron-grid')
   const emptyTasks = document.getElementById('cron-empty')
   const runsList = document.getElementById('cron-runs-list')
@@ -541,17 +564,21 @@
 
   // ---- Run history pane ----
   function populateRunsTaskFilter(tasks) {
-    const prev = runsTaskFilter.value
-    runsTaskFilter.innerHTML =
-      `<option value="">${t('cron_task_all', 'All tasks')}</option>` +
-      tasks.map(x => `<option value="${escHtml(x.id)}">${escHtml(x.name || x.id)}</option>`).join('')
-    if (prev && tasks.some(x => x.id === prev)) runsTaskFilter.value = prev
+    const prev = runsTaskFilter.getValue()
+    const items = [
+      { value: '', i18nKey: 'cron_task_all' },
+      ...tasks.map(x => ({ value: x.id, label: x.name || x.id })),
+    ]
+    const keep = prev && tasks.some(x => x.id === prev) ? prev : ''
+    runsTaskFilter.setItems(items, { value: keep })
   }
 
   async function loadRuns() {
     const filters = { limit: 300 }
-    if (runsTaskFilter.value) filters.taskId = runsTaskFilter.value
-    if (runsStatusFilter.value) filters.status = runsStatusFilter.value
+    const tid = runsTaskFilter.getValue()
+    const st = runsStatusFilter.getValue()
+    if (tid) filters.taskId = tid
+    if (st) filters.status = st
     const runs = (await api.runs(filters)) || []
     renderRuns(runs)
   }
@@ -885,9 +912,8 @@
   newBtn?.addEventListener('click', () => openForm(null))
   viaKlausBtn?.addEventListener('click', createViaKlaus)
   tabs.forEach(b => b.addEventListener('click', () => switchTab(b.dataset.cronTab)))
-  sortSelect?.addEventListener('change', () => { currentSort = sortSelect.value; renderTasks() })
-  runsTaskFilter?.addEventListener('change', loadRuns)
-  runsStatusFilter?.addEventListener('change', loadRuns)
+  // cron-sort change is wired via klsSelect.bind above — no addEventListener here.
+  // runs task/status changes are wired via klsSelect.bind onChange above.
 
   modalClose?.addEventListener('click', closeForm)
   modalBackdrop?.addEventListener('click', closeForm)

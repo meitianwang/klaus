@@ -824,6 +824,10 @@ function applyI18n() {
 function setLanguage(lang) {
   currentLang = lang
   applyI18n()
+  // Notify JS-rendered UI (custom selects, dynamic lists) to re-resolve their
+  // i18n keys. The DOM walk in applyI18n only catches statically-authored
+  // [data-i18n] nodes, not items created later via innerHTML.
+  window.dispatchEvent(new CustomEvent('klaus:lang-change', { detail: { lang } }))
   if (typeof settingsVisible !== 'undefined' && settingsVisible && typeof loadSettingsTab === 'function' && typeof currentSettingsTab === 'string') {
     loadSettingsTab(currentSettingsTab)
   }
