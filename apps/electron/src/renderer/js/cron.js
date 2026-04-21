@@ -541,12 +541,22 @@
     pop.querySelector('[data-act="run"]').addEventListener('click', async (e) => {
       e.stopPropagation(); closeMenu()
       const res = await api.runNow(task.id)
-      if (res?.ok) {
-        // After a short delay, refresh runs so the new row appears
-        setTimeout(() => loadRuns(), 800)
-      } else {
-        await window.klausDialog.alert(t('cron_run_failed', 'Could not start task') + ': ' + (res?.error || ''))
+      if (!res?.ok) {
+        const already = /already running/i.test(res?.error || '')
+        window.showToast?.(already
+          ? t('cron_run_already', 'Task is already running')
+          : t('cron_run_failed', 'Could not start task'))
+        return
       }
+      window.showToast?.(t('cron_run_started', 'Task started'))
+      // Keep the user on the cron management page. Just surface the new run
+      // in the sidebar (expand this task, refresh its runs) so they see the
+      // pulsing blue dot appear. They can click it themselves if they want
+      // to watch the stream.
+      window.surfaceCronRunInSidebar?.(task.id)
+      // Also refresh the Run History tab so the new row appears if user
+      // flips over.
+      setTimeout(() => loadRuns(), 800)
     })
     pop.querySelector('[data-act="edit"]').addEventListener('click', (e) => {
       e.stopPropagation(); closeMenu(); openForm(task)

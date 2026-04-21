@@ -115,8 +115,9 @@ export function registerIpcHandlers(
       const { getCronScheduler } = await import('./index.js')
       const sched = getCronScheduler?.()
       if (!sched) return { ok: false, error: 'scheduler not ready' }
-      const ok = await sched.runNow(id)
-      return { ok, error: ok ? undefined : 'task not found or already running' }
+      const result = sched.runNow(id)
+      if (!result) return { ok: false, error: 'task not found or already running' }
+      return { ok: true, sessionId: result.sessionId }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? String(err) }
     }

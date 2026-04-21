@@ -1,6 +1,7 @@
 import type { SettingsStore } from './settings-store.js'
 import type { EngineHost } from './engine-host.js'
 import type { CronTask, CronRunTrigger } from '../shared/types.js'
+import { getMainWindow } from './window.js'
 
 /**
  * Simple cron scheduler for the Electron app.
@@ -45,13 +46,17 @@ export class CronScheduler {
     console.log('[CronScheduler] Stopped')
   }
 
-  /** Fire a task right now regardless of schedule. Returns false if already running. */
-  async runNow(taskId: string): Promise<boolean> {
+  /**
+   * Fire a task right now regardless of schedule. Returns the sessionId of
+   * the freshly-minted run so the UI can open that chat thread and watch it
+   * stream. Returns null when the task is missing or already running.
+   */
+  runNow(taskId: string): { sessionId: string } | null {
     const task = this.store.getTask(taskId)
-    if (!task) return false
-    if (this.running.get(task.id)) return false
-    this.execute(task, 'manual')
-    return true
+    if (!task) return null
+    if (this.running.get(task.id)) return null
+    const { sessionId } = this.execute(task, 'manual')
+    return { sessionId }
   }
 
   private tick(): void {
@@ -87,41 +92,62 @@ export class CronScheduler {
     }
   }
 
-  private async execute(task: CronTask, trigger: CronRunTrigger): Promise<void> {
+  /**
+   * Kicks off a task run synchronously — mints the sessionId + run row,
+   * registers `running` state, then launches the async chat in the
+   * background. Caller (tick or runNow) gets the sessionId immediately so
+   * the UI can open the session and start rendering stream events as they
+   * arrive. The returned `done` promise resolves in the finally block.
+   */
+  private execute(task: CronTask, trigger: CronRunTrigger): { sessionId: string; done: Promise<void> } {
     const startedAt = Date.now()
-    // Each run gets its own sessionId (minted by the store) so the sidebar
-    // can show every execution as an independent chat thread. The engine
-    // creates the session lazily on first chat() call.
+    // Each run gets its own sessionId so the sidebar can show every
+    // execution as an independent chat thread. Engine creates the session
+    // lazily on first chat() call.
     const { id: runId, sessionId } = this.store.createCronRun(task.id, task.name ?? task.id, trigger)
-    // Expose a "done" promise so deleteTaskCascade can await this finally
-    // block (writes cron_runs row) before it cascades. Without the wait,
-    // interrupt → cascade → catch block races and leaves an orphan row.
     let resolveDone!: () => void
     const done = new Promise<void>(r => { resolveDone = r })
     this.running.set(task.id, { sessionId, done })
     console.log(`[CronScheduler] Executing task: ${task.id} (${trigger}, run=${runId}, session=${sessionId})`)
 
-    try {
-      await this.engine.chat(sessionId, task.prompt)
-      this.store.finishCronRun(runId, 'success', Date.now() - startedAt)
-    } catch (err) {
-      console.error(`[CronScheduler] Task ${task.id} failed:`, err)
-      this.store.finishCronRun(
-        runId,
-        'failed',
-        Date.now() - startedAt,
-        err instanceof Error ? err.message : String(err),
-      )
-    } finally {
-      this.running.delete(task.id)
-      // One-shot tasks self-delete after their first run regardless of outcome.
-      if (task.deleteAfterRun) {
-        try { this.store.deleteTask(task.id) } catch (e) {
-          console.error(`[CronScheduler] Failed to delete one-shot task ${task.id}:`, e)
+    const loop = async () => {
+      try {
+        await this.engine.chat(sessionId, task.prompt, undefined, {
+          // Forward engine events to the renderer just like chat:send does,
+          // so the sidebar + open chat view of this cron-run session animate
+          // live (text_delta, tool_use, done, etc.). Without this, cron
+          // sessions sit silent until done.
+          onEvent: (event) => {
+            getMainWindow()?.webContents.send('chat:event', event)
+          },
+          // Don't emit user_message — the renderer seeds the user bubble
+          // synthetically from task.prompt when switchSession opens a cron
+          // run whose JSONL is still empty (engine boot takes ~100-500ms,
+          // the synthetic seed shows instantly). Emitting here would race
+          // against the seed and produce a duplicate bubble.
+        })
+        this.store.finishCronRun(runId, 'success', Date.now() - startedAt)
+      } catch (err) {
+        console.error(`[CronScheduler] Task ${task.id} failed:`, err)
+        this.store.finishCronRun(
+          runId,
+          'failed',
+          Date.now() - startedAt,
+          err instanceof Error ? err.message : String(err),
+        )
+      } finally {
+        this.running.delete(task.id)
+        // One-shot tasks self-delete after their first run regardless of outcome.
+        if (task.deleteAfterRun) {
+          try { this.store.deleteTask(task.id) } catch (e) {
+            console.error(`[CronScheduler] Failed to delete one-shot task ${task.id}:`, e)
+          }
         }
+        resolveDone()
       }
-      resolveDone()
     }
+    void loop()
+    return { sessionId, done }
   }
 
   /**

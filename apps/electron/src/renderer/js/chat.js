@@ -109,10 +109,34 @@ function persistCronExpanded() {
   } catch {}
 }
 function isCronRunSession(id) { return typeof id === 'string' && id.startsWith('cron-run-') }
+// Resolve a cron-run sessionId back to its parent task so we can seed the
+// user prompt bubble before the engine JSONL exists. Returns null when the
+// run isn't in the expanded-task cache (user opened a run whose task was
+// never expanded — we'd have to fetch, but that's rare).
+function findCronTaskBySessionId(sid) {
+  for (const task of cronTasks) {
+    const runs = cronRunsByTask.get(task.id) || []
+    if (runs.some(r => r.sessionId === sid)) return task
+  }
+  return null
+}
 
 // Exposed so cron.js (the full Scheduled Tasks view) can force a sidebar
 // refresh after create/edit/delete without knowing about chat.js internals.
 window.refreshCronSidebar = () => refreshCronTasksForSidebar()
+// Exposed so cron.js can surface a freshly-started cron run in the sidebar
+// without pulling the user out of the cron management page. We only expand
+// the task + refresh its runs; the user decides whether to click in and
+// watch. (Auto-switching meant staring at a blank chat while the engine
+// spun up, which was worse than just leaving a pulsing dot in the sidebar.)
+window.surfaceCronRunInSidebar = async (taskId) => {
+  if (taskId) {
+    cronTaskExpanded.add(taskId)
+    try { localStorage.setItem('klaus_cron_tasks_expanded', JSON.stringify([...cronTaskExpanded])) } catch {}
+  }
+  await refreshCronTasksForSidebar()
+  if (taskId) await refreshCronRunsForTask(taskId)
+}
 async function refreshCronTasksForSidebar() {
   try {
     cronTasks = (await klausApi.settings.cron.list()) || []
@@ -484,6 +508,20 @@ async function switchSession(id) {
     // bail out: otherwise this old response would append into the new
     // session's message area and mangle both views.
     if (mySeq !== switchSeq) return
+    // Cron-run sessions: engine boot adds ~100-500ms of dead air between
+    // runNow returning and the first JSONL write. If history is empty and
+    // we can identify the parent task, seed the user bubble from its
+    // prompt so the view isn't blank. The scheduler intentionally doesn't
+    // emit user_message to avoid duplicating this seed.
+    if (history.length === 0 && isCronRunSession(id)) {
+      const task = findCronTaskBySessionId(id)
+      if (task?.prompt) {
+        appendUserMsg(task.prompt)
+        const runs = cronRunsByTask.get(task.id) || []
+        const run = runs.find(r => r.sessionId === id)
+        if (run && run.status === 'running') thinkingUI.show()
+      }
+    }
     for (const msg of history) {
       if (msg.role === 'user') appendUserMsg(msg.text)
       else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks)
@@ -1541,7 +1579,15 @@ klausApi.on.chatEvent((event) => {
       btnSend.classList.remove('busy')
       btnSend.disabled = !inputEl.value.trim()
       inputEl.focus()
-      updateSessionInList(); break
+      updateSessionInList()
+      // If the session that just finished is a cron run, flip its sidebar
+      // status dot from running→success/failed. The "other session" branch
+      // above handles this too, but that branch doesn't fire when the user
+      // is actively viewing the run (currentSessionId matches).
+      if (isCronRunSession(event.sessionId)) {
+        for (const tid of cronTaskExpanded) refreshCronRunsForTask(tid)
+      }
+      break
   }
 })
 
