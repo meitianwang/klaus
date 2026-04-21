@@ -93,7 +93,20 @@ export function registerIpcHandlers(
   // --- Settings: Cron ---
   ipcMain.handle('settings:cron:list', async () => store.listTasks())
   ipcMain.handle('settings:cron:upsert', async (_e, task) => store.upsertTask(task))
-  ipcMain.handle('settings:cron:delete', async (_e, { id }) => store.deleteTask(id))
+  // User-initiated delete goes through the scheduler so it can interrupt any
+  // in-flight run, cascade the cron_runs rows, and drop each session's JSONL.
+  // Falls back to a plain task-row delete if the scheduler isn't up yet
+  // (shouldn't happen at runtime — scheduler starts during app init).
+  ipcMain.handle('settings:cron:delete', async (_e, { id }) => {
+    try {
+      const { getCronScheduler } = await import('./index.js')
+      const sched = getCronScheduler?.()
+      if (sched) return await sched.deleteTaskCascade(id)
+    } catch (err) {
+      console.error('[IPC] cron:delete cascade failed:', err)
+    }
+    return { deleted: store.deleteTask(id), sessionCount: 0 }
+  })
 
   ipcMain.handle('settings:cron:runs:list', async (_e, filters = {}) => store.listCronRuns(filters))
 

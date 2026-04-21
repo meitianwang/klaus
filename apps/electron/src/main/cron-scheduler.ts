@@ -12,7 +12,11 @@ export class CronScheduler {
   private store: SettingsStore
   private engine: EngineHost
   private timer: ReturnType<typeof setInterval> | null = null
-  private running = new Map<string, boolean>()
+  // taskId → { sessionId in flight, promise resolving when execute() finally
+  // block has run }. Lets deleteTaskCascade both interrupt AND await the
+  // run's cleanup before cascading — guarantees the cron_runs row the catch
+  // block writes is swept in the same delete, no orphan state.
+  private running = new Map<string, { sessionId: string; done: Promise<void> }>()
 
   constructor(store: SettingsStore, engine: EngineHost) {
     this.store = store
@@ -84,12 +88,17 @@ export class CronScheduler {
   }
 
   private async execute(task: CronTask, trigger: CronRunTrigger): Promise<void> {
-    this.running.set(task.id, true)
     const startedAt = Date.now()
     // Each run gets its own sessionId (minted by the store) so the sidebar
     // can show every execution as an independent chat thread. The engine
     // creates the session lazily on first chat() call.
     const { id: runId, sessionId } = this.store.createCronRun(task.id, task.name ?? task.id, trigger)
+    // Expose a "done" promise so deleteTaskCascade can await this finally
+    // block (writes cron_runs row) before it cascades. Without the wait,
+    // interrupt → cascade → catch block races and leaves an orphan row.
+    let resolveDone!: () => void
+    const done = new Promise<void>(r => { resolveDone = r })
+    this.running.set(task.id, { sessionId, done })
     console.log(`[CronScheduler] Executing task: ${task.id} (${trigger}, run=${runId}, session=${sessionId})`)
 
     try {
@@ -111,7 +120,40 @@ export class CronScheduler {
           console.error(`[CronScheduler] Failed to delete one-shot task ${task.id}:`, e)
         }
       }
+      resolveDone()
     }
+  }
+
+  /**
+   * User-initiated delete. Cleans up everything so no orphan state is left:
+   *   1. Interrupts the in-flight chat() and awaits execute()'s finally so the
+   *      failed-run row is written before we sweep.
+   *   2. Cascade-deletes cron_tasks + cron_runs rows atomically.
+   *   3. Asks the engine to drop each run's session (JSONL + registry entry).
+   * Returns the number of sessions cleaned so the caller can report progress.
+   */
+  async deleteTaskCascade(taskId: string): Promise<{ deleted: boolean; sessionCount: number }> {
+    const inflight = this.running.get(taskId)
+    if (inflight) {
+      try { this.engine.interrupt(inflight.sessionId) } catch (e) {
+        console.warn(`[CronScheduler] interrupt failed for ${taskId}:`, e)
+      }
+      // Wait for execute()'s finally block so the aborted run row lands in
+      // cron_runs before our cascade SELECT/DELETE runs. Capped at 5s so a
+      // hung chat() can't block the UI forever — worst case a handful of
+      // orphan rows remain, which reapStaleCronRuns cleans on next startup.
+      await Promise.race([
+        inflight.done,
+        new Promise<void>(r => setTimeout(r, 5000)),
+      ])
+    }
+    const { deleted, sessionIds } = this.store.deleteTaskCascade(taskId)
+    for (const sid of sessionIds) {
+      try { this.engine.deleteSession(sid) } catch (e) {
+        console.warn(`[CronScheduler] deleteSession(${sid}) failed:`, e)
+      }
+    }
+    return { deleted, sessionCount: sessionIds.length }
   }
 }
 

@@ -369,6 +369,26 @@ export class SettingsStore {
     return this.db.prepare('DELETE FROM cron_tasks WHERE id = ?').run(id).changes > 0
   }
 
+  /**
+   * User-initiated delete: cascade the task, all its run rows, and hand back
+   * every run's sessionId so the caller can clean JSONL + registry entries.
+   * Atomic — both table writes run in one txn. Returns empty sessionIds list
+   * when the task id doesn't exist (caller can treat as no-op).
+   */
+  deleteTaskCascade(id: string): { deleted: boolean; sessionIds: string[] } {
+    const txn = this.db.transaction((taskId: string) => {
+      // Single quotes: SQLite treats "" as an identifier, not a string literal.
+      const rows = this.db.prepare(
+        "SELECT session_id FROM cron_runs WHERE task_id = ? AND session_id != ''"
+      ).all(taskId) as Array<{ session_id: string }>
+      const sessionIds = rows.map(r => r.session_id).filter(Boolean)
+      this.db.prepare('DELETE FROM cron_runs WHERE task_id = ?').run(taskId)
+      const info = this.db.prepare('DELETE FROM cron_tasks WHERE id = ?').run(taskId)
+      return { deleted: info.changes > 0, sessionIds }
+    })
+    return txn(id)
+  }
+
   // --- Cron runs (execution history) ---
 
   createCronRun(taskId: string, taskName: string, triggerType: CronRunTrigger): { id: number; sessionId: string } {

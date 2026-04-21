@@ -558,7 +558,9 @@
         danger: true,
       }))) return
       await api.delete(task.id)
-      loadTasks()
+      // refreshAll covers both tasks grid + runs list (cascade just nuked
+      // this task's run rows, the Run History tab needs to reflect that).
+      refreshAll()
     })
   }
 

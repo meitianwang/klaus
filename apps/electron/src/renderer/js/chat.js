@@ -116,6 +116,11 @@ window.refreshCronSidebar = () => refreshCronTasksForSidebar()
 async function refreshCronTasksForSidebar() {
   try {
     cronTasks = (await klausApi.settings.cron.list()) || []
+    // Drop cached runs for tasks that no longer exist (user deleted them from
+    // the cron page — engine.deleteSession already wiped their JSONLs).
+    const keep = new Set(cronTasks.map(t => t.id))
+    for (const tid of [...cronRunsByTask.keys()]) if (!keep.has(tid)) cronRunsByTask.delete(tid)
+    for (const tid of [...cronTaskExpanded]) if (!keep.has(tid)) cronTaskExpanded.delete(tid)
     // Preload runs for tasks the user has expanded so the first expand
     // doesn't flicker empty-then-populated.
     await Promise.all([...cronTaskExpanded].map(async (tid) => {
@@ -124,6 +129,24 @@ async function refreshCronTasksForSidebar() {
         cronRunsByTask.set(tid, runs)
       } catch { cronRunsByTask.set(tid, []) }
     }))
+    // If the currently-open chat is a cron-run whose task got deleted, the
+    // JSONL is gone — the viewport is showing a zombie. Pull the engine's
+    // fresh session list and fall back to the first surviving one (or the
+    // welcome screen).
+    if (isCronRunSession(currentSessionId)) {
+      const live = await klausApi.session.list()
+      if (!live.some(s => s.id === currentSessionId)) {
+        sessions = live
+        const next = sessions.find(s => !isCronRunSession(s.id))
+        if (next) await switchSession(next.id)
+        else {
+          currentSessionId = null
+          messagesEl.innerHTML = ''
+          messagesEl.style.display = 'none'
+          welcomeEl.style.display = 'flex'
+        }
+      }
+    }
   } catch (err) {
     console.warn('[Sidebar] cron load failed:', err)
     cronTasks = []
