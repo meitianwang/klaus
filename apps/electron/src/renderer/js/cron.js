@@ -872,7 +872,8 @@
     const parsed = parseSchedule(task?.schedule, !!task?.deleteAfterRun)
     if (parsed) {
       ddFreq.setValue(parsed.freq)
-      setTimeValue(parsed.hour ?? 9, parsed.minute ?? 0)
+      const now = defaultTimeNow()
+      setTimeValue(parsed.hour ?? now.h, parsed.minute ?? now.m)
       if (parsed.weekday) ddWeekday.setValue(parsed.weekday)
       if (parsed.monthday) ddMonthday.setValue(parsed.monthday)
       if (parsed.interval) fInterval.value = parsed.interval
@@ -880,12 +881,14 @@
       else setDateValue(defaultIsoToday())
     } else if (task?.schedule) {
       ddFreq.setValue('custom')
-      setTimeValue(9, 0)
+      const now = defaultTimeNow()
+      setTimeValue(now.h, now.m)
       fSchedule.value = task.schedule
       setDateValue(defaultIsoToday())
     } else {
       ddFreq.setValue('daily')
-      setTimeValue(9, 0)
+      const now = defaultTimeNow()
+      setTimeValue(now.h, now.m)
       setDateValue(defaultIsoToday())
     }
     setMode(ddFreq.getValue())
@@ -896,6 +899,13 @@
   function defaultIsoToday() {
     const d = new Date()
     return fmtDate(d.getFullYear(), d.getMonth() + 1, d.getDate())
+  }
+  // Time picker default for new tasks — the user usually wants "something
+  // near now" rather than a pinned 09:00. Edit flows still restore the
+  // stored hour/minute via the parsed.hour/minute branch above.
+  function defaultTimeNow() {
+    const d = new Date()
+    return { h: d.getHours(), m: d.getMinutes() }
   }
   function closeForm() {
     modal.classList.remove('active')
