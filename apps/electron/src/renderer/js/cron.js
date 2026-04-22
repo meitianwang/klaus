@@ -1074,6 +1074,12 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && modal.classList.contains('active')) closeForm()
   })
+  // Re-render dynamic content (cards with channel badges, run-history rows,
+  // humanized schedules) when the user switches language — everything here
+  // is built via innerHTML so applyI18n() in i18n.js can't catch it.
+  window.addEventListener('klaus:lang-change', () => {
+    if (cronVisible) refreshAll()
+  })
 
   // Exports
   window.showCronView = show

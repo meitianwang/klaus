@@ -260,6 +260,17 @@ async function init() {
   refreshAuthPill()
   if (typeof window.bootstrapProfile === 'function') window.bootstrapProfile()
   if (sessions.length > 0) await switchSession(sessions[0].id)
+
+  // Re-run dynamic renders on language switch. applyI18n() in i18n.js only
+  // refreshes static [data-i18n] nodes; anything built via innerHTML (the
+  // sidebar, auth pill, cron banner, channel badges, …) stays stuck at the
+  // tt() value from when it was last rendered. setLanguage() dispatches
+  // this event so listeners can re-resolve their labels.
+  window.addEventListener('klaus:lang-change', () => {
+    renderSessionList()
+    refreshAuthPill()
+    renderCronChannelBanner(currentSessionId)
+  })
 }
 
 // 刷新头部认证模式指示器
