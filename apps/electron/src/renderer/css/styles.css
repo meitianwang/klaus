@@ -207,6 +207,11 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .session-item:hover .s-del { display: block; }
 .session-item .s-del:hover { color: #dc2626; background: rgba(220,38,38,0.08); }
 
+/* Pinned-group wrapper sits above the "Recents" section label. A small
+ * bottom margin gives the label breathing room so it no longer reads as
+ * a sub-header of the cron group. */
+.cron-pinned-wrap { margin-bottom: 8px; }
+
 /* ---- Pinned 定时任务 sidebar group ---- */
 /*
  * Visual hierarchy (per the reference mock):

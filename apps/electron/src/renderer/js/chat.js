@@ -401,8 +401,13 @@ function sessionHasMessages(s) {
 
 function renderSessionList() {
   sessionListEl.innerHTML = ''
-  // Pinned "定时任务" group at the top. Renders nothing when no cron tasks.
-  renderCronSidebarGroup()
+  // Pinned "定时任务" group lives in its own container ABOVE the "Recents"
+  // label, rendered fresh each time so the unread dots stay current.
+  const cronWrap = document.getElementById('cron-pinned-wrap')
+  if (cronWrap) {
+    cronWrap.innerHTML = ''
+    renderCronSidebarGroup(cronWrap)
+  }
   // Regular flat sessions, excluding cron-run sessions (they live under
   // their task in the pinned group above).
   for (const s of sessions) {
@@ -436,7 +441,7 @@ function renderSessionList() {
 //
 // Always renders — even with zero tasks — so the folder is a stable entry
 // point for users to go create one.
-function renderCronSidebarGroup() {
+function renderCronSidebarGroup(container) {
   const group = document.createElement('div')
   group.className = 'cron-sb-group' + (cronGroupExpanded ? ' open' : '')
 
@@ -467,7 +472,7 @@ function renderCronSidebarGroup() {
     }
     group.appendChild(body)
   }
-  sessionListEl.appendChild(group)
+  (container || sessionListEl).appendChild(group)
 }
 
 function renderCronSidebarTask(task) {
