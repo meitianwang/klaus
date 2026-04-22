@@ -194,10 +194,20 @@ export class CronScheduler {
         }
       } finally {
         this.running.delete(task.id)
-        // One-shot tasks self-delete after their first run regardless of outcome.
+        // One-shot tasks: flip to disabled instead of deleting. The old
+        // behavior was to deleteTask() here which cascade-swept cron_runs
+        // and the session JSONL — that meant the user never got to see
+        // what Klaus actually did for a one-shot, since by the time they
+        // opened the sidebar the whole thing was gone. Disabling keeps
+        // the card (toggle off), the run row, and the session's
+        // streaming history; tick() already filters on enabled so it
+        // won't re-fire. User manually deletes when they're done.
         if (task.deleteAfterRun) {
-          try { this.store.deleteTask(task.id) } catch (e) {
-            console.error(`[CronScheduler] Failed to delete one-shot task ${task.id}:`, e)
+          try {
+            const current = this.store.getTask(task.id)
+            if (current) this.store.upsertTask({ ...current, enabled: false, updatedAt: Date.now() })
+          } catch (e) {
+            console.error(`[CronScheduler] Failed to disable one-shot task ${task.id}:`, e)
           }
         }
         resolveDone()
