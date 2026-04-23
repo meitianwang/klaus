@@ -8,8 +8,9 @@
   "description": "Klaus AI Desktop — single-user AI assistant",
   "scripts": {
     "build": "tsup",
-    "dev": "tsup && (ELECTRON_RUN_AS_NODE= electron . & sleep 3 && tsup --watch)",
-    "start": "npm run build && ELECTRON_RUN_AS_NODE= electron .",
+    "setup:electron-dev": "node scripts/setup-electron-dev.mjs",
+    "dev": "npm run setup:electron-dev && tsup && (ELECTRON_RUN_AS_NODE= .electron-dev/Klaus-Dev.app/Contents/MacOS/Electron . & sleep 3 && tsup --watch)",
+    "start": "npm run setup:electron-dev && npm run build && ELECTRON_RUN_AS_NODE= .electron-dev/Klaus-Dev.app/Contents/MacOS/Electron .",
     "package": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
