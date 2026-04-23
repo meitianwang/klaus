@@ -442,9 +442,11 @@ function renderSessionList() {
 //   ▸ Run sub-row (task.open): timestamp + unread dot. Clicking a run
 //     opens its dedicated chat thread.
 //
-// Always renders — even with zero tasks — so the folder is a stable entry
-// point for users to go create one.
+// 零任务时整个 group 不渲染 —— 顶部已有"定时任务"入口按钮，这里再显示一个
+// 空分组标题 + "还没有定时任务"文案视觉冗余。有任务才出现 pinned group。
 function renderCronSidebarGroup(container) {
+  if (!cronTasks || cronTasks.length === 0) return
+
   const group = document.createElement('div')
   group.className = 'cron-sb-group' + (cronGroupExpanded ? ' open' : '')
 
@@ -463,15 +465,8 @@ function renderCronSidebarGroup(container) {
   if (cronGroupExpanded) {
     const body = document.createElement('div')
     body.className = 'cron-sb-body'
-    if (!cronTasks || cronTasks.length === 0) {
-      const empty = document.createElement('div')
-      empty.className = 'cron-sb-task-empty'
-      empty.textContent = tt('cron_no_tasks') || tt('cron_runs_empty')
-      body.appendChild(empty)
-    } else {
-      for (const task of cronTasks) {
-        body.appendChild(renderCronSidebarTask(task))
-      }
+    for (const task of cronTasks) {
+      body.appendChild(renderCronSidebarTask(task))
     }
     group.appendChild(body)
   }
