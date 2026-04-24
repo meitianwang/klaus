@@ -142,6 +142,15 @@ interface SessionEntry {
    * seeds it from the tail of on-disk history.
    */
   lastRecordedUuid?: string
+  /**
+   * 已经通过 partial stream_event (content_block_delta → text_delta) 向前端推过
+   * text 的 message id 集合。`case 'assistant':` 在收到完整 assistant 消息时据此
+   * 判断：上游发过 partial（官方 API）就跳过 text 兜底避免双倍渲染；上游只发完整
+   * assistant 不发 partial（kimi-code / 部分 Bedrock 代理）则兜底补发 text_delta。
+   */
+  streamedTextMessageIds: Set<string>
+  /** message_start 记录的当前流式 message id，供后续 content_block_delta 归属到对应 message。 */
+  currentStreamingMessageId?: string
 }
 
 class ToolLoopDetector {
@@ -264,6 +273,7 @@ export class EngineHost {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       uuid,
+      streamedTextMessageIds: new Set<string>(),
     } as SessionEntry
     this.sessions.set(channelKey, entry)
     return entry
@@ -1253,14 +1263,20 @@ export class EngineHost {
       }
 
       // 完整的 assistant 消息 —— 把里面的 content 块拆成 UI 能渲染的事件
-      // text 块不在这里兜底：stream_event 已经把分片 text_delta 推过了，
-      // 再补一次会让前端把同一段正文渲染两遍
+      // text 块是否兜底由上游类型决定：官方 API 会在 stream_event 里把 text_delta 分片推过
+      // (streamedTextMessageIds 记录了这些 message id)，这里跳过避免双倍；kimi-code / 部分
+      // Bedrock 代理兼容层只发完整 assistant 不发 partial，这里兜底补发让前端能渲染。
       case 'assistant': {
         session.messages.push(event as Message)
+        const msgId = (event as any).message?.id as string | undefined
+        const alreadyStreamed = !!(msgId && session.streamedTextMessageIds.has(msgId))
         const content = (event as any).message?.content
         if (Array.isArray(content)) {
           for (const block of content) {
-            if ((block.type === 'thinking' || block.type === 'redacted_thinking') && (block.thinking || block.data)) {
+            if (block.type === 'text' && block.text && !alreadyStreamed) {
+              this.pushEvent({ type: 'stream_mode', sessionId, mode: 'responding' })
+              this.pushEvent({ type: 'text_delta', sessionId, text: block.text })
+            } else if ((block.type === 'thinking' || block.type === 'redacted_thinking') && (block.thinking || block.data)) {
               this.pushEvent({ type: 'stream_mode', sessionId, mode: 'thinking' })
               this.pushEvent({ type: 'thinking_delta', sessionId, thinking: block.thinking ?? block.data ?? '' })
             } else if (block.type === 'tool_use') {
@@ -1307,7 +1323,7 @@ export class EngineHost {
       // API 原始流式事件（includePartialMessages=true 时才会有；桌面端目前 false，基本不会走到）
       case 'stream_event': {
         const se = event.event ?? event
-        this.processApiStreamEvent(sessionId, se)
+        this.processApiStreamEvent(sessionId, se, session)
         break
       }
 
@@ -1368,7 +1384,7 @@ export class EngineHost {
     }
   }
 
-  private processApiStreamEvent(sessionId: string, event: any): void {
+  private processApiStreamEvent(sessionId: string, event: any, session: SessionEntry): void {
     if (!event?.type) return
 
     switch (event.type) {
@@ -1391,6 +1407,10 @@ export class EngineHost {
         const delta = event.delta
         if (delta?.type === 'text_delta' && delta.text) {
           this.pushEvent({ type: 'text_delta', sessionId, text: delta.text })
+          // 记录本条 message 已经通过 partial stream 推过 text，case 'assistant' 就不再兜底补发
+          if (session.currentStreamingMessageId) {
+            session.streamedTextMessageIds.add(session.currentStreamingMessageId)
+          }
         } else if (delta?.type === 'thinking_delta' && delta.thinking) {
           this.pushEvent({ type: 'thinking_delta', sessionId, thinking: delta.thinking })
         } else if (delta?.type === 'input_json_delta' && delta.partial_json) {
@@ -1403,6 +1423,7 @@ export class EngineHost {
       }
       case 'message_start': {
         this.pushEvent({ type: 'stream_mode', sessionId, mode: 'requesting' })
+        session.currentStreamingMessageId = event.message?.id ?? undefined
         break
       }
     }
