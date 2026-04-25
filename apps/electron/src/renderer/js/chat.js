@@ -1059,6 +1059,20 @@ function getToolCategory(name) {
   return ''
 }
 
+function toolValueText(toolName, args) {
+  if (!args || typeof args !== 'object') return ''
+  if (toolName === 'AskUserQuestion') {
+    // Interactive card rendered below by showAskUserQuestionRequest already
+    // shows the questions in a readable form — don't duplicate the raw JSON.
+    return ''
+  }
+  if (args.command) return '$ ' + args.command
+  if (args.file_path) return args.file_path
+  if (args.pattern) return args.pattern
+  const v = JSON.stringify(args)
+  return v.length > 80 ? v.slice(0, 80) + '...' : v
+}
+
 function appendToolStart(toolName, toolCallId, args) {
   let container = messagesEl.querySelector('.tool-container:last-child')
   if (!container || container.dataset.done === '1') {
@@ -1078,21 +1092,24 @@ function appendToolStart(toolName, toolCallId, args) {
   item.className = 'tool-item' + (cat ? ' ' + cat : '')
   item.id = 'tool-' + toolCallId
 
-  let valueText = ''
-  if (args && typeof args === 'object') {
-    if (toolName === 'AskUserQuestion') {
-      // Interactive card rendered below by showAskUserQuestionRequest already
-      // shows the questions in a readable form — don't duplicate the raw JSON.
-      valueText = ''
-    } else if (args.command) valueText = '$ ' + args.command
-    else if (args.file_path) valueText = args.file_path
-    else if (args.pattern) valueText = args.pattern
-    else { const v = JSON.stringify(args); valueText = v.length > 80 ? v.slice(0, 80) + '...' : v }
-  }
+  const valueText = toolValueText(toolName, args)
 
   item.innerHTML = `<span class="tool-label">${escapeHtml(toolName)}</span><span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span><span class="tool-dot"></span>`
   container.appendChild(item)
   scrollToBottom()
+}
+
+// Partial stream 给 tool_use 创建卡片时 args 是空的（input_json_delta 碎片我们没消费），
+// case 'assistant' 兜底会用完整 JSON 再发一次 tool_input_delta —— 这里把卡片的 args 显示更新掉。
+function updateToolArgs(toolCallId, jsonStr) {
+  if (!toolCallId || !jsonStr) return
+  const item = document.getElementById('tool-' + toolCallId)
+  if (!item) return
+  let args
+  try { args = JSON.parse(jsonStr) } catch { return }
+  const toolName = item.querySelector('.tool-label')?.textContent || ''
+  const valueEl = item.querySelector('.tool-value')
+  if (valueEl) valueEl.textContent = toolValueText(toolName, args)
 }
 
 function createAgentContainer(toolName, toolCallId, args, parentContainer) {
@@ -1770,7 +1787,7 @@ klausApi.on.chatEvent((event) => {
     case 'thinking_delta': thinkingUI.append(event.thinking); break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
     case 'tool_end': updateToolEnd(event.toolCallId, event.isError); break
-    case 'tool_input_delta': break // tool input streaming (optional)
+    case 'tool_input_delta': updateToolArgs(event.toolCallId, event.delta); break
     case 'progress': appendToolProgress(event.toolCallId, event.content); break
     case 'stream_mode':
       if (event.mode === 'requesting') thinkingUI.show() // 幂等，已有就是 no-op

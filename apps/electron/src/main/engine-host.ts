@@ -143,12 +143,16 @@ interface SessionEntry {
    */
   lastRecordedUuid?: string
   /**
-   * 已经通过 partial stream_event (content_block_delta → text_delta) 向前端推过
-   * text 的 message id 集合。`case 'assistant':` 在收到完整 assistant 消息时据此
-   * 判断：上游发过 partial（官方 API）就跳过 text 兜底避免双倍渲染；上游只发完整
-   * assistant 不发 partial（kimi-code / 部分 Bedrock 代理）则兜底补发 text_delta。
+   * 每个 message id 上已经通过 partial stream_event (content_block_start /
+   * content_block_delta) 推送过的 block 类型集合。`case 'assistant':` 在收到
+   * 完整 assistant 消息时据此跳过对应 block 的兜底推送，避免双倍渲染。
+   *
+   * 上游发过 partial（官方 API、Anthropic SDK 直连）→ map 有记录，按类型跳过；
+   * 上游只发完整 assistant 不发 partial（kimi-code / 部分 Bedrock 代理）→ map 为空，
+   * 全部兜底补发。新增 block 类型只需在 partial 流处理里把 type 记进来，
+   * 兜底逻辑自动跟上，不用再加专门的 Set。
    */
-  streamedTextMessageIds: Set<string>
+  streamedBlockTypes: Map<string, Set<string>>
   /** message_start 记录的当前流式 message id，供后续 content_block_delta 归属到对应 message。 */
   currentStreamingMessageId?: string
 }
@@ -273,7 +277,7 @@ export class EngineHost {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       uuid,
-      streamedTextMessageIds: new Set<string>(),
+      streamedBlockTypes: new Map<string, Set<string>>(),
     } as SessionEntry
     this.sessions.set(channelKey, entry)
     return entry
@@ -1280,29 +1284,38 @@ export class EngineHost {
       }
 
       // 完整的 assistant 消息 —— 把里面的 content 块拆成 UI 能渲染的事件
-      // text 块是否兜底由上游类型决定：官方 API 会在 stream_event 里把 text_delta 分片推过
-      // (streamedTextMessageIds 记录了这些 message id)，这里跳过避免双倍；kimi-code / 部分
-      // Bedrock 代理兼容层只发完整 assistant 不发 partial，这里兜底补发让前端能渲染。
+      // 是否兜底由 partial stream 是否推过这种 block 决定（streamedBlockTypes 按 msgId × blockType 记录）：
+      // - 官方 API / Anthropic SDK 直连：partial 流已经推过 text/thinking/tool_use，这里全部跳过
+      //   避免双倍渲染（典型如思考内容会重复成两段）。
+      // - kimi-code / 部分 Bedrock 代理：只发完整 assistant 不发 partial，map 为空，全部兜底补发。
+      // - redacted_thinking 这类 partial 流不处理的类型 → map 永远不会记录 → 总是兜底，符合预期。
+      // - 未来 Anthropic 新增 block 类型只要在 partial 流里把 type 记进 map，兜底自动跟上。
       case 'assistant': {
         session.messages.push(event as Message)
         const msgId = (event as any).message?.id as string | undefined
-        const alreadyStreamed = !!(msgId && session.streamedTextMessageIds.has(msgId))
+        const streamed = msgId ? session.streamedBlockTypes.get(msgId) : undefined
+        const wasStreamed = (t: string) => !!streamed?.has(t)
         const content = (event as any).message?.content
         if (Array.isArray(content)) {
           for (const block of content) {
-            if (block.type === 'text' && block.text && !alreadyStreamed) {
+            if (block.type === 'text' && block.text && !wasStreamed('text')) {
               this.pushEvent({ type: 'stream_mode', sessionId, mode: 'responding' })
               this.pushEvent({ type: 'text_delta', sessionId, text: block.text })
-            } else if ((block.type === 'thinking' || block.type === 'redacted_thinking') && (block.thinking || block.data)) {
+            } else if ((block.type === 'thinking' || block.type === 'redacted_thinking') && (block.thinking || block.data) && !wasStreamed(block.type)) {
               this.pushEvent({ type: 'stream_mode', sessionId, mode: 'thinking' })
               this.pushEvent({ type: 'thinking_delta', sessionId, thinking: block.thinking ?? block.data ?? '' })
             } else if (block.type === 'tool_use') {
               this.pushEvent({ type: 'stream_mode', sessionId, mode: 'tool-use' })
-              this.pushEvent({
-                type: 'tool_start', sessionId,
-                toolName: block.name ?? '', toolCallId: block.id ?? '', args: block.input ?? {},
-              })
-              // 一次性把完整 input 作为 JSON 推给前端（前端靠累积 tool_input_delta 显示工具参数）
+              // partial 流已经凭 content_block_start 创建了卡片（args 为空，input_json_delta 前端忽略）
+              // —— 跳过重复 tool_start 避免出现两张同 id 卡片。
+              if (!wasStreamed('tool_use')) {
+                this.pushEvent({
+                  type: 'tool_start', sessionId,
+                  toolName: block.name ?? '', toolCallId: block.id ?? '', args: block.input ?? {},
+                })
+              }
+              // 始终把完整 input 作为 JSON 推一次：partial 流没推过时这是首次填充，
+              // partial 流推过时它会让前端把空 args 卡片更新成真实 args（覆盖 input_json_delta 的碎片）。
               if (block.input) {
                 this.pushEvent({
                   type: 'tool_input_delta', sessionId,
@@ -1404,9 +1417,21 @@ export class EngineHost {
   private processApiStreamEvent(sessionId: string, event: any, session: SessionEntry): void {
     if (!event?.type) return
 
+    // 凡是这条 message 在 partial 流里出现过任意一种 block，就记到 streamedBlockTypes 里，
+    // 让 case 'assistant' 知道哪些 block 已经推过、哪些需要兜底。统一从 content_block_start
+    // 入手（每种 block 都会先发 start 再发 delta），加 delta 那一层只是双保险。
+    const markStreamed = (blockType: string) => {
+      const msgId = session.currentStreamingMessageId
+      if (!msgId || !blockType) return
+      let s = session.streamedBlockTypes.get(msgId)
+      if (!s) { s = new Set<string>(); session.streamedBlockTypes.set(msgId, s) }
+      s.add(blockType)
+    }
+
     switch (event.type) {
       case 'content_block_start': {
         const block = event.content_block
+        if (block?.type) markStreamed(block.type)
         if (block?.type === 'thinking') {
           this.pushEvent({ type: 'stream_mode', sessionId, mode: 'thinking' })
         } else if (block?.type === 'text') {
@@ -1424,17 +1449,16 @@ export class EngineHost {
         const delta = event.delta
         if (delta?.type === 'text_delta' && delta.text) {
           this.pushEvent({ type: 'text_delta', sessionId, text: delta.text })
-          // 记录本条 message 已经通过 partial stream 推过 text，case 'assistant' 就不再兜底补发
-          if (session.currentStreamingMessageId) {
-            session.streamedTextMessageIds.add(session.currentStreamingMessageId)
-          }
+          markStreamed('text')
         } else if (delta?.type === 'thinking_delta' && delta.thinking) {
           this.pushEvent({ type: 'thinking_delta', sessionId, thinking: delta.thinking })
+          markStreamed('thinking')
         } else if (delta?.type === 'input_json_delta' && delta.partial_json) {
           this.pushEvent({
             type: 'tool_input_delta', sessionId,
             toolCallId: '', delta: delta.partial_json,
           })
+          markStreamed('tool_use')
         }
         break
       }
