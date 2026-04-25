@@ -724,77 +724,144 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   flex-shrink: 0;
 }
 
-/* ===== Permission card ===== */
+/* ===== Permission card =====
+ * Aligned with klausDialog tokens: subtle slate border, --accent primary
+ * action, transparent secondary. No yellow/green/red palette — semantic
+ * weight comes from layout and copy, not chroma. */
 .permission-card {
+  position: relative;
   max-width: 720px;
-  margin: 8px auto;
+  margin: 12px auto;
   background: var(--bg-elevated);
-  border: 1px solid rgba(234,179,8,0.3);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 12px 16px;
+  box-shadow: var(--shadow-md);
+  padding: 16px 18px;
   animation: fade-in .2s ease;
 }
-.permission-card.permission-resolved { opacity: 0.5; }
+.permission-card.permission-resolved {
+  opacity: 0.6;
+  box-shadow: none;
+  border-color: var(--border-subtle);
+}
 
 .permission-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  padding-right: 48px; /* leave space for absolute-positioned timer */
 }
-.permission-header svg { width: 16px; height: 16px; color: #eab308; }
-.permission-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.permission-header svg {
+  width: 14px;
+  height: 14px;
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+}
+.permission-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 
-.permission-message { font-size: 12px; color: var(--fg-secondary); line-height: 1.5; margin-bottom: 8px; }
+.permission-message {
+  font-size: 13px;
+  color: var(--fg-secondary);
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
 
-.permission-input-details { margin-bottom: 8px; }
+.permission-input-details { margin-bottom: 12px; }
 .permission-input-details summary {
   font-size: 12px;
   color: var(--fg-tertiary);
   cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
+.permission-input-details summary::-webkit-details-marker { display: none; }
+.permission-input-details summary::before {
+  content: '▸';
+  font-size: 9px;
+  transition: transform var(--transition);
+  display: inline-block;
+}
+.permission-input-details[open] summary::before { transform: rotate(90deg); }
+.permission-input-details summary:hover { color: var(--fg-secondary); }
 .permission-input-preview {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   background: var(--bg-surface);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
-  max-height: 120px;
+  max-height: 160px;
   overflow-y: auto;
-  margin-top: 4px;
+  margin-top: 8px;
   white-space: pre-wrap;
   word-break: break-all;
+  color: var(--fg-secondary);
 }
 
-.permission-suggestions { margin-bottom: 8px; }
+.permission-suggestions { margin-bottom: 12px; }
 .permission-suggestion {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
   color: var(--fg-secondary);
   padding: 3px 0;
   cursor: pointer;
+  user-select: none;
+}
+.permission-suggestion input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
-.permission-actions { display: flex; gap: 8px; }
+.permission-actions { display: flex; gap: 8px; align-items: center; }
 .permission-btn {
-  padding: 5px 16px;
+  padding: 7px 18px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
-  font-weight: 500;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
   cursor: pointer;
-  border: none;
-  transition: all var(--transition);
+  min-width: 72px;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
-.permission-btn-allow { background: #16a34a; color: white; }
-.permission-btn-allow:hover { background: #15803d; }
-.permission-btn-deny { background: var(--bg-surface); color: var(--fg); border: 1px solid var(--border); }
+.permission-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.permission-btn-allow { background: var(--accent); color: var(--accent-text); }
+.permission-btn-allow:hover { background: var(--accent-hover); }
+.permission-btn-deny { background: transparent; color: var(--fg); border-color: var(--border); }
 .permission-btn-deny:hover { background: var(--bg-hover); }
 
-.permission-result { font-size: 12px; font-weight: 500; padding: 4px 0; }
-.permission-allowed { color: #16a34a; }
-.permission-denied { color: #dc2626; }
+.permission-result {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-tertiary);
+  padding: 4px 0;
+}
+.permission-allowed::before {
+  content: '✓ ';
+  color: var(--fg-secondary);
+  margin-right: 2px;
+}
+.permission-denied::before {
+  content: '✕ ';
+  color: var(--fg-secondary);
+  margin-right: 2px;
+}
+
+.permission-timer {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font-size: 11px;
+  color: var(--fg-quaternary);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ===== Ask user question card ===== */
 .question-card {
@@ -3027,9 +3094,6 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   border-radius: 4px;
   line-height: 1.4;
 }
-
-/* ===== Permission timer ===== */
-.permission-timer { font-size: 10px; color: var(--fg-quaternary); margin-top: 4px; }
 
 /* ===== Skills page (settings → skills tab) ===== */
 .sk-section { padding-top: 4px; }

@@ -68,6 +68,14 @@ let agentPanel = { team: null, agents: new Map() }
 const AGENT_COLOR_MAP = { blue: '#3b82f6', green: '#16a34a', purple: '#9333ea', orange: '#ea580c', red: '#dc2626', yellow: '#eab308' }
 let pendingFiles = []  // { file, objectUrl, uploadId, uploading }
 let sessionDom = new Map()  // sessionId → DocumentFragment cache
+// sessionId → PermissionRequest[]: permission asks that arrived while the user
+// was looking at a different session (cron-run sessions trigger these in the
+// background). switchSession() drains the list when the user opens that session
+// so the card materializes at that moment. permission_cancelled drops the entry
+// here too. We don't try to render into the off-screen session's DOM because
+// chat:event for off-screen sessions is fully filtered out (see
+// klausApi.on.chatEvent), so no tool_use anchors exist to attach to anyway.
+let pendingPermissionsBySession = new Map()
 let switchSeq = 0  // monotonic; each switchSession run captures this and bails out if a newer click superseded it mid-await
 let sidebarCollapsed = localStorage.getItem('klaus_sidebar_collapsed') === '1'
 
@@ -700,6 +708,17 @@ async function switchSession(id) {
     }
   }
 
+  // Drain pending permission asks that arrived while this session was
+  // off-screen (typically cron-run sessions hitting Bash/AskUserQuestion).
+  // Now that messagesEl reflects this session, route them through the normal
+  // showPermissionRequest path — sessionId === currentSessionId so the
+  // re-entry into showPermissionRequest takes the in-session render branch.
+  const queued = pendingPermissionsBySession.get(id)
+  if (queued && queued.length > 0) {
+    pendingPermissionsBySession.delete(id)
+    for (const req of queued) showPermissionRequest(req)
+  }
+
   // 空 session → 显示 welcome（带 chips）；有消息 → 隐藏
   const hasContent = messagesEl.childNodes.length > 0
   messagesEl.style.display = hasContent ? 'block' : 'none'
@@ -1174,6 +1193,24 @@ function renderAgentPanel() {
 // ==================== Permission ====================
 
 function showPermissionRequest(req) {
+  // Route by sessionId. Permission asks from cron-run sessions running in the
+  // background must NOT mount into the currently-viewed session — that would
+  // attach an Approve/Deny button to the wrong conversation.
+  if (req.sessionId && req.sessionId !== currentSessionId) {
+    const list = pendingPermissionsBySession.get(req.sessionId) || []
+    list.push(req)
+    pendingPermissionsBySession.set(req.sessionId, list)
+    // Light up the sidebar so the user knows a background task is waiting.
+    // The unread mechanism is inverted (cronReadRuns is the *read* set; a run
+    // shows a dot iff its sessionId is NOT in the set), so flipping back to
+    // "unread" means deleting from the set + re-persisting.
+    if (isCronRunSession(req.sessionId) && cronReadRuns.has(req.sessionId)) {
+      cronReadRuns.delete(req.sessionId)
+      try { localStorage.setItem('klaus_cron_read_runs', JSON.stringify([...cronReadRuns])) } catch {}
+    }
+    renderSessionList()
+    return
+  }
   if (req.toolName === 'AskUserQuestion') {
     showAskUserQuestionRequest(req)
     return
@@ -1188,7 +1225,7 @@ function showPermissionRequest(req) {
       req.suggestions.map((s, i) => `<label class="permission-suggestion"><input type="checkbox" data-sug-idx="${i}"> ${escapeHtml(s.label || tt('permission_always_allow'))}</label>`).join('') + '</div>'
   }
   card.innerHTML = `
-    <div class="permission-header"><svg viewBox="0 0 16 16" width="16" height="16" fill="#eab308"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg><span class="permission-title">${escapeHtml(req.toolName)}</span></div>
+    <div class="permission-header"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg><span class="permission-title">${escapeHtml(req.toolName)}</span></div>
     <div class="permission-message">${escapeHtml(req.message || tt('permission_default_msg'))}</div>
     ${inputPreview ? `<details class="permission-input-details"><summary>${escapeHtml(tt('permission_show_input'))}</summary><pre class="permission-input-preview">${escapeHtml(inputPreview).slice(0, 500)}</pre></details>` : ''}
     ${suggestionsHtml}
@@ -1350,7 +1387,16 @@ function rebuildAskUserQuestionCard(tb) {
   const input = tb?.input || {}
   const questions = Array.isArray(input.questions) ? input.questions : []
   if (questions.length === 0) return
-  const resolution = input.__resolution || {}
+  // No __resolution means the tool_use exists in transcript but no tool_result
+  // has been written yet — the engine is still awaiting the user's answer.
+  // Common for cron-run sessions: the assistant called AskUserQuestion and
+  // is parked in onAsk while the user looks at a different chat. Skip the
+  // historical (resolved) render path so switchSession's pendingPermissions
+  // drain can mount the live, interactive card instead. Without this guard
+  // we'd paint a "已跳过" terminal-state card on top of (or instead of) the
+  // real one, leaving the user with no way to answer.
+  if (!input.__resolution) return
+  const resolution = input.__resolution
   const answersMap = resolution.status === 'answered' ? (resolution.answers || {}) : {}
 
   const card = document.createElement('div')
@@ -1689,6 +1735,16 @@ klausApi.on.chatEvent((event) => {
       // collapsed — otherwise the user doesn't see anything changed in the
       // sidebar after a scheduled task fires.
       if (isCronRunSession(event.sessionId)) refreshCronRunsForAllTasks()
+    } else if (event.type === 'permission_cancelled') {
+      // Engine withdrew a pending ask while we weren't looking at that
+      // session — drop it from the queued list so we don't pop a stale
+      // approve/deny card the next time the user opens that session.
+      const list = pendingPermissionsBySession.get(event.sessionId)
+      if (list) {
+        const filtered = list.filter(r => r.requestId !== event.requestId)
+        if (filtered.length === 0) pendingPermissionsBySession.delete(event.sessionId)
+        else pendingPermissionsBySession.set(event.sessionId, filtered)
+      }
     }
     return
   }
@@ -1741,8 +1797,22 @@ klausApi.on.chatEvent((event) => {
     // Pending permission cancelled by engine (e.g., user hit Stop mid-ask).
     // Tear down the card so the interrupt visibly takes effect.
     case 'permission_cancelled': {
-      const card = document.getElementById('q-' + event.requestId)
-      if (card) finalizeQuestionCard(card, 'skipped', null, [], [])
+      const askCard = document.getElementById('q-' + event.requestId)
+      if (askCard) {
+        finalizeQuestionCard(askCard, 'skipped', null, [], [])
+      } else {
+        // Generic permission card (Bash/Glob/etc.). Tear it down + stop the
+        // 120s countdown timer so it doesn't auto-deny a request that's
+        // already been resolved server-side.
+        const permCard = document.getElementById('perm-' + event.requestId)
+        if (permCard) {
+          if (permCard.dataset.timer) clearInterval(parseInt(permCard.dataset.timer))
+          permCard.classList.add('permission-resolved')
+          const actions = permCard.querySelector('.permission-actions')
+          if (actions) actions.innerHTML = `<div class="permission-result permission-denied">${tt('cancelled') || 'Cancelled'}</div>`
+          permCard.querySelector('.permission-timer')?.remove()
+        }
+      }
       break
     }
     case 'done':

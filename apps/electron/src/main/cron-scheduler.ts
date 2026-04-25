@@ -163,6 +163,19 @@ export class CronScheduler {
           onEvent: (event) => {
             getMainWindow()?.webContents.send('chat:event', event)
           },
+          // Forward permission asks the same way chat:send does. Without
+          // this, any tool that needs user approval (Bash, AskUserQuestion,
+          // …) would hang inside engine.onAsk waiting for a resolve that
+          // never comes — and since the global chatQueue serializes every
+          // engine.chat() call (CC's STATE.sessionId is module-global), a
+          // single stuck cron run blocks every subsequent UI chat too.
+          // The renderer routes the card by req.sessionId: if the user is
+          // viewing this cron-run session it shows inline; otherwise it's
+          // stashed in that session's sessionDom fragment so it appears
+          // when the user clicks into the run from the sidebar.
+          onPermissionRequest: (req) => {
+            getMainWindow()?.webContents.send('permission:request', req)
+          },
           // Don't emit user_message — the renderer seeds the user bubble
           // synthetically from task.prompt when switchSession opens a cron
           // run whose JSONL is still empty (engine boot takes ~100-500ms,

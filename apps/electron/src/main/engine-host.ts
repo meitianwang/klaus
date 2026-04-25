@@ -913,10 +913,27 @@ export class EngineHost {
           return { decision: 'deny' as const }
         }
 
+        // Safety net: caller didn't register an onPermissionRequest forwarder.
+        // pushPermissionRequest would silently no-op and onAsk would await
+        // pendingPermissions forever — which deadlocks the global chatQueue
+        // because CC's STATE.sessionId serializes every chat. Pre-emptively
+        // deny so the engine moves on. Real interactive callers (UI chat:send,
+        // cron-scheduler) MUST register an emitter; this branch fires only on
+        // misconfiguration and prints a loud warning so it's findable.
+        if (!this.sessionPermissionEmitters.has(sessionId)) {
+          console.warn(
+            `[Permission] No onPermissionRequest forwarder for session=${sessionId} ` +
+            `tool=${askTool.name} → auto-denying. Caller must pass onPermissionRequest ` +
+            `to engine.chat() or run with permission_mode=bypassPermissions.`,
+          )
+          return { decision: 'deny' as const }
+        }
+
         const requestId = randomUUID()
 
         this.pushPermissionRequest(sessionId, {
           requestId,
+          sessionId,
           toolName: askTool.name,
           toolInput: askInput,
           message,

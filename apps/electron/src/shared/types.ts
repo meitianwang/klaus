@@ -153,6 +153,12 @@ export type EngineEvent =
 
 export interface PermissionRequest {
   requestId: string
+  /** Session that triggered this permission ask. Renderer routes the card to
+   *  this session's DOM (current view → messagesEl directly; off-screen
+   *  session → that session's sessionDom fragment so the card materializes
+   *  when the user switches to it). Required since cron-run sessions can
+   *  trigger permission asks while the user is looking at a different chat. */
+  sessionId: string
   toolName: string
   toolInput: unknown
   message: string
