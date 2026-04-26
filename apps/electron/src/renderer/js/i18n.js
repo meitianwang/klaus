@@ -337,6 +337,7 @@ const I18N = {
     // Tool status
     tool_completed: 'completed', tool_failed: 'failed',
     tool_running: 'running', tool_input: 'Input', tool_output: 'Output', tool_no_output: '(no output)',
+    tool_lines: 'lines', tool_field: 'field', tool_fields: 'fields',
     // Permission card
     permission_default_msg: 'This tool requires your approval.',
     permission_show_input: 'Show input',
@@ -751,6 +752,7 @@ const I18N = {
     // Tool status
     tool_completed: '已完成', tool_failed: '失败',
     tool_running: '执行中', tool_input: '输入', tool_output: '输出', tool_no_output: '（无输出）',
+    tool_lines: '行', tool_field: '字段', tool_fields: '字段',
     // Permission card
     permission_default_msg: '此工具需要你的批准。',
     permission_show_input: '展开输入',

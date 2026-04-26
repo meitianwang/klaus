@@ -964,17 +964,8 @@ function appendAssistantFromBlocks(blocks) {
       // matching tool_result was found in the same transcript pass.
       const result = typeof tb.__result === 'string' ? tb.__result : ''
       if (result) {
-        const detail = item.querySelector('.tool-item-detail')
-        if (detail) {
-          const label = document.createElement('div')
-          label.className = 'tool-detail-label'
-          label.textContent = tt('tool_output') || 'Output'
-          detail.appendChild(label)
-          const outPre = document.createElement('pre')
-          outPre.className = 'tool-detail-pre tool-detail-output'
-          outPre.textContent = result
-          detail.appendChild(outPre)
-        }
+        const outPre = ensureToolOutputPre(item)
+        if (outPre) outPre.textContent = result
       }
       container.appendChild(item)
     }
@@ -1082,21 +1073,106 @@ function toolValueText(toolName, args) {
   return v.length > 80 ? v.slice(0, 80) + '...' : v
 }
 
+// Lucide-style stroke icons keyed by tool category. 14px stroke, currentColor —
+// inherits .tool-item-icon's category color from CSS.
+function toolIconSvg(cat) {
+  const a = 'class="tool-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'
+  switch (cat) {
+    case 'terminal':
+      return `<svg ${a}><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`
+    case 'file':
+      return `<svg ${a}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`
+    case 'search':
+      return `<svg ${a}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`
+    case 'agent':
+      return `<svg ${a}><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/></svg>`
+    default:
+      // Generic tool — wrench
+      return `<svg ${a}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`
+  }
+}
 function toolChevronSvg() {
   return '<svg class="tool-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5l3 3 3-3"/></svg>'
+}
+function toolCheckSvg() {
+  return '<svg class="tool-check" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 6.5 5 9 9.5 3.5"/></svg>'
 }
 function formatToolInput(args) {
   if (!args || typeof args !== 'object') return ''
   try { return JSON.stringify(args, null, 2) } catch { return String(args) }
 }
 
+function renderToolStatus(state) {
+  if (state === 'running') {
+    return `<span class="tool-status running"><span class="tool-dot"></span><span>${escapeHtml(tt('tool_running') || 'Running')}</span></span>`
+  }
+  if (state === 'error') {
+    return `<span class="tool-status error">${escapeHtml(tt('tool_failed'))}</span>`
+  }
+  return `<span class="tool-status done">${toolCheckSvg()}</span>`
+}
+
+// Wire up a copy button: copies the textContent of the sibling .tool-detail-pre
+// or .tool-detail-fields block (whichever is present in the same .tool-detail-block).
+function bindCopyButton(btn) {
+  btn.onclick = (ev) => {
+    ev.stopPropagation()
+    const block = btn.closest('.tool-detail-block')
+    if (!block) return
+    const src = block.querySelector('.tool-detail-pre, .tool-detail-fields')
+    const text = src ? (src.dataset.copyText || src.textContent || '') : ''
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent
+      btn.textContent = tt('copied') || 'Copied!'
+      setTimeout(() => { btn.textContent = orig }, 1500)
+    }).catch(() => { btn.textContent = tt('copy_failed') || 'Failed'; setTimeout(() => { btn.textContent = tt('copy') || 'Copy' }, 1500) })
+  }
+}
+
+// Decide if Input args render as a structured key-value grid (专业、易扫读)
+// or fall back to a JSON pre block. Grid is used when args is a plain object
+// with at most 6 keys whose values are all primitives (string/number/boolean).
+function shouldRenderInputAsFields(args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return false
+  const keys = Object.keys(args).filter((k) => !k.startsWith('__'))
+  if (keys.length === 0 || keys.length > 6) return false
+  return keys.every((k) => {
+    const v = args[k]
+    return v === null || ['string', 'number', 'boolean'].includes(typeof v)
+  })
+}
+
+function renderInputBlock(args) {
+  const labelHtml = `<span class="tool-detail-bar-label">${escapeHtml(tt('tool_input') || 'Input')}</span>`
+  const copyHtml = `<button class="tool-detail-bar-copy" type="button">${escapeHtml(tt('copy') || 'Copy')}</button>`
+  if (shouldRenderInputAsFields(args)) {
+    const keys = Object.keys(args).filter((k) => !k.startsWith('__'))
+    const fieldsHtml = keys.map((k) => {
+      const v = args[k] == null ? '' : String(args[k])
+      const isLong = v.length > 60 || /\n/.test(v)
+      return `<div class="tool-detail-field-key">${escapeHtml(k)}</div><div class="tool-detail-field-val${isLong ? ' long' : ''}">${escapeHtml(v)}</div>`
+    }).join('')
+    const metaText = `${keys.length} ${tt(keys.length === 1 ? 'tool_field' : 'tool_fields') || 'fields'}`
+    const copyText = keys.map((k) => `${k}: ${args[k] == null ? '' : String(args[k])}`).join('\n')
+    return `<div class="tool-detail-section"><div class="tool-detail-block">
+      <div class="tool-detail-bar">${labelHtml}<span class="tool-detail-bar-meta">${escapeHtml(metaText)}</span>${copyHtml}</div>
+      <div class="tool-detail-fields tool-detail-input" data-copy-text="${escapeHtml(copyText)}">${fieldsHtml}</div>
+    </div></div>`
+  }
+  // Fallback: pretty-printed JSON. Used for AskUserQuestion-style nested args.
+  const jsonText = formatToolInput(args)
+  const metaText = jsonText ? `${jsonText.split('\n').length} ${tt('tool_lines') || 'lines'}` : ''
+  return `<div class="tool-detail-section"><div class="tool-detail-block">
+    <div class="tool-detail-bar">${labelHtml}<span class="tool-detail-bar-meta">${escapeHtml(metaText)}</span>${copyHtml}</div>
+    <pre class="tool-detail-pre tool-detail-input">${escapeHtml(jsonText)}</pre>
+  </div></div>`
+}
+
 // Build a tool card. Reused by live stream (tool_start) and history replay
 // (appendAssistantFromBlocks). `state` controls the initial header status:
 //   - 'running' (default): pulsing dot + "执行中"
-//   - 'done':              "已完成"
-//   - 'error':             "失败" (red)
-// Visual stays inline (single mono row, like the old design); detail panel
-// shows on click via .open class.
+//   - 'done':              ✓ check icon
+//   - 'error':             "失败" pill (red)
 function renderToolCard(toolName, toolCallId, args, state) {
   state = state || 'running'
   const cat = getToolCategory(toolName)
@@ -1104,27 +1180,17 @@ function renderToolCard(toolName, toolCallId, args, state) {
   item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state)
   item.id = 'tool-' + toolCallId
   const valueText = toolValueText(toolName, args)
-  const inputJson = formatToolInput(args)
-  let statusHtml
-  if (state === 'running') {
-    statusHtml = '<span class="tool-status running"><span class="tool-dot"></span></span>'
-  } else if (state === 'error') {
-    statusHtml = `<span class="tool-status error">${escapeHtml(tt('tool_failed'))}</span>`
-  } else {
-    statusHtml = `<span class="tool-secondary">${escapeHtml(tt('tool_completed'))}</span>`
-  }
   item.innerHTML = `
     <div class="tool-item-header">
+      ${toolIconSvg(cat)}
       <span class="tool-label">${escapeHtml(toolName)}</span>
       <span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span>
-      ${statusHtml}
+      ${renderToolStatus(state)}
       ${toolChevronSvg()}
     </div>
-    <div class="tool-item-detail">
-      <div class="tool-detail-label">${escapeHtml(tt('tool_input') || 'Input')}</div>
-      <pre class="tool-detail-pre tool-detail-input">${escapeHtml(inputJson)}</pre>
-    </div>`
+    <div class="tool-item-detail">${renderInputBlock(args)}</div>`
   item.querySelector('.tool-item-header').onclick = () => item.classList.toggle('open')
+  item.querySelectorAll('.tool-detail-bar-copy').forEach(bindCopyButton)
   return item
 }
 
@@ -1147,7 +1213,8 @@ function appendToolStart(toolName, toolCallId, args) {
 
 // Partial stream 给 tool_use 创建卡片时 args 是空的（input_json_delta 碎片我们没消费），
 // case 'assistant' 兜底会用完整 JSON 再发一次 tool_input_delta —— 这里把卡片的
-// 显示参数 + detail 区的 Input JSON 都更新掉。
+// 显示参数 + Input 段整体重渲染（grid vs JSON 可能切换）。Output 段如果已经
+// 存在则保留。
 function updateToolArgs(toolCallId, jsonStr) {
   if (!toolCallId || !jsonStr) return
   const item = document.getElementById('tool-' + toolCallId)
@@ -1157,8 +1224,16 @@ function updateToolArgs(toolCallId, jsonStr) {
   const toolName = item.querySelector('.tool-label')?.textContent || ''
   const valueEl = item.querySelector('.tool-value')
   if (valueEl) valueEl.textContent = toolValueText(toolName, args)
-  const inputPre = item.querySelector('.tool-detail-input')
-  if (inputPre) inputPre.textContent = formatToolInput(args)
+  const detail = item.querySelector('.tool-item-detail')
+  if (!detail) return
+  const inputSection = detail.querySelector('.tool-detail-section:has(.tool-detail-input)') || detail.firstElementChild
+  if (!inputSection) return
+  const wrap = document.createElement('div')
+  wrap.innerHTML = renderInputBlock(args)
+  const newSection = wrap.firstElementChild
+  if (!newSection) return
+  inputSection.replaceWith(newSection)
+  newSection.querySelectorAll('.tool-detail-bar-copy').forEach(bindCopyButton)
 }
 
 function createAgentContainer(toolName, toolCallId, args, parentContainer) {
@@ -1177,6 +1252,38 @@ function createAgentContainer(toolName, toolCallId, args, parentContainer) {
   scrollToBottom()
 }
 
+// 找到（或创建）工具卡片 detail 内的 Output 段，返回 <pre> 元素。Output 也
+// 走 block + bar 结构：[输出] [N 行]   [复制] / pre
+function ensureToolOutputPre(item) {
+  const detail = item.querySelector('.tool-item-detail')
+  if (!detail) return null
+  let outPre = detail.querySelector('.tool-detail-output')
+  if (outPre) return outPre
+  const section = document.createElement('div')
+  section.className = 'tool-detail-section'
+  section.innerHTML = `<div class="tool-detail-block">
+    <div class="tool-detail-bar">
+      <span class="tool-detail-bar-label">${escapeHtml(tt('tool_output') || 'Output')}</span>
+      <span class="tool-detail-bar-meta"></span>
+      <button class="tool-detail-bar-copy" type="button">${escapeHtml(tt('copy') || 'Copy')}</button>
+    </div>
+    <pre class="tool-detail-pre tool-detail-output"></pre>
+  </div>`
+  detail.appendChild(section)
+  section.querySelectorAll('.tool-detail-bar-copy').forEach(bindCopyButton)
+  return section.querySelector('.tool-detail-output')
+}
+
+// 更新 Output 段的 meta info（行数）。
+function updateOutputMeta(outPre) {
+  if (!outPre) return
+  const meta = outPre.parentElement?.querySelector('.tool-detail-bar-meta')
+  if (!meta) return
+  const text = outPre.textContent || ''
+  const lines = text ? text.split('\n').length : 0
+  meta.textContent = lines ? `${lines} ${tt('tool_lines') || 'lines'}` : ''
+}
+
 // Stream 的 progress 文本是工具运行时的中间产物（如长命令的 stdout 增量）。
 // 没有最终输出之前先写到 detail 的 Output 区域，运行中卡片自动展开一次以便
 // 用户看到进度；tool_end 时会用完整 content 替换。
@@ -1184,29 +1291,20 @@ function appendToolProgress(toolCallId, content) {
   const item = document.getElementById('tool-' + toolCallId)
   if (!item) return
   if (item.classList.contains('agent-container')) return // agent 不走这条路
-  const detail = item.querySelector('.tool-item-detail')
-  if (!detail) return
-  let outPre = detail.querySelector('.tool-detail-output')
-  if (!outPre) {
-    const label = document.createElement('div')
-    label.className = 'tool-detail-label'
-    label.textContent = tt('tool_output') || 'Output'
-    detail.appendChild(label)
-    outPre = document.createElement('pre')
-    outPre.className = 'tool-detail-pre tool-detail-output'
-    detail.appendChild(outPre)
-    item.classList.add('open') // 首次有进度自动展开
-  }
+  const outPre = ensureToolOutputPre(item)
+  if (!outPre) return
+  if (!item.classList.contains('open')) item.classList.add('open') // 首次有进度自动展开
   let combined = (outPre.textContent || '') + (content || '')
   if (combined.length > 4000) combined = '…' + combined.slice(-4000)
   outPre.textContent = combined
+  updateOutputMeta(outPre)
   scrollToBottom()
 }
 
 function updateToolEnd(toolCallId, isError, content) {
   const el = document.getElementById('tool-' + toolCallId)
   if (!el) return
-  // Agent 容器走旧逻辑：不需要 Input/Output detail 区。
+  // Agent 容器走旧逻辑：没有 Input/Output detail 区。
   if (el.classList.contains('agent-container')) {
     el.classList.add(isError ? 'error' : 'done')
     const dot = el.querySelector('.tool-dot')
@@ -1221,37 +1319,21 @@ function updateToolEnd(toolCallId, isError, content) {
     return
   }
   el.classList.add(isError ? 'error' : 'done')
-  // Replace the running indicator with the static finish marker. Use
-  // .tool-secondary for done (matches legacy visual), .tool-status.error for
-  // failures (red).
-  const status = el.querySelector('.tool-status, .tool-secondary')
+  // Replace running pill with done ✓ / error pill via the shared renderer.
+  const status = el.querySelector('.tool-status')
   if (status) {
-    const replacement = document.createElement('span')
-    if (isError) {
-      replacement.className = 'tool-status error'
-      replacement.textContent = tt('tool_failed')
-    } else {
-      replacement.className = 'tool-secondary'
-      replacement.textContent = tt('tool_completed')
-    }
-    status.replaceWith(replacement)
+    const wrap = document.createElement('div')
+    wrap.innerHTML = renderToolStatus(isError ? 'error' : 'done')
+    const next = wrap.firstElementChild
+    if (next) status.replaceWith(next)
   }
   // 写最终输出。tool_end content 是权威值，覆盖 progress 期间的中间文本。
   if (typeof content !== 'string') return
-  const detail = el.querySelector('.tool-item-detail')
-  if (!detail) return
-  let outPre = detail.querySelector('.tool-detail-output')
-  if (!outPre) {
-    const label = document.createElement('div')
-    label.className = 'tool-detail-label'
-    label.textContent = tt('tool_output') || 'Output'
-    detail.appendChild(label)
-    outPre = document.createElement('pre')
-    outPre.className = 'tool-detail-pre tool-detail-output'
-    detail.appendChild(outPre)
-  }
+  const outPre = ensureToolOutputPre(el)
+  if (!outPre) return
   outPre.classList.toggle('tool-detail-error', !!isError)
   outPre.textContent = content || (tt('tool_no_output') || '(no output)')
+  updateOutputMeta(outPre)
 }
 
 // ==================== File card ====================

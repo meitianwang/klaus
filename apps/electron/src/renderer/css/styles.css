@@ -684,61 +684,91 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 .thinking-done.open .thinking-detail { max-height: 400px; overflow-y: auto; }
 
-/* ===== Tool items =====
- * 视觉沿用旧版（共享灰左竖线 + 单行 mono 字），但每张 .tool-item 是
- * wrapper：.tool-item-header 是单行（可点击），.tool-item-detail 默认隐藏，
- * 展开后显示 Input/Output。 */
+/* ===== Tool items — 单行调用记录，可点击展开看 Input/Output =====
+ * 设计语言：每行独立的 inline 行（无外层共享竖线，避免多张工具粘连），左
+ * 侧细线 stroke icon 标识工具类别，状态收敛成右侧 pill 徽章。Hover 浅灰
+ * 底，open 后下方拉出 Input/Output detail（缩进对齐 icon 起始）。整体保
+ * 持极简，不引入卡片/阴影，与 thinking 胶囊和 agent-row 同档视觉重量。 */
 .tool-container {
   max-width: 720px;
-  margin: 4px auto;
+  margin: 6px auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-left: 2px solid var(--border);
-  padding-left: 10px;
 }
 .tool-item { animation: fade-in .15s ease; }
 .tool-item-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-family: var(--font-mono);
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--fg-secondary);
   cursor: pointer;
   user-select: none;
-  border-radius: 4px;
-  transition: background var(--transition), opacity var(--transition);
+  transition: background var(--transition), color var(--transition);
 }
 .tool-item-header:hover { background: var(--bg-hover); }
-/* 分类色条贴到 header 自己最左，距离容器灰线 10px（与旧版视觉一致） */
-.tool-item.terminal .tool-item-header { border-left: 2px solid #16a34a; padding-left: 8px; }
-.tool-item.file     .tool-item-header { border-left: 2px solid #2563eb; padding-left: 8px; }
-.tool-item.search   .tool-item-header { border-left: 2px solid #9333ea; padding-left: 8px; }
-/* 完成/失败后淡化 header；hover 或展开时恢复完整可读 */
-.tool-item.done  .tool-item-header { opacity: 0.3; }
-.tool-item.error .tool-item-header { opacity: 0.8; color: #dc2626; }
-.tool-item.done:hover  .tool-item-header,
-.tool-item.error:hover .tool-item-header,
-.tool-item.open        .tool-item-header { opacity: 1; }
 
-.tool-label { font-weight: 500; color: var(--fg-secondary); white-space: nowrap; }
-.tool-value { color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+/* 类别图标 — stroke 风，13px，统一 slate 灰（Klaus 整体走极简灰阶，不用分类
+ * 饱和色，类别识别靠 icon 形状本身：>_ / 文件夹 / 放大镜 / 头像）。 */
+.tool-item-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--fg-tertiary);
+}
+
+.tool-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--fg);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tool-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tool-value.terminal-cmd { color: var(--fg-secondary); }
+
+/* 状态 pill — running 浅灰底脉动点；done 极淡 ✓；error 红色背景 */
 .tool-status {
   font-size: 11px;
-  color: var(--fg-quaternary);
-  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
-  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-weight: 500;
 }
-.tool-status.running { color: var(--fg-tertiary); }
-.tool-status.error   { color: #dc2626; }
-.tool-secondary { color: var(--fg-quaternary); font-size: 11px; margin-left: auto; }
+.tool-status.running {
+  color: var(--fg-tertiary);
+  background: var(--bg-surface);
+}
+.tool-status.done {
+  color: var(--fg-quaternary);
+  padding: 1px 6px;
+}
+.tool-status.error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+.tool-secondary { /* 历史/agent 沿用：灰小字，无背景 */
+  font-size: 11px;
+  color: var(--fg-quaternary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .tool-dot {
   width: 5px;
   height: 5px;
@@ -747,41 +777,135 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   animation: pulse 1.4s infinite;
   flex-shrink: 0;
 }
+.tool-status.done .tool-check {
+  width: 11px;
+  height: 11px;
+}
+
 .tool-chevron {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   color: var(--fg-quaternary);
-  opacity: 0.6;
-  transition: transform .2s;
+  opacity: 0.4;
+  transition: transform .2s, opacity var(--transition);
   flex-shrink: 0;
 }
-.tool-item.open .tool-chevron { transform: rotate(180deg); }
+.tool-item-header:hover .tool-chevron { opacity: 1; }
+.tool-item.open .tool-chevron { transform: rotate(180deg); opacity: 1; }
 
+/* 完成态淡化主信息（label/value），但不动 icon 颜色（仍是分类锚点） */
+.tool-item.done .tool-label { color: var(--fg-tertiary); font-weight: 500; }
+.tool-item.done .tool-value { color: var(--fg-quaternary); }
+.tool-item.error .tool-label { color: #dc2626; }
+.tool-item.done:hover .tool-label,
+.tool-item.done.open  .tool-label { color: var(--fg-secondary); }
+.tool-item.done:hover .tool-value,
+.tool-item.done.open  .tool-value { color: var(--fg-tertiary); }
+
+/* Detail — 缩进对齐 icon 起始（icon 13 + gap 10 + padding-left 10 = 33px）。
+ * Input/Output 各是一个 .tool-detail-block：上方 toolbar（字段名 + meta info
+ * + 复制按钮），下方内容（key-value grid 或 pre）。toolbar 有底分隔线，
+ * 与代码块的 .code-block / .code-copy / .code-lang 视觉一致。 */
 .tool-item-detail {
   display: none;
-  padding: 4px 10px 8px 12px;
+  margin: 4px 0 8px 33px;
+  padding-right: 10px;
 }
 .tool-item.open .tool-item-detail { display: block; }
-.tool-detail-label {
+.tool-detail-section + .tool-detail-section { margin-top: 8px; }
+
+.tool-detail-block {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tool-detail-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg);
+}
+.tool-detail-bar-label {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--fg-quaternary);
-  margin: 6px 0 4px;
+  color: var(--fg-tertiary);
 }
+.tool-detail-bar-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-quaternary);
+  margin-left: 8px;
+}
+.tool-detail-bar-copy {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.tool-detail-bar-copy:hover { color: var(--fg); background: var(--bg-hover); }
+
+/* Input — key-value 表（Object.keys ≤ 6 且 value 都是 primitive 时）。
+ * 对长 value（>60 char 或含换行）跨列展示成块状，避免横向溢出。 */
+.tool-detail-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tool-detail-field-key {
+  color: var(--fg-quaternary);
+  font-weight: 500;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+.tool-detail-field-val {
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+.tool-detail-field-val.long {
+  grid-column: 1 / -1;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: -2px;
+  max-height: 180px;
+  overflow: auto;
+  color: var(--fg-secondary);
+}
+
+/* Pre — 通用代码块（Output 用，或 Input 兜底） */
 .tool-detail-pre {
   font-family: var(--font-mono);
   font-size: 12px;
-  background: var(--bg-surface);
-  border-radius: var(--radius-sm);
   padding: 10px 12px;
+  margin: 0;
   max-height: 280px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--fg-secondary);
   line-height: 1.5;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 .tool-detail-pre.tool-detail-error { color: #dc2626; }
 
