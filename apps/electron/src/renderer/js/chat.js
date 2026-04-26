@@ -954,19 +954,28 @@ function appendAssistantFromBlocks(blocks) {
   if (plainToolBlocks.length > 0) {
     const container = document.createElement('div')
     container.className = 'tool-container'
+    container.dataset.done = '1'
     for (const tb of plainToolBlocks) {
-      const cat = getToolCategory(tb.name || '')
-      const item = document.createElement('div')
-      item.className = 'tool-item done' + (cat ? ' ' + cat : '')
-      let valueText = ''
-      const args = tb.input
-      if (args && typeof args === 'object') {
-        if (args.command) valueText = '$ ' + args.command
-        else if (args.file_path) valueText = args.file_path
-        else if (args.pattern) valueText = args.pattern
-        else { const v = JSON.stringify(args); valueText = v.length > 80 ? v.slice(0, 80) + '…' : v }
+      // Skip Agent — its sub-tools and resolution are reconstructed elsewhere;
+      // showing it as a plain card would duplicate the agent panel info.
+      if (getToolCategory(tb.name || '') === 'agent') continue
+      const item = renderToolCard(tb.name || '', tb.id || '', tb.input, 'done')
+      // engine-host.getHistory attaches __result onto the tool_use block when a
+      // matching tool_result was found in the same transcript pass.
+      const result = typeof tb.__result === 'string' ? tb.__result : ''
+      if (result) {
+        const detail = item.querySelector('.tool-item-detail')
+        if (detail) {
+          const label = document.createElement('div')
+          label.className = 'tool-detail-label'
+          label.textContent = tt('tool_output') || 'Output'
+          detail.appendChild(label)
+          const outPre = document.createElement('pre')
+          outPre.className = 'tool-detail-pre tool-detail-output'
+          outPre.textContent = result
+          detail.appendChild(outPre)
+        }
       }
-      item.innerHTML = `<span class="tool-label">${escapeHtml(tb.name || '')}</span><span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span><span class="tool-secondary">${escapeHtml(tt('tool_completed'))}</span>`
       container.appendChild(item)
     }
     messagesEl.appendChild(container)
@@ -1073,6 +1082,52 @@ function toolValueText(toolName, args) {
   return v.length > 80 ? v.slice(0, 80) + '...' : v
 }
 
+function toolChevronSvg() {
+  return '<svg class="tool-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 4.5l3 3 3-3"/></svg>'
+}
+function formatToolInput(args) {
+  if (!args || typeof args !== 'object') return ''
+  try { return JSON.stringify(args, null, 2) } catch { return String(args) }
+}
+
+// Build a tool card. Reused by live stream (tool_start) and history replay
+// (appendAssistantFromBlocks). `state` controls the initial header status:
+//   - 'running' (default): pulsing dot + "执行中"
+//   - 'done':              "已完成"
+//   - 'error':             "失败" (red)
+// Visual stays inline (single mono row, like the old design); detail panel
+// shows on click via .open class.
+function renderToolCard(toolName, toolCallId, args, state) {
+  state = state || 'running'
+  const cat = getToolCategory(toolName)
+  const item = document.createElement('div')
+  item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state)
+  item.id = 'tool-' + toolCallId
+  const valueText = toolValueText(toolName, args)
+  const inputJson = formatToolInput(args)
+  let statusHtml
+  if (state === 'running') {
+    statusHtml = '<span class="tool-status running"><span class="tool-dot"></span></span>'
+  } else if (state === 'error') {
+    statusHtml = `<span class="tool-status error">${escapeHtml(tt('tool_failed'))}</span>`
+  } else {
+    statusHtml = `<span class="tool-secondary">${escapeHtml(tt('tool_completed'))}</span>`
+  }
+  item.innerHTML = `
+    <div class="tool-item-header">
+      <span class="tool-label">${escapeHtml(toolName)}</span>
+      <span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span>
+      ${statusHtml}
+      ${toolChevronSvg()}
+    </div>
+    <div class="tool-item-detail">
+      <div class="tool-detail-label">${escapeHtml(tt('tool_input') || 'Input')}</div>
+      <pre class="tool-detail-pre tool-detail-input">${escapeHtml(inputJson)}</pre>
+    </div>`
+  item.querySelector('.tool-item-header').onclick = () => item.classList.toggle('open')
+  return item
+}
+
 function appendToolStart(toolName, toolCallId, args) {
   let container = messagesEl.querySelector('.tool-container:last-child')
   if (!container || container.dataset.done === '1') {
@@ -1081,26 +1136,18 @@ function appendToolStart(toolName, toolCallId, args) {
     messagesEl.appendChild(container)
   }
   const cat = getToolCategory(toolName)
-
-  // Agent tool → create agent container
+  // Agent tool keeps its own nested container (sub-tool list inside).
   if (cat === 'agent') {
     createAgentContainer(toolName, toolCallId, args, container)
     return
   }
-
-  const item = document.createElement('div')
-  item.className = 'tool-item' + (cat ? ' ' + cat : '')
-  item.id = 'tool-' + toolCallId
-
-  const valueText = toolValueText(toolName, args)
-
-  item.innerHTML = `<span class="tool-label">${escapeHtml(toolName)}</span><span class="tool-value${cat === 'terminal' ? ' terminal-cmd' : ''}">${escapeHtml(valueText)}</span><span class="tool-dot"></span>`
-  container.appendChild(item)
+  container.appendChild(renderToolCard(toolName, toolCallId, args, 'running'))
   scrollToBottom()
 }
 
 // Partial stream 给 tool_use 创建卡片时 args 是空的（input_json_delta 碎片我们没消费），
-// case 'assistant' 兜底会用完整 JSON 再发一次 tool_input_delta —— 这里把卡片的 args 显示更新掉。
+// case 'assistant' 兜底会用完整 JSON 再发一次 tool_input_delta —— 这里把卡片的
+// 显示参数 + detail 区的 Input JSON 都更新掉。
 function updateToolArgs(toolCallId, jsonStr) {
   if (!toolCallId || !jsonStr) return
   const item = document.getElementById('tool-' + toolCallId)
@@ -1110,6 +1157,8 @@ function updateToolArgs(toolCallId, jsonStr) {
   const toolName = item.querySelector('.tool-label')?.textContent || ''
   const valueEl = item.querySelector('.tool-value')
   if (valueEl) valueEl.textContent = toolValueText(toolName, args)
+  const inputPre = item.querySelector('.tool-detail-input')
+  if (inputPre) inputPre.textContent = formatToolInput(args)
 }
 
 function createAgentContainer(toolName, toolCallId, args, parentContainer) {
@@ -1128,35 +1177,81 @@ function createAgentContainer(toolName, toolCallId, args, parentContainer) {
   scrollToBottom()
 }
 
+// Stream 的 progress 文本是工具运行时的中间产物（如长命令的 stdout 增量）。
+// 没有最终输出之前先写到 detail 的 Output 区域，运行中卡片自动展开一次以便
+// 用户看到进度；tool_end 时会用完整 content 替换。
 function appendToolProgress(toolCallId, content) {
   const item = document.getElementById('tool-' + toolCallId)
   if (!item) return
-  let progEl = item.querySelector('.tool-progress')
-  if (!progEl) {
-    progEl = document.createElement('div')
-    progEl.className = 'tool-progress'
-    item.appendChild(progEl)
+  if (item.classList.contains('agent-container')) return // agent 不走这条路
+  const detail = item.querySelector('.tool-item-detail')
+  if (!detail) return
+  let outPre = detail.querySelector('.tool-detail-output')
+  if (!outPre) {
+    const label = document.createElement('div')
+    label.className = 'tool-detail-label'
+    label.textContent = tt('tool_output') || 'Output'
+    detail.appendChild(label)
+    outPre = document.createElement('pre')
+    outPre.className = 'tool-detail-pre tool-detail-output'
+    detail.appendChild(outPre)
+    item.classList.add('open') // 首次有进度自动展开
   }
-  let existing = progEl.textContent || ''
-  let combined = existing + (content || '')
-  if (combined.length > 500) combined = combined.slice(-500)
-  progEl.textContent = combined
+  let combined = (outPre.textContent || '') + (content || '')
+  if (combined.length > 4000) combined = '…' + combined.slice(-4000)
+  outPre.textContent = combined
   scrollToBottom()
 }
 
-function updateToolEnd(toolCallId, isError) {
+function updateToolEnd(toolCallId, isError, content) {
   const el = document.getElementById('tool-' + toolCallId)
   if (!el) return
-  el.classList.add(isError ? 'error' : 'done')
-  const dot = el.querySelector('.tool-dot')
-  if (dot) dot.remove()
-  if (!el.querySelector('.tool-secondary')) {
-    const sec = document.createElement('span')
-    sec.className = 'tool-secondary'
-    sec.textContent = isError ? tt('tool_failed') : tt('tool_completed')
-    const header = el.querySelector('.agent-header') || el
-    header.appendChild(sec)
+  // Agent 容器走旧逻辑：不需要 Input/Output detail 区。
+  if (el.classList.contains('agent-container')) {
+    el.classList.add(isError ? 'error' : 'done')
+    const dot = el.querySelector('.tool-dot')
+    if (dot) dot.remove()
+    if (!el.querySelector('.tool-secondary')) {
+      const sec = document.createElement('span')
+      sec.className = 'tool-secondary'
+      sec.textContent = isError ? tt('tool_failed') : tt('tool_completed')
+      const header = el.querySelector('.agent-header') || el
+      header.appendChild(sec)
+    }
+    return
   }
+  el.classList.add(isError ? 'error' : 'done')
+  // Replace the running indicator with the static finish marker. Use
+  // .tool-secondary for done (matches legacy visual), .tool-status.error for
+  // failures (red).
+  const status = el.querySelector('.tool-status, .tool-secondary')
+  if (status) {
+    const replacement = document.createElement('span')
+    if (isError) {
+      replacement.className = 'tool-status error'
+      replacement.textContent = tt('tool_failed')
+    } else {
+      replacement.className = 'tool-secondary'
+      replacement.textContent = tt('tool_completed')
+    }
+    status.replaceWith(replacement)
+  }
+  // 写最终输出。tool_end content 是权威值，覆盖 progress 期间的中间文本。
+  if (typeof content !== 'string') return
+  const detail = el.querySelector('.tool-item-detail')
+  if (!detail) return
+  let outPre = detail.querySelector('.tool-detail-output')
+  if (!outPre) {
+    const label = document.createElement('div')
+    label.className = 'tool-detail-label'
+    label.textContent = tt('tool_output') || 'Output'
+    detail.appendChild(label)
+    outPre = document.createElement('pre')
+    outPre.className = 'tool-detail-pre tool-detail-output'
+    detail.appendChild(outPre)
+  }
+  outPre.classList.toggle('tool-detail-error', !!isError)
+  outPre.textContent = content || (tt('tool_no_output') || '(no output)')
 }
 
 // ==================== File card ====================
@@ -1786,7 +1881,7 @@ klausApi.on.chatEvent((event) => {
     case 'text_delta': appendStreamText(event.text); break
     case 'thinking_delta': thinkingUI.append(event.thinking); break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
-    case 'tool_end': updateToolEnd(event.toolCallId, event.isError); break
+    case 'tool_end': updateToolEnd(event.toolCallId, event.isError, event.content); break
     case 'tool_input_delta': updateToolArgs(event.toolCallId, event.delta); break
     case 'progress': appendToolProgress(event.toolCallId, event.content); break
     case 'stream_mode':

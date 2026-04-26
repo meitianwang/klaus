@@ -188,6 +188,34 @@ const pendingPermissions = new Map<string, {
   resolve: (resp: PermissionResponse) => void
 }>()
 
+// 工具结果可能是 string 或 Anthropic content-block 数组（含 text/image/...）。
+// 渲染端只展示文本，所以拍平 array → text 拼接，image 用占位符标注；硬上限 8KB
+// 避免大输出（万行 grep）冲爆 IPC 通道。
+const TOOL_RESULT_MAX = 8 * 1024
+function stringifyToolResultContent(content: unknown): string {
+  let text: string
+  if (typeof content === 'string') {
+    text = content
+  } else if (Array.isArray(content)) {
+    text = content
+      .map((b) => {
+        if (!b || typeof b !== 'object') return ''
+        const block = b as { type?: string; text?: string }
+        if (block.type === 'text' && typeof block.text === 'string') return block.text
+        if (block.type === 'image') return '[image]'
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  } else {
+    text = ''
+  }
+  if (text.length > TOOL_RESULT_MAX) {
+    text = text.slice(0, TOOL_RESULT_MAX) + `\n…[truncated, ${text.length - TOOL_RESULT_MAX} more chars]`
+  }
+  return text
+}
+
 // Parse the tool_result string produced by AskUserQuestionTool's
 // mapToolResultToToolResultBlockParam back into a {question: answer} map, so
 // the renderer can rebuild the resolved question card on history load. If the
@@ -614,19 +642,19 @@ export class EngineHost {
             && blocks.every((b: any) => b?.type === 'tool_result')) {
           continue
         }
-        // For AskUserQuestion tool_use blocks, clone and attach the parsed
-        // answers (+ denied flag) so the renderer can rebuild the resolved
-        // question card instead of just showing a bare tool-item chip.
+        // Attach tool_result content back onto the matching tool_use block so
+        // the renderer can show the execution output in the expanded card.
+        // AskUserQuestion is special-cased (rebuild interactive card).
         if (m.type === 'assistant' && blocks) {
           blocks = blocks.map((b: any) => {
-            if (b?.type === 'tool_use' && b.name === 'AskUserQuestion' && typeof b.id === 'string') {
-              const resultText = toolResultById.get(b.id)
-              if (resultText) {
-                const res = parseAskUserQuestionResult(resultText)
-                return { ...b, input: { ...b.input, __resolution: res } }
-              }
+            if (b?.type !== 'tool_use' || typeof b.id !== 'string') return b
+            const resultText = toolResultById.get(b.id)
+            if (!resultText) return b
+            if (b.name === 'AskUserQuestion') {
+              const res = parseAskUserQuestionResult(resultText)
+              return { ...b, input: { ...b.input, __resolution: res } }
             }
-            return b
+            return { ...b, __result: resultText }
           })
         }
         const text = typeof content === 'string'
@@ -1343,6 +1371,7 @@ export class EngineHost {
                 toolName: (block as any).toolName ?? '',
                 toolCallId: block.tool_use_id ?? '',
                 isError: block.is_error ?? false,
+                content: stringifyToolResultContent((block as any).content),
               })
             }
           }

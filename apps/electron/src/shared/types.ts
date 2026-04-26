@@ -127,7 +127,7 @@ export type EngineEvent =
   | { type: 'text_delta'; sessionId: string; text: string }
   | { type: 'thinking_delta'; sessionId: string; thinking: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; toolCallId: string; args: unknown }
-  | { type: 'tool_end'; sessionId: string; toolName: string; toolCallId: string; isError: boolean }
+  | { type: 'tool_end'; sessionId: string; toolName: string; toolCallId: string; isError: boolean; content: string }
   | { type: 'tool_input_delta'; sessionId: string; toolCallId: string; delta: string }
   | { type: 'progress'; sessionId: string; toolName: string; toolCallId: string; content: string }
   | { type: 'stream_mode'; sessionId: string; mode: string }

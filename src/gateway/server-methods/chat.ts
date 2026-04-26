@@ -107,6 +107,7 @@ export function createGatewayAgentEventForwarder(params: {
           type: "tool_result",
           toolUseId: event.toolCallId,
           isError: event.isError,
+          content: event.content,
         },
         sessionId: params.sessionId,
       });

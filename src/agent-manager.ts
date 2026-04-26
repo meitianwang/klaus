@@ -81,6 +81,34 @@ import type { QueuedCommand } from "./engine/types/textInputTypes.js";
  */
 export const DELIVERY_SENTINEL = '\x00deliver';
 
+// 工具结果可能是 string，也可能是 Anthropic Messages API 的 block 数组（含
+// text/image/...）。前端只展示文本，所以这里把 array 拍平成 text 拼接，image
+// 用占位符标注；超过 8KB 截断，避免大输出（万行 grep）冲爆 WebSocket。
+const TOOL_RESULT_MAX = 8 * 1024;
+function stringifyToolResultContent(content: unknown): string {
+  let text: string;
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .map((b) => {
+        if (!b || typeof b !== "object") return "";
+        const block = b as { type?: string; text?: string };
+        if (block.type === "text" && typeof block.text === "string") return block.text;
+        if (block.type === "image") return "[image]";
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  } else {
+    text = "";
+  }
+  if (text.length > TOOL_RESULT_MAX) {
+    text = text.slice(0, TOOL_RESULT_MAX) + `\n…[truncated, ${text.length - TOOL_RESULT_MAX} more chars]`;
+  }
+  return text;
+}
+
 // ============================================================================
 // Engine Event type (replaces AgentEvent from klaus-agent)
 // ============================================================================
@@ -89,7 +117,7 @@ export type EngineEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "tool_start"; toolName: string; toolCallId: string; args: unknown }
-  | { type: "tool_end"; toolName: string; toolCallId: string; isError: boolean }
+  | { type: "tool_end"; toolName: string; toolCallId: string; isError: boolean; content: string }
   | { type: "compaction_start" }
   | { type: "compaction_end" }
   | { type: "context_collapse_stats"; collapsedSpans: number; stagedSpans: number; totalErrors: number }
@@ -817,6 +845,7 @@ export class AgentSessionManager {
                     toolName,
                     toolCallId: block.tool_use_id ?? "",
                     isError: block.is_error ?? false,
+                    content: stringifyToolResultContent(block.content),
                   });
 
                   // Auto-push MCP OAuth auth URL to the user's browser so it
