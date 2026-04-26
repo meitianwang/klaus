@@ -43,12 +43,12 @@ const thinkingUI = {
     } else {
       const elapsed = Math.round((Date.now() - this.startTime) / 1000)
       const done = document.createElement('div')
-      done.className = 'thinking-done'
+      done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
       // Split the label into its own data-i18n span so applyI18n() picks
       // it up on language switch — the parent span keeps the duration,
       // which stays numeric across locales.
       done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
-      done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
+      done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
       this.el.replaceWith(done)
     }
     this.el = null
@@ -61,6 +61,16 @@ const thinkingUI = {
     this.startTime = 0
   },
 }
+// thinking-done 和 tool-item 的折叠箭头共享一个状态：点任意一个 → 全部同步开/合;
+// 流式输出过程中新创建的卡片也按当前状态初始化,避免与已展开的旁邻视觉错位
+let foldsOpen = false
+function setAllFolds(open) {
+  foldsOpen = open
+  document.querySelectorAll('.thinking-done, .tool-item').forEach(el => {
+    el.classList.toggle('open', open)
+  })
+}
+
 let slashSkillsCache = null
 let slashActiveIdx = -1
 let agentPanel = { team: null, agents: new Map() }
@@ -938,9 +948,9 @@ function appendAssistantFromBlocks(blocks) {
   // Thinking fold (no duration from disk — show just the content)
   if (thinkingText.trim()) {
     const done = document.createElement('div')
-    done.className = 'thinking-done'
+    done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
     done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>…</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(thinkingText)}</div>`
-    done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
+    done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
     messagesEl.appendChild(done)
   }
   // Tool cards (simplified, matches live tool-start/end visual). Any
@@ -1238,7 +1248,7 @@ function renderToolCard(toolName, toolCallId, args, state) {
   state = state || 'running'
   const cat = getToolCategory(toolName)
   const item = document.createElement('div')
-  item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state)
+  item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state) + (foldsOpen ? ' open' : '')
   item.id = 'tool-' + toolCallId
   const valueText = toolValueText(toolName, args)
   item.innerHTML = `
@@ -1250,7 +1260,7 @@ function renderToolCard(toolName, toolCallId, args, state) {
       ${toolChevronSvg()}
     </div>
     <div class="tool-item-detail">${renderInputBlock(args)}</div>`
-  item.querySelector('.tool-item-header').onclick = () => item.classList.toggle('open')
+  item.querySelector('.tool-item-header').onclick = () => setAllFolds(!foldsOpen)
   item.querySelectorAll('.tool-detail-bar-copy').forEach(bindCopyButton)
   return item
 }
