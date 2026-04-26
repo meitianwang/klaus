@@ -671,7 +671,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   height: 12px;
   transition: transform .2s;
 }
-.thinking-done.open .thinking-chevron { transform: rotate(180deg); }
+.thinking-done.open .thinking-chevron { transform: rotate(90deg); }
 .thinking-detail {
   max-height: 0;
   overflow: hidden;

@@ -47,7 +47,7 @@ const thinkingUI = {
       // Split the label into its own data-i18n span so applyI18n() picks
       // it up on language switch — the parent span keeps the duration,
       // which stays numeric across locales.
-      done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
+      done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
       done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
       this.el.replaceWith(done)
     }
@@ -939,7 +939,7 @@ function appendAssistantFromBlocks(blocks) {
   if (thinkingText.trim()) {
     const done = document.createElement('div')
     done.className = 'thinking-done'
-    done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>…</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5l3 3 3-3"/></svg></div><div class="thinking-detail">${escapeHtml(thinkingText)}</div>`
+    done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>…</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(thinkingText)}</div>`
     done.querySelector('.thinking-toggle').onclick = () => done.classList.toggle('open')
     messagesEl.appendChild(done)
   }
