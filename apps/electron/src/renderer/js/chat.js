@@ -917,7 +917,6 @@ function appendFinalAssistantMsg(text) {
   const msgEl = document.createElement('div')
   msgEl.className = 'msg assistant'
   msgEl.innerHTML = renderMarkdown(text)
-  group.innerHTML = `<div class="msg-label">${tt('bot_name')}</div>`
   group.appendChild(msgEl)
   postProcessMsg(msgEl)
   messagesEl.appendChild(group)
@@ -972,10 +971,13 @@ function appendAssistantFromBlocks(blocks) {
       const item = renderToolCard(tb.name || '', tb.id || '', tb.input, 'done')
       // engine-host.getHistory attaches __result onto the tool_use block when a
       // matching tool_result was found in the same transcript pass.
-      const result = typeof tb.__result === 'string' ? tb.__result : ''
+      const result = sanitizeToolOutput(tb.__result)
       if (result) {
         const outPre = ensureToolOutputPre(item)
-        if (outPre) outPre.textContent = result
+        if (outPre) {
+          outPre.textContent = result
+          updateOutputMeta(outPre)
+        }
       }
       container.appendChild(item)
     }
@@ -992,7 +994,6 @@ function ensureAssistantGroup() {
   if (!currentMsgGroup) {
     currentMsgGroup = document.createElement('div')
     currentMsgGroup.className = 'msg-group assistant'
-    currentMsgGroup.innerHTML = `<div class="msg-label">${tt('bot_name')}</div>`
     messagesEl.appendChild(currentMsgGroup)
   }
   return currentMsgGroup
@@ -1067,6 +1068,15 @@ function getToolCategory(name) {
   if (/grep|search|web/i.test(name)) return 'search'
   if (/agent/i.test(name)) return 'agent'
   return ''
+}
+
+// CC 引擎在某些工具结果里注入 <system-reminder> 给模型看（如 FileReadTool 的
+// 反恶意代码提示）。后端 stringifyToolResultContent 已经过滤一次，这里是 UI
+// 层的兜底，确保展示给用户的 Output 永远不会带 system-reminder。
+const SYSTEM_REMINDER_RE = /\n*<system-reminder>[\s\S]*?<\/system-reminder>\n*/g
+function sanitizeToolOutput(text) {
+  if (typeof text !== 'string' || !text) return ''
+  return text.replace(SYSTEM_REMINDER_RE, '').trimEnd()
 }
 
 function toolValueText(toolName, args) {
@@ -1367,7 +1377,7 @@ function appendToolProgress(toolCallId, content) {
   if (!item.classList.contains('open')) item.classList.add('open') // 首次有进度自动展开
   let combined = (outPre.textContent || '') + (content || '')
   if (combined.length > 4000) combined = '…' + combined.slice(-4000)
-  outPre.textContent = combined
+  outPre.textContent = sanitizeToolOutput(combined)
   updateOutputMeta(outPre)
   scrollToBottom()
 }
@@ -1403,7 +1413,8 @@ function updateToolEnd(toolCallId, isError, content) {
   const outPre = ensureToolOutputPre(el)
   if (!outPre) return
   outPre.classList.toggle('tool-detail-error', !!isError)
-  outPre.textContent = content || (tt('tool_no_output') || '(no output)')
+  const cleaned = sanitizeToolOutput(content)
+  outPre.textContent = cleaned || (tt('tool_no_output') || '(no output)')
   updateOutputMeta(outPre)
 }
 
@@ -1416,7 +1427,7 @@ function appendFileCard(name, url) {
   const label = FILE_EXT_LABELS[ext] || ext.toUpperCase() || 'FILE'
   const group = document.createElement('div')
   group.className = 'msg-group assistant'
-  group.innerHTML = `<div class="msg-label">${tt('bot_name')}</div><div class="file-card"><div class="file-card-icon">${escapeHtml(label)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(name)}</div><div class="file-card-hint">${tt('file_ready')}</div></div><a class="file-card-dl" href="${escapeHtml(url)}" download="${escapeHtml(name)}">${tt('download')}</a></div>`
+  group.innerHTML = `<div class="file-card"><div class="file-card-icon">${escapeHtml(label)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(name)}</div><div class="file-card-hint">${tt('file_ready')}</div></div><a class="file-card-dl" href="${escapeHtml(url)}" download="${escapeHtml(name)}">${tt('download')}</a></div>`
   messagesEl.appendChild(group)
   scrollToBottom()
 }

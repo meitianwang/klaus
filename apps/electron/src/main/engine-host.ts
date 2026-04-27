@@ -191,7 +191,12 @@ const pendingPermissions = new Map<string, {
 // 工具结果可能是 string 或 Anthropic content-block 数组（含 text/image/...）。
 // 渲染端只展示文本，所以拍平 array → text 拼接，image 用占位符标注；硬上限 8KB
 // 避免大输出（万行 grep）冲爆 IPC 通道。
+//
+// CC 引擎会在某些工具结果里注入 <system-reminder> 给模型看（如 FileReadTool
+// 的反恶意代码提示）。这是给模型的 in-context 安全提示，不应展示给用户 ——
+// 仅在 UI 展示路径剥离掉，transcript 里原始 content 保持不变。
 const TOOL_RESULT_MAX = 8 * 1024
+const SYSTEM_REMINDER_RE = /\n*<system-reminder>[\s\S]*?<\/system-reminder>\n*/g
 function stringifyToolResultContent(content: unknown): string {
   let text: string
   if (typeof content === 'string') {
@@ -210,6 +215,7 @@ function stringifyToolResultContent(content: unknown): string {
   } else {
     text = ''
   }
+  text = text.replace(SYSTEM_REMINDER_RE, '').trimEnd()
   if (text.length > TOOL_RESULT_MAX) {
     text = text.slice(0, TOOL_RESULT_MAX) + `\n…[truncated, ${text.length - TOOL_RESULT_MAX} more chars]`
   }
@@ -624,6 +630,8 @@ export class EngineHost {
               .map((x: any) => x.text)
               .join('\n')
           }
+          // 剥离 CC 引擎注入的 <system-reminder>（给模型的反恶意代码提示等）
+          text = text.replace(SYSTEM_REMINDER_RE, '').trimEnd()
           if (text) toolResultById.set(id, text)
         }
       }

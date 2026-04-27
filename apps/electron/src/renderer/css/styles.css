@@ -538,13 +538,6 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .msg-group.user { padding: 12px 0; }
 .msg-group.assistant { padding: 16px 0; }
 
-.msg-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg-tertiary);
-  margin-bottom: 6px;
-}
-
 .msg { font-size: 15px; line-height: 1.75; }
 .msg.user {
   background: var(--msg-user-bg);
