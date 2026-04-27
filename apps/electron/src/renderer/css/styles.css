@@ -1596,18 +1596,18 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   gap: 6px;
   background: var(--accent);
   color: var(--accent-text);
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 9px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 7px 14px;
   font-family: var(--font);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition);
+  transition: background var(--transition), border-color var(--transition);
   flex-shrink: 0;
 }
-.cron-new-btn:hover { background: var(--accent-hover); }
+.cron-new-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .cron-new-btn svg { width: 13px; height: 13px; }
 
 /* Tabs + filters bar */
