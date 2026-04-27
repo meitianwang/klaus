@@ -224,6 +224,15 @@ export function getChatI18n(): string {
       always_ask: "Always Ask",
       rules_saved: "rules saved",
       settings_confirm_delete: "Are you sure?",
+      artifacts_title: "Artifacts",
+      artifacts_empty: "No artifacts yet",
+      artifacts_toggle: "Toggle panel",
+      artifacts_copy_path: "Copy path",
+      artifacts_close: "Close",
+      artifacts_loading: "Loading…",
+      artifacts_load_failed: "Failed to load file",
+      artifacts_file_missing: "File no longer exists",
+      artifacts_truncated: "File truncated (showing first 1 MB)",
     },
     zh: {
       chats: "对话",
@@ -446,6 +455,15 @@ export function getChatI18n(): string {
       always_ask: "\u59cb\u7ec8\u8be2\u95ee",
       rules_saved: "\u89c4\u5219\u5df2\u4fdd\u5b58",
       settings_confirm_delete: "\u786e\u5b9a\u64cd\u4f5c\uff1f",
+      artifacts_title: "\u4ea4\u4ed8\u7269",
+      artifacts_empty: "\u6682\u65e0\u4ea4\u4ed8\u7269",
+      artifacts_toggle: "\u6298\u53e0\u9762\u677f",
+      artifacts_copy_path: "\u590d\u5236\u8def\u5f84",
+      artifacts_close: "\u5173\u95ed",
+      artifacts_loading: "\u52a0\u8f7d\u4e2d\u2026",
+      artifacts_load_failed: "\u52a0\u8f7d\u5931\u8d25",
+      artifacts_file_missing: "\u6587\u4ef6\u5df2\u88ab\u5220\u9664",
+      artifacts_truncated: "\u6587\u4ef6\u5df2\u622a\u65ad\uff08\u663e\u793a\u524d 1 MB\uff09",
     }
   };
 `;

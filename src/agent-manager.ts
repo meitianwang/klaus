@@ -5,9 +5,9 @@
 
 import { randomUUID } from "crypto";
 import { homedir } from "os";
-import { join, resolve, isAbsolute } from "path";
+import { join, resolve, isAbsolute, relative, basename } from "path";
 import { setOriginalCwd, setCwdState, setProjectRoot, runWithUserScope, setIsInteractive } from "./engine/bootstrap/state.js";
-import type { SettingsStore } from "./settings-store.js";
+import type { SettingsStore, ArtifactOp } from "./settings-store.js";
 import { getProvider } from "./providers/registry.js";
 import { refreshAccessToken } from "./auth/oauth.js";
 import type { OAuthProviderAuth } from "./auth/oauth.js";
@@ -139,6 +139,55 @@ export type EngineEvent =
   | { type: "done" };
 
 type EngineEventCallback = (event: EngineEvent) => void;
+
+/**
+ * Walk session.messages backwards to find the tool_use that matches a
+ * tool_result. Returns file_path + op when the tool is Write/Edit/NotebookEdit.
+ */
+function findArtifactFromToolUse(
+  messages: ReadonlyArray<unknown>,
+  toolUseId: string | undefined,
+): { filePath: string; op: ArtifactOp } | null {
+  if (!toolUseId) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { type?: string; message?: { content?: unknown } };
+    if (m?.type !== "assistant") continue;
+    const blocks = m.message?.content;
+    if (!Array.isArray(blocks)) continue;
+    for (const b of blocks) {
+      if (!b || typeof b !== "object") continue;
+      const block = b as { type?: string; id?: string; name?: string; input?: Record<string, unknown> };
+      if (block.type !== "tool_use" || block.id !== toolUseId) continue;
+      const name = block.name;
+      const input = block.input ?? {};
+      if (name === "Write" || name === "Edit") {
+        const fp = input["file_path"];
+        if (typeof fp === "string" && fp.length > 0) {
+          return { filePath: fp, op: name === "Write" ? "write" : "edit" };
+        }
+      } else if (name === "NotebookEdit") {
+        const fp = input["notebook_path"];
+        if (typeof fp === "string" && fp.length > 0) {
+          return { filePath: fp, op: "notebook_edit" };
+        }
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a tool-supplied path to a relative path inside the user's
+ * workspace. Returns null when the path escapes the workspace (so we
+ * never record uploads-dir or system-dir paths as artifacts).
+ */
+function relativeWithinWorkspace(workspaceDir: string, filePath: string): string | null {
+  const abs = isAbsolute(filePath) ? filePath : resolve(workspaceDir, filePath);
+  const rel = relative(workspaceDir, abs);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
+  return rel;
+}
 
 const refreshLocks = new Map<string, Promise<string | undefined>>();
 
@@ -761,9 +810,35 @@ export class AgentSessionManager {
           case "user": {
             session.messages.push(ev as Message);
             if (Array.isArray(ev.message?.content)) {
+              const workspaceDir = getUserWorkspaceDir(userId);
               for (const block of ev.message.content) {
                 if (block.type === "tool_result") {
                   session.toolCallCount++;
+                  // Track Write/Edit/NotebookEdit artifacts on success.
+                  if (block.is_error) continue;
+                  const found = findArtifactFromToolUse(
+                    session.messages,
+                    block.tool_use_id,
+                  );
+                  if (!found) continue;
+                  const rel = relativeWithinWorkspace(workspaceDir, found.filePath);
+                  if (!rel) continue;
+                  try {
+                    const rec = this.store.upsertArtifact(sessionKey, rel, found.op);
+                    if (parsed && sendEvent) {
+                      sendEvent(parsed.userId, {
+                        type: "artifact",
+                        sessionId: parsed.sessionId,
+                        filePath: rec.filePath,
+                        fileName: basename(rec.filePath),
+                        lastOp: rec.lastOp,
+                        firstSeenAt: rec.firstSeenAt,
+                        lastModifiedAt: rec.lastModifiedAt,
+                      });
+                    }
+                  } catch (err) {
+                    console.error("[Artifact] upsert failed:", err);
+                  }
                 }
               }
             }

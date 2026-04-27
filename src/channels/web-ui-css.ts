@@ -841,6 +841,94 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .ch-modal-close:hover{color:var(--fg);background:var(--bg-hover)}
 .ch-modal-body{padding:24px}
 
+/* ─── Artifacts panel (right side) ─── */
+.artifacts-panel{
+  flex:0 0 280px;display:flex;flex-direction:column;
+  border-left:1px solid var(--border);background:var(--bg-surface);
+  height:100%;overflow:hidden;transition:flex-basis var(--transition);
+}
+.artifacts-panel.collapsed{flex-basis:36px}
+.artifacts-panel.collapsed .artifacts-body{display:none}
+.artifacts-panel.collapsed .artifacts-title{display:none}
+.artifacts-header{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:14px 16px;border-bottom:1px solid var(--border-subtle);
+  flex-shrink:0;
+}
+.artifacts-title{font-size:13px;font-weight:600;color:var(--fg);letter-spacing:.01em}
+.artifacts-toggle{
+  background:transparent;border:none;cursor:pointer;color:var(--fg-tertiary);
+  padding:4px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  transition:all var(--transition);
+}
+.artifacts-toggle:hover{color:var(--fg);background:var(--bg-hover)}
+.artifacts-toggle svg{width:14px;height:14px;transition:transform var(--transition)}
+.artifacts-panel.collapsed .artifacts-toggle svg{transform:rotate(180deg)}
+.artifacts-body{flex:1;overflow-y:auto;padding:6px 8px}
+.artifacts-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+.artifacts-empty{
+  padding:32px 16px;text-align:center;color:var(--fg-quaternary);
+  font-size:12px;
+}
+.artifacts-empty.hidden{display:none}
+.artifact-item{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:var(--radius-sm);
+  cursor:pointer;color:var(--fg-secondary);font-size:13px;
+  transition:background var(--transition);
+  overflow:hidden;
+}
+.artifact-item:hover{background:var(--bg-hover);color:var(--fg)}
+.artifact-item-icon{flex-shrink:0;display:flex;color:var(--fg-tertiary)}
+.artifact-item-icon svg{width:14px;height:14px}
+.artifact-item-name{
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+@media(max-width:1024px){.artifacts-panel{display:none}}
+
+/* ─── Artifact preview modal ─── */
+.artifact-modal{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center}
+.artifact-modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(4px)}
+.artifact-modal-card{
+  position:relative;background:var(--bg-elevated);border:1px solid var(--border);
+  border-radius:var(--radius-lg,12px);width:min(900px,90vw);max-height:80vh;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 20px 50px rgba(0,0,0,0.2);
+}
+.artifact-modal-head{
+  display:flex;align-items:center;gap:8px;padding:14px 16px;
+  border-bottom:1px solid var(--border-subtle);flex-shrink:0;
+}
+.artifact-modal-title{
+  flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--fg);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.artifact-modal-icon{
+  background:transparent;border:none;cursor:pointer;color:var(--fg-tertiary);
+  padding:6px;border-radius:var(--radius-sm);display:flex;align-items:center;
+  transition:all var(--transition);
+}
+.artifact-modal-icon:hover{color:var(--fg);background:var(--bg-hover)}
+.artifact-modal-icon svg{width:16px;height:16px}
+.artifact-modal-body{
+  flex:1;overflow:auto;padding:18px 22px;font-size:14px;line-height:1.6;
+  color:var(--fg);
+}
+.artifact-modal-body pre{
+  background:var(--bg-surface);padding:14px 16px;border-radius:var(--radius-sm);
+  overflow:auto;margin:0;font-size:13px;line-height:1.5;
+}
+.artifact-modal-body code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.artifact-modal-body p{margin:0 0 12px}
+.artifact-modal-body h1,.artifact-modal-body h2,.artifact-modal-body h3{margin:18px 0 10px;font-weight:600}
+.artifact-modal-body ul,.artifact-modal-body ol{margin:0 0 12px;padding-left:24px}
+.artifact-modal-truncated{
+  padding:8px 16px;border-top:1px solid var(--border-subtle);
+  background:var(--bg-surface);color:var(--fg-tertiary);font-size:12px;
+  text-align:center;flex-shrink:0;
+}
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}

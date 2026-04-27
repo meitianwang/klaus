@@ -40,7 +40,8 @@ import {
   type ServerResponse,
 } from "node:http";
 import { mkdirSync, rmSync, watch, type FSWatcher } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFile, stat as fsStat } from "node:fs/promises";
+import { join, resolve, relative, isAbsolute, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { encryptCred, decryptCred } from "./channel-creds.js";
@@ -53,7 +54,7 @@ import {
   CONFIG_FILE,
   CONFIG_DIR,
 } from "../config.js";
-import { getUserUploadsDir, getUserSkillsDir, SKILLS_MARKET_DIR } from "../user-dirs.js";
+import { getUserUploadsDir, getUserSkillsDir, SKILLS_MARKET_DIR, getUserWorkspaceDir } from "../user-dirs.js";
 import type {
   CronTask,
   CronTaskStatus,
@@ -3181,6 +3182,117 @@ case "/api/cron/tasks":
         jsonResponse(res, 200, result);
       } catch (err) {
         jsonResponse(res, 503, { error: String(err) });
+      }
+      return;
+    }
+
+    // Artifacts (files agent wrote during a session)
+    case "/api/artifacts": {
+      if (req.method !== "GET") {
+        jsonResponse(res, 405, { error: "method not allowed" });
+        return;
+      }
+      const ip = getClientIp(req);
+      if (!checkRateLimit(ip)) {
+        jsonResponse(res, 429, { error: "too many requests" });
+        return;
+      }
+      const auth = authenticateRequest(req);
+      if (auth.kind === "invalid") {
+        jsonResponse(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const sessionId = url.searchParams.get("sessionId") ?? "default";
+      if (!isValidGatewaySessionId(sessionId)) {
+        jsonResponse(res, 400, { error: "invalid sessionId" });
+        return;
+      }
+      if (!settingsStoreRef) {
+        jsonResponse(res, 503, { error: "settings store unavailable" });
+        return;
+      }
+      const sessionKey = `web:${auth.user.id}:${sessionId}`;
+      const records = settingsStoreRef.listArtifacts(sessionKey);
+      const artifacts = records.map((r) => ({
+        filePath: r.filePath,
+        fileName: basename(r.filePath),
+        lastOp: r.lastOp,
+        firstSeenAt: r.firstSeenAt,
+        lastModifiedAt: r.lastModifiedAt,
+      }));
+      jsonResponse(res, 200, { artifacts });
+      return;
+    }
+
+    // Read a single artifact's content for the in-app preview modal.
+    // The path must (1) resolve inside the user's workspace dir, and (2) have
+    // been recorded as an artifact for the given session. Max 1 MiB.
+    case "/api/artifacts/read": {
+      if (req.method !== "GET") {
+        jsonResponse(res, 405, { error: "method not allowed" });
+        return;
+      }
+      const ip = getClientIp(req);
+      if (!checkRateLimit(ip)) {
+        jsonResponse(res, 429, { error: "too many requests" });
+        return;
+      }
+      const auth = authenticateRequest(req);
+      if (auth.kind === "invalid") {
+        jsonResponse(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const sessionId = url.searchParams.get("sessionId") ?? "";
+      if (!sessionId || !isValidGatewaySessionId(sessionId)) {
+        jsonResponse(res, 400, { error: "invalid sessionId" });
+        return;
+      }
+      if (!settingsStoreRef) {
+        jsonResponse(res, 503, { error: "settings store unavailable" });
+        return;
+      }
+      const relPath = url.searchParams.get("path") ?? "";
+      if (!relPath || isAbsolute(relPath) || relPath.includes("\0")) {
+        jsonResponse(res, 400, { error: "invalid path" });
+        return;
+      }
+      const workspace = getUserWorkspaceDir(auth.user.id);
+      const abs = resolve(workspace, relPath);
+      const within = relative(workspace, abs);
+      if (!within || within.startsWith("..") || isAbsolute(within)) {
+        jsonResponse(res, 403, { error: "path outside workspace" });
+        return;
+      }
+      const sessionKey = `web:${auth.user.id}:${sessionId}`;
+      if (!settingsStoreRef.getArtifact(sessionKey, within)) {
+        jsonResponse(res, 404, { error: "not an artifact of this session" });
+        return;
+      }
+      try {
+        const info = await fsStat(abs);
+        if (!info.isFile()) {
+          jsonResponse(res, 400, { error: "not a file" });
+          return;
+        }
+        const MAX = 1024 * 1024;
+        const truncated = info.size > MAX;
+        const buf = await readFile(abs);
+        const slice = truncated ? buf.subarray(0, MAX) : buf;
+        const content = slice.toString("utf8");
+        jsonResponse(res, 200, {
+          filePath: within,
+          fileName: basename(within),
+          size: info.size,
+          truncated,
+          content,
+        });
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code === "ENOENT") {
+          jsonResponse(res, 404, { error: "file not found" });
+        } else {
+          jsonResponse(res, 503, { error: String(err) });
+        }
       }
       return;
     }

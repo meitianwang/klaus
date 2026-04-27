@@ -240,7 +240,7 @@ ${getChatI18n()}
   document.addEventListener("click", function() { closeUserMenu(); closeLangPanel(); });
 
   // --- Shared: chat elements to hide/show ---
-  var chatElements = [document.getElementById("header"), document.getElementById("welcome"), document.getElementById("messages"), document.getElementById("input-wrapper")];
+  var chatElements = [document.getElementById("header"), document.getElementById("welcome"), document.getElementById("messages"), document.getElementById("input-wrapper"), document.getElementById("artifacts-panel")];
 
   // --- Admin view ---
   var adminView = document.getElementById("admin-view");

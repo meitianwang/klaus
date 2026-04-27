@@ -461,6 +461,7 @@ class GatewayService {
   deleteSession(params: { userId: string; sessionId: string }): boolean {
     return deleteGatewaySession({
       messageStore: this.requireMessageStore(),
+      settingsStore: this.settingsStore ?? undefined,
       ...params,
     });
   }

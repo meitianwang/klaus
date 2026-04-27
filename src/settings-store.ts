@@ -52,6 +52,16 @@ export interface PromptRecord {
   readonly updatedAt: number;
 }
 
+export type ArtifactOp = "write" | "edit" | "notebook_edit";
+
+export interface ArtifactRecord {
+  readonly sessionKey: string;
+  readonly filePath: string;
+  readonly lastOp: ArtifactOp;
+  readonly firstSeenAt: number;
+  readonly lastModifiedAt: number;
+}
+
 
 // ---------------------------------------------------------------------------
 // SettingsStore
@@ -103,6 +113,18 @@ export class SettingsStore {
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS session_artifacts (
+        session_key       TEXT NOT NULL,
+        file_path         TEXT NOT NULL,
+        last_op           TEXT NOT NULL,
+        first_seen_at     INTEGER NOT NULL,
+        last_modified_at  INTEGER NOT NULL,
+        PRIMARY KEY (session_key, file_path)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_session_artifacts_session
+        ON session_artifacts (session_key, last_modified_at DESC);
 
       CREATE TABLE IF NOT EXISTS cron_tasks (
         id                TEXT PRIMARY KEY,
@@ -472,6 +494,53 @@ export class SettingsStore {
   }
 
   // -----------------------------------------------------------------------
+  // Session artifacts (files written/edited by agent during a session)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Record a file produced by the agent. Idempotent: re-writing the same
+   * file just updates last_op + last_modified_at.
+   * Returns the resulting record (with first_seen_at preserved on update).
+   */
+  upsertArtifact(sessionKey: string, filePath: string, op: ArtifactOp): ArtifactRecord {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO session_artifacts (session_key, file_path, last_op, first_seen_at, last_modified_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(session_key, file_path) DO UPDATE SET
+           last_op = excluded.last_op,
+           last_modified_at = excluded.last_modified_at`,
+      )
+      .run(sessionKey, filePath, op, now, now);
+    return this.getArtifact(sessionKey, filePath)!;
+  }
+
+  getArtifact(sessionKey: string, filePath: string): ArtifactRecord | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT session_key, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_key = ? AND file_path = ?",
+      )
+      .get(sessionKey, filePath) as RawArtifactRow | undefined;
+    return row ? toArtifactRecord(row) : undefined;
+  }
+
+  listArtifacts(sessionKey: string): ArtifactRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT session_key, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_key = ? ORDER BY last_modified_at DESC",
+      )
+      .all(sessionKey) as RawArtifactRow[];
+    return rows.map(toArtifactRecord);
+  }
+
+  /** Cascade-delete all artifact rows for a session. Returns the row count. */
+  deleteArtifactsBySession(sessionKey: string): number {
+    this.db.prepare("DELETE FROM session_artifacts WHERE session_key = ?").run(sessionKey);
+    return this.lastChanges();
+  }
+
+  // -----------------------------------------------------------------------
   // Cron tasks CRUD
   // -----------------------------------------------------------------------
 
@@ -645,6 +714,24 @@ function toPromptRecord(r: RawPromptRow): PromptRecord {
     isDefault: r.is_default === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  };
+}
+
+interface RawArtifactRow {
+  session_key: string;
+  file_path: string;
+  last_op: string;
+  first_seen_at: number;
+  last_modified_at: number;
+}
+
+function toArtifactRecord(r: RawArtifactRow): ArtifactRecord {
+  return {
+    sessionKey: r.session_key,
+    filePath: r.file_path,
+    lastOp: r.last_op as ArtifactOp,
+    firstSeenAt: r.first_seen_at,
+    lastModifiedAt: r.last_modified_at,
   };
 }
 

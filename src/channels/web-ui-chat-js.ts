@@ -165,6 +165,7 @@ export function getChatMainJs(): string {
     input.style.height = "auto";
     updateBtn(); renderSessionList(); closeSidebar();
     showWelcome();
+    clearArtifactList();
   }
 
   function switchSession(id) {
@@ -206,6 +207,7 @@ export function getChatMainJs(): string {
     input.value = sessionDrafts.get(id) || "";
     input.style.height = "auto";
     updateBtn(); saveSessionMeta(); renderSessionList(); closeSidebar(); scrollBottom();
+    loadArtifacts(id);
   }
 
   function deleteSession(id, evt) {
@@ -222,6 +224,7 @@ export function getChatMainJs(): string {
       var saved = sessionDom.get(currentSessionId);
       if (saved) { msgs.appendChild(saved); sessionDom.delete(currentSessionId); hideWelcome(); }
       else { loadHistory(currentSessionId); }
+      loadArtifacts(currentSessionId);
     }
     saveSessionMeta(); renderSessionList();
     fetch("/api/sessions?sessionId=" + encodeURIComponent(id), { method: "DELETE", credentials: "same-origin" }).catch(function() {});
@@ -562,6 +565,9 @@ export function getChatMainJs(): string {
         historyLoaded.delete(currentSessionId);
         loadHistory(currentSessionId);
       }
+      // Refresh artifacts: any "artifact" events that fired during the
+      // disconnect window are still in SQLite, so a single GET re-syncs.
+      loadArtifacts(currentSessionId);
     };
     ws.onclose = function() {
       ws = null;
@@ -686,6 +692,11 @@ export function getChatMainJs(): string {
         // Auto-open MCP OAuth authorization URL in a new tab
         window.open(data.url, "_blank");
         appendSystemNotice("🔑 " + (data.serverName || "MCP") + " authorization opened in new tab");
+        return;
+      }
+      if (data.type === "artifact") {
+        if (data.sessionId && data.sessionId !== currentSessionId) return;
+        upsertArtifactItem(data);
         return;
       }
       if (data.type === "permission_request") {
@@ -840,6 +851,167 @@ export function getChatMainJs(): string {
     card.appendChild(badge);
     card.classList.add("permission-resolved");
   }
+
+  // ─── Artifacts panel ───
+  var artifactsPanel = document.getElementById("artifacts-panel");
+  var artifactsList = document.getElementById("artifacts-list");
+  var artifactsEmpty = document.getElementById("artifacts-empty");
+  var artifactsToggle = document.getElementById("artifacts-toggle");
+  var artifactState = new Map();
+
+  if (artifactsPanel && localStorage.getItem("klaus_artifacts_collapsed") === "1") {
+    artifactsPanel.classList.add("collapsed");
+  }
+  if (artifactsToggle && artifactsPanel) {
+    artifactsToggle.addEventListener("click", function() {
+      var on = !artifactsPanel.classList.contains("collapsed");
+      artifactsPanel.classList.toggle("collapsed", on);
+      localStorage.setItem("klaus_artifacts_collapsed", on ? "1" : "0");
+    });
+  }
+
+  function fileIconSvg(name) {
+    var lower = (name || "").toLowerCase();
+    if (/\\.(md|markdown)$/.test(lower)) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>';
+    }
+    if (/\\.(json|ya?ml|toml)$/.test(lower)) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>';
+    }
+    if (/\\.(sh|bash|zsh|fish|bat|ps1)$/.test(lower)) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>';
+    }
+    if (/\\.(py|js|ts|jsx|tsx|go|rs|java|c|cpp|h|hpp|cs|rb|php|swift|kt)$/.test(lower)) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
+    }
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+  }
+
+  function makeArtifactItem(item) {
+    var li = document.createElement("li");
+    li.className = "artifact-item";
+    li.title = item.filePath;
+    li.innerHTML = '<span class="artifact-item-icon">' + fileIconSvg(item.fileName) + '</span><span class="artifact-item-name">' + escHtml(item.fileName || item.filePath) + '</span>';
+    li.addEventListener("click", function() {
+      openArtifactPreview(item.filePath, item.fileName);
+    });
+    return li;
+  }
+
+  function refreshArtifactEmpty() {
+    if (!artifactsEmpty) return;
+    if (artifactState.size === 0) artifactsEmpty.classList.remove("hidden");
+    else artifactsEmpty.classList.add("hidden");
+  }
+
+  function clearArtifactList() {
+    artifactState.clear();
+    if (artifactsList) artifactsList.innerHTML = "";
+    refreshArtifactEmpty();
+  }
+
+  function upsertArtifactItem(item) {
+    if (!artifactsList || !item || !item.filePath) return;
+    var existing = artifactState.get(item.filePath);
+    if (existing && existing.parentNode === artifactsList) {
+      artifactsList.removeChild(existing);
+    }
+    var li = makeArtifactItem(item);
+    if (artifactsList.firstChild) artifactsList.insertBefore(li, artifactsList.firstChild);
+    else artifactsList.appendChild(li);
+    artifactState.set(item.filePath, li);
+    refreshArtifactEmpty();
+  }
+
+  function renderArtifactList(items) {
+    if (!artifactsList) return;
+    artifactState.clear();
+    artifactsList.innerHTML = "";
+    items.forEach(function(item) {
+      var li = makeArtifactItem(item);
+      artifactsList.appendChild(li);
+      artifactState.set(item.filePath, li);
+    });
+    refreshArtifactEmpty();
+  }
+
+  async function loadArtifacts(sessionId) {
+    if (!sessionId) { clearArtifactList(); return; }
+    try {
+      var res = await fetch("/api/artifacts?sessionId=" + encodeURIComponent(sessionId), { credentials: "same-origin" });
+      if (!res.ok) { clearArtifactList(); return; }
+      var data = await res.json();
+      renderArtifactList(data.artifacts || []);
+    } catch(e) {
+      clearArtifactList();
+    }
+  }
+
+  // Preview modal
+  var artModal = document.getElementById("artifact-modal");
+  var artModalTitle = document.getElementById("artifact-modal-title");
+  var artModalBody = document.getElementById("artifact-modal-body");
+  var artModalTrunc = document.getElementById("artifact-modal-truncated");
+  var artModalClose = document.getElementById("artifact-modal-close");
+  var artModalCopy = document.getElementById("artifact-modal-copy");
+  var artModalBackdrop = artModal && artModal.querySelector(".artifact-modal-backdrop");
+  var artModalPath = "";
+
+  function closeArtifactPreview() {
+    if (!artModal) return;
+    artModal.style.display = "none";
+    artModalPath = "";
+  }
+
+  if (artModalClose) artModalClose.addEventListener("click", closeArtifactPreview);
+  if (artModalBackdrop) artModalBackdrop.addEventListener("click", closeArtifactPreview);
+  if (artModalCopy) artModalCopy.addEventListener("click", function() {
+    if (!artModalPath) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(artModalPath).catch(function(){});
+    }
+  });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && artModal && artModal.style.display !== "none") closeArtifactPreview();
+  });
+
+  async function openArtifactPreview(filePath, fileName) {
+    if (!artModal || !artModalBody) return;
+    artModalPath = filePath;
+    artModalTitle.textContent = filePath;
+    artModalBody.textContent = tt("artifacts_loading") || "Loading…";
+    artModalTrunc.style.display = "none";
+    artModal.style.display = "flex";
+    try {
+      var res = await fetch("/api/artifacts/read?sessionId=" + encodeURIComponent(currentSessionId) + "&path=" + encodeURIComponent(filePath), { credentials: "same-origin" });
+      if (!res.ok) {
+        var msg = tt("artifacts_load_failed") || "Failed to load file";
+        if (res.status === 404) msg = tt("artifacts_file_missing") || "File no longer exists";
+        artModalBody.textContent = msg;
+        return;
+      }
+      var data = await res.json();
+      var content = data.content || "";
+      var isMd = /\\.(md|markdown)$/i.test(filePath || "");
+      if (isMd && typeof marked !== "undefined") {
+        artModalBody.innerHTML = marked.parse(content);
+      } else {
+        var pre = document.createElement("pre");
+        var code = document.createElement("code");
+        code.textContent = content;
+        pre.appendChild(code);
+        artModalBody.innerHTML = "";
+        artModalBody.appendChild(pre);
+        if (typeof hljs !== "undefined") { try { hljs.highlightElement(code); } catch(e) {} }
+      }
+      artModalTrunc.style.display = data.truncated ? "block" : "none";
+    } catch(e) {
+      artModalBody.textContent = tt("artifacts_load_failed") || "Failed to load file";
+    }
+  }
+
+  // Initial load for the session that opens with the page
+  loadArtifacts(currentSessionId);
 
 `;
 }

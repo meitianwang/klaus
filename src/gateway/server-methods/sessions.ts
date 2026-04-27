@@ -1,4 +1,5 @@
 import type { MessageStore } from "../../message-store.js";
+import type { SettingsStore } from "../../settings-store.js";
 import { buildWebSessionKey } from "../protocol.js";
 
 /** Channel prefixes that use their own session key format (not web:{userId}:{sessionId}). */
@@ -49,11 +50,15 @@ export async function listGatewaySessions(params: {
 
 export function deleteGatewaySession(params: {
   messageStore: MessageStore;
+  settingsStore?: SettingsStore;
   userId: string;
   sessionId: string;
 }): boolean {
   const key = isChannelSession(params.sessionId)
     ? params.sessionId
     : buildWebSessionKey(params.userId, params.sessionId);
-  return params.messageStore.deleteSession(key);
+  const deleted = params.messageStore.deleteSession(key);
+  // Cascade: drop any recorded artifacts for this session.
+  params.settingsStore?.deleteArtifactsBySession(key);
+  return deleted;
 }

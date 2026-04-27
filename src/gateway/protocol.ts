@@ -122,6 +122,16 @@ export type WsEvent =
       readonly agentName: string;
       readonly status: "completed" | "failed" | "killed";
       readonly sessionId?: string;
+    }
+  | {
+      /** Server → browser: agent wrote/edited a file (artifact recorded). */
+      readonly type: "artifact";
+      readonly sessionId: string;
+      readonly filePath: string;
+      readonly fileName: string;
+      readonly lastOp: "write" | "edit" | "notebook_edit";
+      readonly firstSeenAt: number;
+      readonly lastModifiedAt: number;
     };
 
 export type GatewayRpcResponseEnvelope = {

@@ -706,6 +706,34 @@ export function getChatBodyHtml(): string {
     </div>
     <div class="s-toast" id="s-toast"></div>
   </div>
+  <aside id="artifacts-panel" class="artifacts-panel">
+    <div class="artifacts-header">
+      <span class="artifacts-title" data-i18n="artifacts_title">Artifacts</span>
+      <button id="artifacts-toggle" class="artifacts-toggle" title="Toggle" data-i18n-title="artifacts_toggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <div class="artifacts-body">
+      <ul id="artifacts-list" class="artifacts-list"></ul>
+      <div id="artifacts-empty" class="artifacts-empty" data-i18n="artifacts_empty">No artifacts yet</div>
+    </div>
+  </aside>
+  <div id="artifact-modal" class="artifact-modal" style="display:none">
+    <div class="artifact-modal-backdrop"></div>
+    <div class="artifact-modal-card">
+      <div class="artifact-modal-head">
+        <span id="artifact-modal-title" class="artifact-modal-title"></span>
+        <button id="artifact-modal-copy" class="artifact-modal-icon" title="Copy path" data-i18n-title="artifacts_copy_path">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button id="artifact-modal-close" class="artifact-modal-icon" title="Close" data-i18n-title="artifacts_close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="artifact-modal-body" class="artifact-modal-body"></div>
+      <div id="artifact-modal-truncated" class="artifact-modal-truncated" style="display:none" data-i18n="artifacts_truncated">File truncated (showing first 1 MB)</div>
+    </div>
+  </div>
 </div>
 `;
 }
