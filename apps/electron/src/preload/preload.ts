@@ -24,6 +24,13 @@ contextBridge.exposeInMainWorld('klaus', {
     history: (sessionId: string) => ipcRenderer.invoke('session:history', { sessionId }),
   },
 
+  // Artifacts (files agent wrote during a session)
+  artifacts: {
+    list: (sessionId: string) => ipcRenderer.invoke('artifacts:list', { sessionId }),
+    read: (sessionId: string, filePath: string) => ipcRenderer.invoke('artifacts:read', { sessionId, filePath }),
+    openWorkspace: (sessionId: string) => ipcRenderer.invoke('artifacts:open-workspace', { sessionId }),
+  },
+
   // Settings
   settings: {
     models: {

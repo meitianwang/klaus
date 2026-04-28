@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdirSync } from 'fs'
-import type { ModelRecord, PromptRecord, CronTask, CronChannelBinding, CronRun, CronRunFilters, CronRunTrigger, CronRunStatus } from '../shared/types.js'
+import type { ModelRecord, PromptRecord, CronTask, CronChannelBinding, CronRun, CronRunFilters, CronRunTrigger, CronRunStatus, ArtifactOp, ArtifactRecord } from '../shared/types.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
 
@@ -90,6 +90,16 @@ export class SettingsStore {
       );
       CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
       CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id);
+      CREATE TABLE IF NOT EXISTS session_artifacts (
+        session_id        TEXT NOT NULL,
+        file_path         TEXT NOT NULL,
+        last_op           TEXT NOT NULL,
+        first_seen_at     INTEGER NOT NULL,
+        last_modified_at  INTEGER NOT NULL,
+        PRIMARY KEY (session_id, file_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_artifacts_session
+        ON session_artifacts (session_id, last_modified_at DESC);
     `)
   }
 
@@ -334,6 +344,37 @@ export class SettingsStore {
     })()
   }
 
+  // --- Session artifacts (files agent wrote/edited during a session) ---
+
+  upsertArtifact(sessionId: string, filePath: string, op: ArtifactOp): ArtifactRecord {
+    const now = Date.now()
+    this.db.prepare(`
+      INSERT INTO session_artifacts (session_id, file_path, last_op, first_seen_at, last_modified_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, file_path) DO UPDATE SET
+        last_op = excluded.last_op,
+        last_modified_at = excluded.last_modified_at
+    `).run(sessionId, filePath, op, now, now)
+    return this.getArtifact(sessionId, filePath)!
+  }
+
+  getArtifact(sessionId: string, filePath: string): ArtifactRecord | undefined {
+    const row = this.db.prepare(
+      'SELECT session_id, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_id = ? AND file_path = ?'
+    ).get(sessionId, filePath) as any
+    return row ? rowToArtifact(row) : undefined
+  }
+
+  listArtifacts(sessionId: string): ArtifactRecord[] {
+    return (this.db.prepare(
+      'SELECT session_id, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_id = ? ORDER BY last_modified_at DESC'
+    ).all(sessionId) as any[]).map(rowToArtifact)
+  }
+
+  deleteArtifactsBySession(sessionId: string): number {
+    return this.db.prepare('DELETE FROM session_artifacts WHERE session_id = ?').run(sessionId).changes
+  }
+
   // --- Cron Tasks ---
 
   listTasks(): CronTask[] {
@@ -498,6 +539,16 @@ function rowToPrompt(r: any): PromptRecord {
     id: r.id, name: r.name, content: r.content,
     isDefault: r.is_default === 1,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  }
+}
+
+function rowToArtifact(r: any): ArtifactRecord {
+  return {
+    sessionId: r.session_id,
+    filePath: r.file_path,
+    lastOp: r.last_op as ArtifactOp,
+    firstSeenAt: r.first_seen_at,
+    lastModifiedAt: r.last_modified_at,
   }
 }
 

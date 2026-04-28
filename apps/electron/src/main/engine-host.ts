@@ -1,11 +1,11 @@
 import { randomUUID } from 'crypto'
-import { join } from 'path'
+import { join, basename as pathBasename } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, unlinkSync, existsSync } from 'fs'
 import type { BrowserWindow } from 'electron'
 import type { SettingsStore } from './settings-store.js'
 import { SessionKeyRegistry } from './session-registry.js'
-import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage } from '../shared/types.js'
+import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage, ArtifactOp } from '../shared/types.js'
 
 // Engine imports — from the copied engine source
 import {
@@ -107,6 +107,44 @@ const ALL_OFFICIAL_IDS = new Set([...OFFICIAL_STATIC_IDS, ...OFFICIAL_DYNAMIC_ID
 function sessionDirFor(sessionId: string): string {
   const safe = sessionId.replace(/[^\w-]/g, '_')
   return join(SESSIONS_DIR, safe || '__default__')
+}
+
+/**
+ * Walk a session's messages backwards to find the tool_use that matches a
+ * tool_result, and return file_path + op when the tool is one that writes
+ * files (Write/Edit/NotebookEdit). Returns null otherwise.
+ */
+function findArtifactFromToolUse(
+  messages: ReadonlyArray<unknown>,
+  toolUseId: string | undefined,
+): { filePath: string; op: ArtifactOp } | null {
+  if (!toolUseId) return null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { type?: string; message?: { content?: unknown } }
+    if (m?.type !== 'assistant') continue
+    const blocks = m.message?.content
+    if (!Array.isArray(blocks)) continue
+    for (const b of blocks) {
+      if (!b || typeof b !== 'object') continue
+      const block = b as { type?: string; id?: string; name?: string; input?: Record<string, unknown> }
+      if (block.type !== 'tool_use' || block.id !== toolUseId) continue
+      const name = block.name
+      const input = block.input ?? {}
+      if (name === 'Write' || name === 'Edit') {
+        const fp = input['file_path']
+        if (typeof fp === 'string' && fp.length > 0) {
+          return { filePath: fp, op: name === 'Write' ? 'write' : 'edit' }
+        }
+      } else if (name === 'NotebookEdit') {
+        const fp = input['notebook_path']
+        if (typeof fp === 'string' && fp.length > 0) {
+          return { filePath: fp, op: 'notebook_edit' }
+        }
+      }
+      return null
+    }
+  }
+  return null
 }
 
 interface SessionEntry {
@@ -545,6 +583,10 @@ export class EngineHost {
     return results.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  getSessionDir(sessionId: string): string {
+    return sessionDirFor(sessionId)
+  }
+
   deleteSession(sessionId: string): void {
     const entry = this.sessions.get(sessionId)
     const uuid = entry?.uuid ?? this.registry.lookupUuid(sessionId)
@@ -564,6 +606,8 @@ export class EngineHost {
     this.sessionEmitters.delete(sessionId)
     this.sessionPermissionEmitters.delete(sessionId)
     this.registry.forgetUuid(uuid)
+    // Cascade: drop recorded artifacts for this session.
+    try { this.store.deleteArtifactsBySession(sessionId) } catch {}
     clearSystemPromptSections()
   }
 
@@ -1381,6 +1425,23 @@ export class EngineHost {
                 isError: block.is_error ?? false,
                 content: stringifyToolResultContent((block as any).content),
               })
+              // Track Write/Edit/NotebookEdit artifacts on success.
+              if (block.is_error) continue
+              const found = findArtifactFromToolUse(session.messages, block.tool_use_id)
+              if (!found) continue
+              try {
+                const rec = this.store.upsertArtifact(sessionId, found.filePath, found.op)
+                this.pushEvent({
+                  type: 'artifact', sessionId,
+                  filePath: rec.filePath,
+                  fileName: pathBasename(rec.filePath),
+                  lastOp: rec.lastOp,
+                  firstSeenAt: rec.firstSeenAt,
+                  lastModifiedAt: rec.lastModifiedAt,
+                })
+              } catch (err) {
+                console.error('[Artifact] upsert failed:', err)
+              }
             }
           }
         }

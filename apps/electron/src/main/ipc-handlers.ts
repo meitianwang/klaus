@@ -1,7 +1,8 @@
 import { ipcMain, shell, app } from 'electron'
-import { join } from 'path'
+import { join, basename as pathBasename } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, writeFileSync, accessSync, constants as fsConstants } from 'fs'
+import { readFile as fsReadFile, stat as fsStat } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { getMainWindow } from './window.js'
@@ -72,6 +73,59 @@ export function registerIpcHandlers(
   ipcMain.handle('session:delete', async (_e, { sessionId }) => engine.deleteSession(sessionId))
   ipcMain.handle('session:rename', async (_e, { sessionId, title }) => engine.renameSession(sessionId, title))
   ipcMain.handle('session:history', async (_e, { sessionId }) => engine.getHistory(sessionId))
+
+  // --- Artifacts (files agent wrote during a session) ---
+  ipcMain.handle('artifacts:list', async (_e, { sessionId }) => {
+    const records = store.listArtifacts(sessionId)
+    return {
+      artifacts: records.map(r => ({
+        filePath: r.filePath,
+        fileName: pathBasename(r.filePath),
+        lastOp: r.lastOp,
+        firstSeenAt: r.firstSeenAt,
+        lastModifiedAt: r.lastModifiedAt,
+      })),
+    }
+  })
+  // Read a single artifact's content for preview. Path must (1) be recorded as
+  // an artifact for this session, (2) actually exist. Max 1 MiB; binary stays
+  // utf-8-decoded (renderer chooses how to display).
+  ipcMain.handle('artifacts:read', async (_e, { sessionId, filePath }) => {
+    if (!sessionId || typeof filePath !== 'string' || !filePath || filePath.includes('\0')) {
+      return { error: 'invalid path' }
+    }
+    if (!store.getArtifact(sessionId, filePath)) {
+      return { error: 'not an artifact of this session' }
+    }
+    try {
+      const info = await fsStat(filePath)
+      if (!info.isFile()) return { error: 'not a file' }
+      const MAX = 1024 * 1024
+      const truncated = info.size > MAX
+      const buf = await fsReadFile(filePath)
+      const slice = truncated ? buf.subarray(0, MAX) : buf
+      return {
+        filePath,
+        fileName: pathBasename(filePath),
+        size: info.size,
+        truncated,
+        content: slice.toString('utf8'),
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code
+      if (code === 'ENOENT') return { error: 'file not found' }
+      return { error: String(err) }
+    }
+  })
+
+  // Open the session's workspace directory in Finder/file manager.
+  ipcMain.handle('artifacts:open-workspace', async (_e, { sessionId }) => {
+    if (!sessionId) return { error: 'invalid sessionId' }
+    const dir = engine.getSessionDir(sessionId)
+    try { mkdirSync(dir, { recursive: true }) } catch {}
+    const err = await shell.openPath(dir)
+    return err ? { error: err } : { ok: true, path: dir }
+  })
 
   // --- Settings: Models ---
   ipcMain.handle('settings:models:list', async () => store.listModels())

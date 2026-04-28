@@ -734,6 +734,7 @@ async function switchSession(id) {
   messagesEl.style.display = hasContent ? 'block' : 'none'
   welcomeEl.style.display = hasContent ? 'none' : 'flex'
   scrollToBottom()
+  loadArtifacts(id)
 }
 
 async function newChat() {
@@ -2046,6 +2047,7 @@ klausApi.on.chatEvent((event) => {
     case 'thinking_delta': thinkingUI.append(event.thinking); break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
     case 'tool_end': updateToolEnd(event.toolCallId, event.isError, event.content); break
+    case 'artifact': upsertArtifactItem(event); break
     case 'tool_input_delta': updateToolArgs(event.toolCallId, event.delta); break
     case 'progress': appendToolProgress(event.toolCallId, event.content); break
     case 'stream_mode':
@@ -2607,6 +2609,173 @@ async function boot() {
   }
   hideLoginScreen()
   await init()
+}
+
+// ===== Artifacts panel =====
+const artifactsPanel = document.getElementById('artifacts-panel')
+const artifactsList = document.getElementById('artifacts-list')
+const artifactsFilesLabel = document.getElementById('artifacts-files-label')
+const artifactsWorkspaceRow = document.getElementById('artifacts-workspace-row')
+const artifactsToggleBtn = document.getElementById('artifacts-panel-toggle')
+const artifactsToggleBtnInner = document.getElementById('artifacts-panel-toggle-inner')
+const artifactState = new Map()
+
+artifactsWorkspaceRow?.addEventListener('click', () => {
+  if (!currentSessionId) return
+  klausApi.artifacts.openWorkspace(currentSessionId).catch(() => {})
+})
+
+// Default to collapsed; user opens it from the header toggle when needed.
+if (artifactsPanel && localStorage.getItem('klaus_artifacts_collapsed') !== '0') {
+  artifactsPanel.classList.add('collapsed')
+}
+function syncArtifactsToggleVisibility() {
+  if (!artifactsPanel) return
+  const collapsed = artifactsPanel.classList.contains('collapsed')
+  if (artifactsToggleBtn) artifactsToggleBtn.style.display = collapsed ? '' : 'none'
+  if (artifactsToggleBtnInner) artifactsToggleBtnInner.style.display = collapsed ? 'none' : ''
+}
+function toggleArtifactsPanel() {
+  if (!artifactsPanel) return
+  const on = !artifactsPanel.classList.contains('collapsed')
+  artifactsPanel.classList.toggle('collapsed', on)
+  localStorage.setItem('klaus_artifacts_collapsed', on ? '1' : '0')
+  syncArtifactsToggleVisibility()
+}
+artifactsToggleBtn?.addEventListener('click', toggleArtifactsPanel)
+artifactsToggleBtnInner?.addEventListener('click', toggleArtifactsPanel)
+syncArtifactsToggleVisibility()
+
+function fileIconSvg(name) {
+  const lower = (name || '').toLowerCase()
+  if (/\.(md|markdown)$/.test(lower)) {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5H3.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5.5z"/><polyline points="9.5,1.5 9.5,5.5 13.5,5.5"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="11.5" x2="11" y2="11.5"/></svg>'
+  }
+  if (/\.(json|ya?ml|toml)$/.test(lower)) {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2H4.5a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1 1 1 0 0 1 1 1v3a1 1 0 0 0 1 1H5"/><path d="M11 14h.5a1 1 0 0 0 1-1v-3a1 1 0 0 1 1-1 1 1 0 0 1-1-1V5a1 1 0 0 0-1-1H11"/></svg>'
+  }
+  if (/\.(sh|bash|zsh|fish|bat|ps1)$/.test(lower)) {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,11 7,7 3,3"/><line x1="8" y1="13" x2="13" y2="13"/></svg>'
+  }
+  if (/\.(py|js|ts|jsx|tsx|go|rs|java|c|cpp|h|hpp|cs|rb|php|swift|kt)$/.test(lower)) {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="11,12 14.5,8 11,4"/><polyline points="5,4 1.5,8 5,12"/></svg>'
+  }
+  return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.5H3.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5.5z"/><polyline points="9.5,1.5 9.5,5.5 13.5,5.5"/></svg>'
+}
+
+function makeArtifactItem(item) {
+  const li = document.createElement('li')
+  li.className = 'artifact-item'
+  li.title = item.filePath
+  li.innerHTML = '<span class="artifact-item-icon">' + fileIconSvg(item.fileName) + '</span><span class="artifact-item-name">' + escapeHtml(item.fileName || item.filePath) + '</span>'
+  li.addEventListener('click', () => openArtifactPreview(item.filePath, item.fileName))
+  return li
+}
+
+function refreshArtifactFilesLabel() {
+  if (!artifactsFilesLabel) return
+  artifactsFilesLabel.style.display = artifactState.size > 0 ? '' : 'none'
+}
+
+function clearArtifactList() {
+  artifactState.clear()
+  if (artifactsList) artifactsList.innerHTML = ''
+  refreshArtifactFilesLabel()
+}
+
+function upsertArtifactItem(item) {
+  if (!artifactsList || !item || !item.filePath) return
+  if (item.sessionId && item.sessionId !== currentSessionId) return
+  const existing = artifactState.get(item.filePath)
+  if (existing && existing.parentNode === artifactsList) artifactsList.removeChild(existing)
+  const li = makeArtifactItem(item)
+  if (artifactsList.firstChild) artifactsList.insertBefore(li, artifactsList.firstChild)
+  else artifactsList.appendChild(li)
+  artifactState.set(item.filePath, li)
+  refreshArtifactFilesLabel()
+}
+
+function renderArtifactList(items) {
+  if (!artifactsList) return
+  artifactState.clear()
+  artifactsList.innerHTML = ''
+  for (const item of items) {
+    const li = makeArtifactItem(item)
+    artifactsList.appendChild(li)
+    artifactState.set(item.filePath, li)
+  }
+  refreshArtifactFilesLabel()
+}
+
+async function loadArtifacts(sessionId) {
+  if (!sessionId) { clearArtifactList(); return }
+  try {
+    const data = await klausApi.artifacts.list(sessionId)
+    renderArtifactList(data?.artifacts || [])
+  } catch {
+    clearArtifactList()
+  }
+}
+
+const artModal = document.getElementById('artifact-modal')
+const artModalTitle = document.getElementById('artifact-modal-title')
+const artModalBody = document.getElementById('artifact-modal-body')
+const artModalTrunc = document.getElementById('artifact-modal-truncated')
+const artModalCloseBtn = document.getElementById('artifact-modal-close')
+const artModalCopyBtn = document.getElementById('artifact-modal-copy')
+const artModalBackdrop = artModal?.querySelector('.artifact-modal-backdrop')
+let artModalPath = ''
+
+function closeArtifactPreview() {
+  if (!artModal) return
+  artModal.style.display = 'none'
+  artModalPath = ''
+}
+
+artModalCloseBtn?.addEventListener('click', closeArtifactPreview)
+artModalBackdrop?.addEventListener('click', closeArtifactPreview)
+artModalCopyBtn?.addEventListener('click', () => {
+  if (!artModalPath) return
+  navigator.clipboard?.writeText?.(artModalPath).catch(() => {})
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && artModal && artModal.style.display !== 'none') closeArtifactPreview()
+})
+
+async function openArtifactPreview(filePath, _fileName) {
+  if (!artModal) return
+  artModalPath = filePath
+  artModalTitle.textContent = filePath
+  artModalBody.textContent = tt('artifacts_loading') || 'Loading…'
+  artModalTrunc.style.display = 'none'
+  artModal.style.display = 'flex'
+  try {
+    const data = await klausApi.artifacts.read(currentSessionId, filePath)
+    if (data?.error) {
+      let msg = tt('artifacts_load_failed') || 'Failed to load file'
+      if (data.error === 'file not found') msg = tt('artifacts_file_missing') || 'File no longer exists'
+      artModalBody.textContent = msg
+      return
+    }
+    const content = data.content || ''
+    const isMd = /\.(md|markdown)$/i.test(filePath || '')
+    if (isMd && typeof marked !== 'undefined') {
+      artModalBody.innerHTML = marked.parse(content)
+    } else {
+      const pre = document.createElement('pre')
+      const code = document.createElement('code')
+      code.textContent = content
+      pre.appendChild(code)
+      artModalBody.innerHTML = ''
+      artModalBody.appendChild(pre)
+      if (typeof hljs !== 'undefined') {
+        try { hljs.highlightElement(code) } catch {}
+      }
+    }
+    artModalTrunc.style.display = data.truncated ? 'block' : 'none'
+  } catch {
+    artModalBody.textContent = tt('artifacts_load_failed') || 'Failed to load file'
+  }
 }
 
 boot()

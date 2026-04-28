@@ -150,6 +150,17 @@ export type EngineEvent =
   | { type: 'mcp_auth_url'; sessionId: string; url?: string; serverName?: string }
   | { type: 'permission_cancelled'; sessionId: string; requestId: string }
   | { type: 'done'; sessionId: string }
+  | { type: 'artifact'; sessionId: string; filePath: string; fileName: string; lastOp: ArtifactOp; firstSeenAt: number; lastModifiedAt: number }
+
+export type ArtifactOp = 'write' | 'edit' | 'notebook_edit'
+
+export interface ArtifactRecord {
+  readonly sessionId: string
+  readonly filePath: string
+  readonly lastOp: ArtifactOp
+  readonly firstSeenAt: number
+  readonly lastModifiedAt: number
+}
 
 export interface PermissionRequest {
   requestId: string
