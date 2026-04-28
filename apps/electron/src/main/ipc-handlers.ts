@@ -127,6 +127,18 @@ export function registerIpcHandlers(
     return err ? { error: err } : { ok: true, path: dir }
   })
 
+  // Reveal a specific file in Finder/Explorer (highlighted in its parent folder).
+  ipcMain.handle('artifacts:reveal', async (_e, { filePath }) => {
+    if (!filePath || typeof filePath !== 'string') return { error: 'invalid filePath' }
+    try {
+      accessSync(filePath, fsConstants.F_OK)
+    } catch {
+      return { error: 'file not found' }
+    }
+    shell.showItemInFolder(filePath)
+    return { ok: true }
+  })
+
   // --- Settings: Models ---
   ipcMain.handle('settings:models:list', async () => store.listModels())
   ipcMain.handle('settings:models:upsert', async (_e, model) => store.upsertModel(model))

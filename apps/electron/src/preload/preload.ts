@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('klaus', {
     list: (sessionId: string) => ipcRenderer.invoke('artifacts:list', { sessionId }),
     read: (sessionId: string, filePath: string) => ipcRenderer.invoke('artifacts:read', { sessionId, filePath }),
     openWorkspace: (sessionId: string) => ipcRenderer.invoke('artifacts:open-workspace', { sessionId }),
+    reveal: (filePath: string) => ipcRenderer.invoke('artifacts:reveal', { filePath }),
   },
 
   // Settings

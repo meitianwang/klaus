@@ -415,13 +415,33 @@
     <div id="artifact-modal" class="artifact-modal" style="display:none">
       <div class="artifact-modal-backdrop"></div>
       <div class="artifact-modal-card">
-        <div class="artifact-modal-head">
+        <div class="artifact-modal-titlebar">
+          <div class="artifact-modal-traffic">
+            <button id="artifact-modal-close" class="artifact-traffic-light artifact-traffic-close" data-i18n-title="artifacts_close" title="Close" aria-label="Close"></button>
+            <span class="artifact-traffic-light artifact-traffic-min" aria-hidden="true"></span>
+            <span class="artifact-traffic-light artifact-traffic-max" aria-hidden="true"></span>
+          </div>
           <span id="artifact-modal-title" class="artifact-modal-title"></span>
+        </div>
+        <div class="artifact-modal-toolbar">
+          <div id="artifact-modal-viewtoggle" class="artifact-modal-viewtoggle" role="tablist">
+            <button id="artifact-modal-view-source" class="artifact-view-btn" role="tab" data-i18n-title="artifacts_view_source" title="Source">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="5,4 2,8 5,12"/><polyline points="11,4 14,8 11,12"/></svg>
+            </button>
+            <button id="artifact-modal-view-preview" class="artifact-view-btn" role="tab" data-i18n-title="artifacts_view_preview" title="Preview">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+            </button>
+          </div>
+          <span class="artifact-modal-fileinfo">
+            <svg class="artifact-modal-fileicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5.5L9.5 2z"/><path d="M9.5 2v3.5h3.5"/></svg>
+            <span id="artifact-modal-filename" class="artifact-modal-filename"></span>
+            <span id="artifact-modal-filetype" class="artifact-modal-filetype"></span>
+          </span>
           <button id="artifact-modal-copy" class="artifact-modal-icon" data-i18n-title="artifacts_copy_path" title="Copy path">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="9" height="9" rx="1.5"/><path d="M3 10H2.5A1.5 1.5 0 0 1 1 8.5V2.5A1.5 1.5 0 0 1 2.5 1h6A1.5 1.5 0 0 1 10 2.5V3"/></svg>
           </button>
-          <button id="artifact-modal-close" class="artifact-modal-icon" data-i18n-title="artifacts_close" title="Close">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+          <button id="artifact-modal-folder" class="artifact-modal-icon" data-i18n-title="artifacts_open_folder" title="Open folder">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5h5.5a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/></svg>
           </button>
         </div>
         <div id="artifact-modal-body" class="artifact-modal-body"></div>
