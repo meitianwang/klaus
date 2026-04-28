@@ -14,6 +14,7 @@ import type { ChannelConfigManager } from './channel-config.js'
 import type { ConnectorManager } from './connector-manager.js'
 import type { NotificationService } from './notification-service.js'
 import { connectorServerName } from './connectors-catalog.js'
+import { openArtifactWindow } from './artifact-window.js'
 
 export function registerIpcHandlers(
   engine: EngineHost,
@@ -125,6 +126,14 @@ export function registerIpcHandlers(
     try { mkdirSync(dir, { recursive: true }) } catch {}
     const err = await shell.openPath(dir)
     return err ? { error: err } : { ok: true, path: dir }
+  })
+
+  // Open the artifact preview as a separate native BrowserWindow with real
+  // macOS traffic-light controls (titleBarStyle: 'hiddenInset').
+  ipcMain.handle('artifacts:open-window', async (_e, { sessionId, filePath }) => {
+    if (!sessionId || !filePath) return { error: 'invalid args' }
+    openArtifactWindow(String(sessionId), String(filePath))
+    return { ok: true }
   })
 
   // Reveal a specific file in Finder/Explorer (highlighted in its parent folder).
