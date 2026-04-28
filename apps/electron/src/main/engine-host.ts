@@ -939,7 +939,11 @@ export class EngineHost {
       if (cliPrefixOverride) process.env.KLAUS_CLI_PREFIX = cliPrefixOverride
       else delete process.env.KLAUS_CLI_PREFIX
       console.log('[Engine] building systemPrompt...')
-      const systemPromptParts = await getSystemPrompt(
+      // Per-session cwd 必须在 getSystemPrompt 之前生效 — 系统提示里的 CWD: ${getCwd()}
+      // 决定模型写文件时拼的绝对路径。否则会落到 init 时设的全局 fallback __default__。
+      const sessionDir = sessionDirFor(sessionId)
+      mkdirSync(sessionDir, { recursive: true })
+      const systemPromptParts = await runWithCwdOverride(sessionDir, () => getSystemPrompt(
         tools as any,
         this.getModel(),
         undefined,
@@ -947,7 +951,7 @@ export class EngineHost {
         sectionOverrides,
         undefined, // disabledSkills
         customAppendSections,
-      )
+      ))
       const systemPrompt = asSystemPrompt(systemPromptParts)
       console.log('[Engine] systemPrompt built, parts=', systemPromptParts?.length)
 
@@ -1211,11 +1215,8 @@ export class EngineHost {
         taskBudget: undefined,
       } as any
 
-      // Per-session cwd 作用域 — JSONL 历史、auto-memory 自动落到 ~/.klaus/projects/<session>/
-      // skills / MCP / user memory / permissions 来自 CLAUDE_CONFIG_DIR=~/.klaus，全局共享
-      const sessionDir = sessionDirFor(sessionId)
-      mkdirSync(sessionDir, { recursive: true })
-
+      // sessionDir 已在 getSystemPrompt 之前计算并 mkdir — 这里仅用于把 query() 也包进
+      // runWithCwdOverride，让工具运行时 getCwd() 也指向 session 目录（JSONL/auto-memory 等）。
       console.log('[Engine] sessionDir=', sessionDir, 'model=', this.getModel(), 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
 
       await runWithCwdOverride(sessionDir, async () => {
