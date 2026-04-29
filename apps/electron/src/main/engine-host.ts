@@ -68,6 +68,13 @@ import {
   type FileHistoryState,
   type FileHistorySnapshot,
 } from '../engine/utils/fileHistory.js'
+import {
+  listTasks as engineListTasks,
+  onTasksUpdated,
+  getTaskListId as engineGetTaskListId,
+  type Task as EngineTask,
+} from '../engine/utils/tasks.js'
+import type { TaskItem } from '../shared/types.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
 const SESSIONS_DIR = join(CONFIG_DIR, 'sessions')
@@ -328,6 +335,11 @@ export class EngineHost {
   // Single-lane queue preserves FIFO ordering across all callers.
   private chatQueue: Promise<unknown> = Promise.resolve()
 
+  // Subscriber for engine task list changes (CC TaskCreate/TaskUpdate writes
+  // call notifyTasksUpdated → this fires → broadcast to the matching session
+  // emitter). Mirrors CC's TasksV2Store + TaskListV2 panel data feed.
+  private taskListUnsubscribe: (() => void) | null = null
+
   constructor(store: SettingsStore) {
     this.store = store
     // Rehydrate only channel sessions (wechat/qq/feishu/…) from the registry.
@@ -339,6 +351,80 @@ export class EngineHost {
       if (channelKey.startsWith('app:')) continue
       this.ensureSession(channelKey)
     }
+    // Listen once for global task-list mutations. Listener captures the
+    // current task list id (= sessionId for standalone sessions; team name
+    // for swarm sessions) at notify time, reads disk, broadcasts to whichever
+    // session emitter matches. Wrapped in async IIFE to avoid making the
+    // listener a returned Promise.
+    this.taskListUnsubscribe = onTasksUpdated(() => {
+      void this.broadcastTaskList()
+    })
+  }
+
+  /** Snapshot the current task list and push it to the matching session.
+   *  CC's getTaskListId() resolves to the engine uuid for standalone chats,
+   *  or a team name for swarm chats. The renderer keys its session cache by
+   *  the channelKey it sent in chat:send (which equals the uuid for UI
+   *  sessions, but differs for channel sessions like wechat:*). Map back
+   *  via the session entry's uuid so channel sessions also see updates. */
+  private async broadcastTaskList(): Promise<void> {
+    let taskListId: string
+    try {
+      taskListId = engineGetTaskListId()
+    } catch {
+      return
+    }
+    if (!taskListId) return
+    const tasks = await this.readTasksForList(taskListId).catch((err) => {
+      console.warn('[Engine] task list read failed:', err)
+      return [] as TaskItem[]
+    })
+    // Direct hit: standalone UI session whose channelKey is the uuid.
+    const direct = this.sessionEmitters.get(taskListId)
+    if (direct) {
+      direct({ type: 'task_list', sessionId: taskListId, taskListId, tasks })
+      return
+    }
+    // Channel sessions / team mode: find the session entry whose uuid
+    // matches taskListId and emit under that entry's channelKey. Loops over
+    // the in-memory session map (capped by max_sessions, so O(n) is fine).
+    for (const [channelKey, entry] of this.sessions) {
+      if (entry.uuid !== taskListId) continue
+      const emit = this.sessionEmitters.get(channelKey)
+      if (!emit) continue
+      emit({ type: 'task_list', sessionId: channelKey, taskListId, tasks })
+      return
+    }
+    // Team-mode (taskListId is a team name) and no matching uuid: silently
+    // drop. Desktop renderer doesn't surface teams yet.
+  }
+
+  /** Read tasks from disk for an arbitrary task list id. Used by
+   *  broadcastTaskList (caller passes the resolved engine taskListId) and
+   *  the tasks:list IPC. */
+  async readTasksForList(taskListId: string): Promise<TaskItem[]> {
+    const raw = await engineListTasks(taskListId)
+    return raw
+      .filter((t: EngineTask) => !t.metadata?._internal)
+      .map((t: EngineTask): TaskItem => ({
+        id: t.id,
+        subject: t.subject,
+        description: t.description || undefined,
+        activeForm: t.activeForm,
+        status: t.status,
+        owner: t.owner,
+        blockedBy: t.blockedBy ?? [],
+      }))
+  }
+
+  /** Translate a renderer-facing sessionId (channelKey) into the engine
+   *  task list id. For UI sessions the channelKey IS the uuid, so the input
+   *  passes through. For channel sessions (wechat:*) the engine writes
+   *  tasks under the uuid → look it up via the in-memory session entry. */
+  async readTasksForSession(sessionId: string): Promise<TaskItem[]> {
+    const entry = this.sessions.get(sessionId)
+    const taskListId = entry?.uuid ?? sessionId
+    return this.readTasksForList(taskListId)
   }
 
   private ensureSession(channelKey: string): SessionEntry {
@@ -1717,6 +1803,10 @@ export class EngineHost {
   // --- Shutdown ---
 
   async shutdown(): Promise<void> {
+    if (this.taskListUnsubscribe) {
+      try { this.taskListUnsubscribe() } catch {}
+      this.taskListUnsubscribe = null
+    }
     for (const client of this.mcpState.clients) {
       try {
         if ((client as any).close) await (client as any).close()

@@ -380,15 +380,24 @@
 
     </div>
 
-    <!-- Artifacts panel (right side). Toggled by #artifacts-panel-toggle in #header (collapsed) or #artifacts-panel-toggle-inner here (expanded). -->
+    <!-- Monitor panel (right side). Toggled by #artifacts-panel-toggle in #header (collapsed) or #artifacts-panel-toggle-inner here (expanded). Hosts both task progress and produced artifacts in one always-on monitor surface. -->
     <aside id="artifacts-panel" class="artifacts-panel">
       <div class="artifacts-header">
-        <span class="artifacts-title" data-i18n="artifacts_title">Artifacts</span>
-        <button id="artifacts-panel-toggle-inner" class="artifacts-toggle-btn" data-i18n-title="artifacts_toggle" title="Toggle artifacts panel">
+        <span class="artifacts-title" data-i18n="monitor_title">Monitor</span>
+        <button id="artifacts-panel-toggle-inner" class="artifacts-toggle-btn" data-i18n-title="artifacts_toggle" title="Toggle monitor panel">
           <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="14" rx="2"/><line x1="10" y1="1" x2="10" y2="15"/></svg>
         </button>
       </div>
       <div class="artifacts-body">
+        <!-- Tasks (CC TaskListV2 equivalent — TaskCreate/TaskUpdate state).
+             Hidden when the active session has no tasks. -->
+        <div class="artifacts-section" id="monitor-section-tasks" style="display:none">
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="tasks_panel_title">Tasks</span>
+            <span class="artifacts-section-meta" id="monitor-tasks-count"></span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-tasks-body"></div>
+        </div>
         <div class="artifacts-section">
           <div class="artifacts-section-header">
             <span class="artifacts-section-title" data-i18n="artifacts_section_outputs">Outputs</span>

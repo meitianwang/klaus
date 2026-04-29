@@ -161,6 +161,23 @@ export type EngineEvent =
   | { type: 'permission_cancelled'; sessionId: string; requestId: string }
   | { type: 'done'; sessionId: string }
   | { type: 'artifact'; sessionId: string; filePath: string; fileName: string; lastOp: ArtifactOp; firstSeenAt: number; lastModifiedAt: number }
+  // Mirrors CC's TaskListV2 panel data feed. Engine fires onTasksUpdated when
+  // any TaskCreate/TaskUpdate writes to disk; engine-host snapshots the list
+  // and broadcasts to the matching session emitter so the renderer panel
+  // re-renders without polling.
+  | { type: 'task_list'; sessionId: string; taskListId: string; tasks: TaskItem[] }
+
+export interface TaskItem {
+  id: string
+  subject: string
+  description?: string
+  activeForm?: string
+  status: 'pending' | 'in_progress' | 'completed'
+  owner?: string
+  blockedBy: string[]
+  /** Internal tasks (created by orchestrator helpers) are filtered out. */
+  internal?: boolean
+}
 
 export type ArtifactOp = 'write' | 'edit' | 'notebook_edit'
 

@@ -32,6 +32,11 @@ contextBridge.exposeInMainWorld('klaus', {
     history: (sessionId: string) => ipcRenderer.invoke('session:history', { sessionId }),
   },
 
+  // Tasks (CC TaskCreate/TaskUpdate state, drives the task panel)
+  tasks: {
+    list: (sessionId: string) => ipcRenderer.invoke('tasks:list', { sessionId }),
+  },
+
   // Artifacts (files agent wrote during a session)
   artifacts: {
     list: (sessionId: string) => ipcRenderer.invoke('artifacts:list', { sessionId }),

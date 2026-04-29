@@ -574,6 +574,22 @@ export type Tool<
    * shows more get a hover/click affordance. Unset means never truncated.
    */
   isResultTruncated?(output: Output): boolean
+  /**
+   * CC source's per-tool inline render hook. CC ink renders this as the
+   * tool-use line in the transcript; returning null suppresses the line so
+   * the tool's data can be surfaced via a side panel instead (see
+   * TaskCreate / TaskUpdate, both of which feed the task panel).
+   *
+   * The Klaus desktop renderer doesn't dispatch through this hook today —
+   * inline filtering happens via SUPPRESSED_TASK_TOOLS in chat.js — but
+   * keeping the field declared (optional, return type kept loose since the
+   * desktop has no React in the engine layer) lets CC source sync verbatim
+   * for tools that set it, instead of failing typecheck on every rebase.
+   */
+  renderToolUseMessage?(
+    input: Partial<z.infer<Input>>,
+    options: { theme: string; verbose: boolean; commands?: unknown[] },
+  ): unknown
 }
 
 /**

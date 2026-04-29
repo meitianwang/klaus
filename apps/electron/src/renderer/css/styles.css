@@ -3312,6 +3312,54 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .agent-name { font-weight: 500; color: var(--fg); }
 .agent-status { color: var(--fg-quaternary); flex: 1; }
 
+/* ===== Tasks (rendered inside the Monitor panel's Tasks section) =====
+   Layout matches CC TaskListV2 row anatomy: status mark + numeric id +
+   subject (or activeForm while in_progress) + optional owner pill. */
+.artifacts-section-meta {
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  margin-left: 8px;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
+.task-row.completed { color: var(--fg-tertiary); }
+.task-row.completed .task-subject { text-decoration: line-through; }
+.task-row.in_progress { background: var(--bg-hover); }
+.task-row.blocked { color: var(--fg-quaternary); }
+
+.task-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fg-quaternary);
+  flex-shrink: 0;
+  background: transparent;
+}
+.task-row.in_progress .task-mark { border-color: var(--accent); animation: blink 1s infinite; }
+.task-row.completed .task-mark { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.task-mark svg { width: 8px; height: 8px; }
+.task-id { color: var(--fg-quaternary); font-variant-numeric: tabular-nums; min-width: 18px; text-align: right; }
+.task-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-owner {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--fg-tertiary);
+  flex-shrink: 0;
+}
+
 /* ===== Skills page (settings → skills tab) ===== */
 .sk-section { padding-top: 4px; }
 

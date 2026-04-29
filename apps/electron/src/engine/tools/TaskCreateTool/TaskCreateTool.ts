@@ -74,6 +74,11 @@ export const TaskCreateTool = buildTool({
   toAutoClassifierInput(input) {
     return input.subject
   },
+  // Suppress the standard inline tool-use line — task panel is the canonical
+  // surface and inline TaskCreate JSON would just duplicate that.
+  renderToolUseMessage() {
+    return null
+  },
   async call({ subject, description, activeForm, metadata }, context) {
     const taskId = await createTask(getTaskListId(), {
       subject,

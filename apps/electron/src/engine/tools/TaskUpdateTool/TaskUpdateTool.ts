@@ -117,6 +117,11 @@ export const TaskUpdateTool = buildTool({
     if (input.subject) parts.push(input.subject)
     return parts.join(' ')
   },
+  // Suppress the standard inline tool-use line — TaskUpdate fires for every
+  // status flip, the task panel is the canonical surface for this data.
+  renderToolUseMessage() {
+    return null
+  },
   async call(
     {
       taskId,

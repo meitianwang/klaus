@@ -75,6 +75,23 @@ let slashSkillsCache = null
 let slashActiveIdx = -1
 let agentPanel = { team: null, agents: new Map() }
 
+// Task list state (mirrors CC's TasksV2Store). Per-session cache keyed by
+// sessionId; currentSessionId's entry drives rendering inside the right
+// Monitor panel's Tasks section. Engine pushes `task_list` events for any
+// session, we cache them; switchSession also pulls a fresh snapshot from
+// disk. No auto-hide timer — Monitor is an always-on surface; when all tasks
+// complete the section stays so the user can see the final outcome.
+// Engine tools whose tool_use blocks are suppressed from the inline message
+// stream. CC's TaskCreateTool/TaskUpdateTool both return `null` from
+// renderToolUseMessage() — the canonical UI is the Monitor panel's Tasks
+// section, not a per-call card. Without this filter every status flip
+// ("in_progress" → "completed") shows up as a raw-JSON tool card and floods
+// the transcript.
+const SUPPRESSED_TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate'])
+let taskPanel = {
+  sessions: new Map(),  // sessionId → TaskItem[]
+}
+
 const AGENT_COLOR_MAP = { blue: '#3b82f6', green: '#16a34a', purple: '#9333ea', orange: '#ea580c', red: '#dc2626', yellow: '#eab308' }
 let pendingFiles = []  // { file, objectUrl, uploadId, uploading }
 let sessionDom = new Map()  // sessionId → DocumentFragment cache
@@ -681,6 +698,12 @@ async function switchSession(id) {
   messagesEl.innerHTML = ''
   resetStreamState()
 
+  // Monitor's Tasks section reflects the new session immediately from cache
+  // (if any), then refreshes from disk in the background — IPC roundtrip is
+  // a few ms but rendering from cache first avoids a flash of empty section.
+  renderTaskPanel()
+  refreshTasksForSession(id)
+
   // 恢复目标会话的草稿（没有则清空）
   inputEl.value = sessionDrafts.get(id) || ''
   autoResize()
@@ -1215,6 +1238,10 @@ function appendAssistantFromBlocks(blocks, ts, thinkingDurationMs) {
       // Skip Agent — its sub-tools and resolution are reconstructed elsewhere;
       // showing it as a plain card would duplicate the agent panel info.
       if (getToolCategory(b.name || '') === 'agent') continue
+      // Skip TaskCreate/TaskUpdate — surfaced by the task panel; mirrors the
+      // live-stream filter in appendToolStart (CC suppresses these via
+      // renderToolUseMessage() returning null).
+      if (SUPPRESSED_TASK_TOOLS.has(b.name || '')) continue
       if (!toolContainer) {
         toolContainer = document.createElement('div')
         toolContainer.className = 'tool-container'
@@ -1572,6 +1599,10 @@ function renderToolCard(toolName, toolCallId, args, state) {
 }
 
 function appendToolStart(toolName, toolCallId, args) {
+  // Task panel surfaces TaskCreate/TaskUpdate canonically — skip the inline
+  // tool card so we don't double-render. Subsequent tool_end/tool_input_delta/
+  // progress events keyed off this toolCallId silently no-op (no DOM target).
+  if (SUPPRESSED_TASK_TOOLS.has(toolName)) return
   let container = messagesEl.querySelector('.tool-container:last-child')
   if (!container || container.dataset.done === '1') {
     container = document.createElement('div')
@@ -1760,6 +1791,92 @@ function renderAgentPanel() {
     row.innerHTML = `<span class="agent-dot${agent.status === 'running' ? ' running' : ''}" style="background:${color};border-color:${color}"></span><span class="agent-name">${escapeHtml(agent.name)}</span><span class="agent-status">${escapeHtml(statusText)}</span>`
     body.appendChild(row)
   })
+}
+
+// ==================== Task list (Monitor panel ▸ Tasks section) ====================
+// Mirrors CC TaskListV2: surfaces TaskCreate/TaskUpdate state as a section
+// inside the always-on right Monitor panel instead of as a raw-JSON tool card
+// in the transcript. Engine pushes task_list events; renderer maintains a
+// per-session cache and re-renders when the active session changes or its
+// task list updates.
+
+function getCurrentTasks() {
+  return taskPanel.sessions.get(currentSessionId) || []
+}
+
+function renderTaskPanel() {
+  const section = document.getElementById('monitor-section-tasks')
+  const body = document.getElementById('monitor-tasks-body')
+  const meta = document.getElementById('monitor-tasks-count')
+  if (!section || !body) return
+  const tasks = getCurrentTasks()
+  // Empty list → hide the whole section so the Monitor panel doesn't show a
+  // "Tasks" label dangling above empty space. Other sections (Outputs) stay
+  // visible regardless.
+  if (tasks.length === 0) {
+    section.style.display = 'none'
+    body.innerHTML = ''
+    if (meta) meta.textContent = ''
+    return
+  }
+  // Sort by numeric id ascending (CC byIdAsc).
+  const sorted = [...tasks].sort((a, b) => {
+    const aN = parseInt(a.id, 10), bN = parseInt(b.id, 10)
+    if (!isNaN(aN) && !isNaN(bN)) return aN - bN
+    return String(a.id).localeCompare(String(b.id))
+  })
+  section.style.display = ''
+
+  const blockedSet = computeBlockedTaskIds(sorted)
+  const counts = { pending: 0, in_progress: 0, completed: 0 }
+  for (const t of sorted) counts[t.status]++
+  if (meta) meta.textContent = formatTaskCounts(counts)
+
+  body.innerHTML = ''
+  for (const t of sorted) {
+    const blocked = t.status === 'pending' && blockedSet.has(t.id)
+    const row = document.createElement('div')
+    row.className = 'task-row ' + t.status + (blocked ? ' blocked' : '')
+    const subjectText = t.status === 'in_progress' && t.activeForm ? t.activeForm : t.subject
+    const subject = (subjectText || '') + (blocked ? (tt('task_blocked_suffix') || ' (blocked)') : '')
+    const ownerHtml = t.owner ? `<span class="task-owner">${escapeHtml(t.owner)}</span>` : ''
+    const markHtml = t.status === 'completed'
+      ? '<span class="task-mark"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 6.5 5 9 9.5 3.5"/></svg></span>'
+      : '<span class="task-mark"></span>'
+    row.innerHTML = `${markHtml}<span class="task-id">#${escapeHtml(t.id)}</span><span class="task-subject">${escapeHtml(subject)}</span>${ownerHtml}`
+    body.appendChild(row)
+  }
+}
+
+function computeBlockedTaskIds(tasks) {
+  const unresolved = new Set(tasks.filter(t => t.status !== 'completed').map(t => t.id))
+  const blocked = new Set()
+  for (const t of tasks) {
+    if (!t.blockedBy || t.blockedBy.length === 0) continue
+    if (t.blockedBy.some(id => unresolved.has(id))) blocked.add(t.id)
+  }
+  return blocked
+}
+
+function formatTaskCounts(counts) {
+  const parts = []
+  if (counts.in_progress) parts.push(counts.in_progress + ' ' + (tt('tasks_count_in_progress') || 'in progress'))
+  if (counts.pending) parts.push(counts.pending + ' ' + (tt('tasks_count_pending') || 'pending'))
+  if (counts.completed) parts.push(counts.completed + ' ' + (tt('tasks_count_completed') || 'completed'))
+  return parts.join(' · ')
+}
+
+async function refreshTasksForSession(sessionId) {
+  if (!sessionId) return
+  try {
+    const res = await klausApi.tasks.list(sessionId)
+    const tasks = (res && Array.isArray(res.tasks)) ? res.tasks : []
+    taskPanel.sessions.set(sessionId, tasks)
+  } catch (err) {
+    console.warn('[tasks] refresh failed:', err)
+    taskPanel.sessions.set(sessionId, [])
+  }
+  if (sessionId === currentSessionId) renderTaskPanel()
 }
 
 // ==================== Permission ====================
@@ -2298,6 +2415,16 @@ klausApi.on.notifySound?.((kind) => playNotifySound(kind))
 klausApi.on.chatEvent((event) => {
   // DEBUG: 临时 log — 定位 "一次回复渲染成两段" 问题。确认后删除。
   console.log('[chat:event]', event.type, event)
+  // Task panel updates must be cached even for off-screen sessions so that
+  // when the user switches in we can render the latest list from cache before
+  // the IPC refetch resolves.
+  if (event.type === 'task_list' && event.sessionId) {
+    const tasks = Array.isArray(event.tasks) ? event.tasks : []
+    taskPanel.sessions.set(event.sessionId, tasks)
+    if (event.sessionId === currentSessionId) renderTaskPanel()
+    return
+  }
+
   if (event.sessionId && event.sessionId !== currentSessionId) {
     if (event.type === 'done') {
       updateSessionInList()

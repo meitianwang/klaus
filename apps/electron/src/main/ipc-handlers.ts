@@ -86,6 +86,20 @@ export function registerIpcHandlers(
   ipcMain.handle('session:rename', async (_e, { sessionId, title }) => engine.renameSession(sessionId, title))
   ipcMain.handle('session:history', async (_e, { sessionId }) => engine.getHistory(sessionId))
 
+  // --- Tasks (CC TaskCreate/TaskUpdate state, surfaced as a panel) ---
+  // For standalone sessions taskListId === sessionId. The renderer pulls
+  // the current snapshot on session open; live updates come via the
+  // task_list event broadcast from the engine-host onTasksUpdated listener.
+  ipcMain.handle('tasks:list', async (_e, { sessionId }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { tasks: [] }
+    try {
+      return { tasks: await engine.readTasksForSession(sessionId) }
+    } catch (err) {
+      console.warn('[tasks:list] failed:', err)
+      return { tasks: [] }
+    }
+  })
+
   // --- Artifacts (files agent wrote during a session) ---
   ipcMain.handle('artifacts:list', async (_e, { sessionId }) => {
     const records = store.listArtifacts(sessionId)
