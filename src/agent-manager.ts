@@ -1,6 +1,6 @@
 /**
  * Agent session pool — manages per-session conversations with LRU eviction.
- * Uses the internal engine (adapted from claude-code) instead of klaus-agent SDK.
+ * Uses the internal engine adapted from claude-code.
  */
 
 import { randomUUID } from "crypto";
@@ -116,7 +116,7 @@ function stringifyToolResultContent(content: unknown): string {
 }
 
 // ============================================================================
-// Engine Event type (replaces AgentEvent from klaus-agent)
+// Engine Event type
 // ============================================================================
 
 export type EngineEvent =
@@ -1073,17 +1073,12 @@ export class AgentSessionManager {
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 60_000);
     try {
-      if (typeof tool.execute === "function") {
-        // Legacy klaus-agent style tool
-        const result = await tool.execute(`direct-${Date.now()}`, args, { signal: ac.signal, onUpdate: () => {}, approval: { isYolo: () => true }, agentName: "klaus-direct" });
-        return { ok: true, result };
-      } else if (typeof tool.call === "function") {
-        // Engine-style tool
-        const result = await tool.call(args, { abortController: ac } as any, async () => ({ behavior: "allow" as const, updatedInput: args }), {} as any);
-        const mapped = tool.mapToolResultToToolResultBlockParam(result.data, `direct-${Date.now()}`);
-        return { ok: true, result: { content: [{ type: "text", text: typeof mapped.content === "string" ? mapped.content : JSON.stringify(mapped.content) }] } };
+      if (typeof tool.call !== "function") {
+        return { ok: false, error: `Tool "${toolName}" has no call method.` };
       }
-      return { ok: false, error: `Tool "${toolName}" has no execute or call method.` };
+      const result = await tool.call(args, { abortController: ac } as any, async () => ({ behavior: "allow" as const, updatedInput: args }), {} as any);
+      const mapped = tool.mapToolResultToToolResultBlockParam(result.data, `direct-${Date.now()}`);
+      return { ok: true, result: { content: [{ type: "text", text: typeof mapped.content === "string" ? mapped.content : JSON.stringify(mapped.content) }] } };
     } catch (err) {
       if (ac.signal.aborted) {
         return { ok: false, error: `Tool "${toolName}" timed out after 60s.` };

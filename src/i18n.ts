@@ -50,14 +50,6 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     en: "Node.js >= 18 required",
     zh: "需要 Node.js >= 18",
   },
-  cli_ok: {
-    en: "Klaus Agent CLI found",
-    zh: "Klaus Agent CLI 已安装",
-  },
-  cli_not_found: {
-    en: "Klaus Agent CLI not found. Install: npm i -g klaus-agent",
-    zh: "未找到 Klaus Agent CLI。安装: npm i -g klaus-agent",
-  },
   checks_passed: {
     en: "All checks passed",
     zh: "所有检查通过",
