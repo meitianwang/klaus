@@ -799,6 +799,51 @@ function resetStreamState() {
   if (agentPanelEl) agentPanelEl.style.display = 'none'
 }
 
+// ==================== Copy-button helper ====================
+
+const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>'
+const CHECK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+
+function copyTextToClipboard(text, btn) {
+  navigator.clipboard.writeText(text || '').then(() => {
+    if (!btn) return
+    btn.classList.add('copied')
+    btn.innerHTML = CHECK_ICON_SVG
+    btn.setAttribute('aria-label', tt('copied'))
+    setTimeout(() => {
+      btn.classList.remove('copied')
+      btn.innerHTML = COPY_ICON_SVG
+      btn.setAttribute('aria-label', tt('copy'))
+    }, 1500)
+  }).catch(() => {
+    if (btn) btn.setAttribute('aria-label', tt('copy_failed'))
+  })
+}
+
+// Icon-only copy button. `getText` is called at click time so streaming text
+// can finalize before being read.
+function makeCopyButton(getText) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'msg-action-btn'
+  btn.innerHTML = COPY_ICON_SVG
+  btn.title = tt('copy')
+  btn.setAttribute('aria-label', tt('copy'))
+  btn.onclick = (e) => { e.stopPropagation(); copyTextToClipboard(getText() || '', btn) }
+  return btn
+}
+
+function ensureMsgActions(group) {
+  if (!group) return null
+  let bar = group.querySelector(':scope > .msg-actions')
+  if (!bar) {
+    bar = document.createElement('div')
+    bar.className = 'msg-actions'
+    group.appendChild(bar)
+  }
+  return bar
+}
+
 // ==================== Send ====================
 
 async function send() {
@@ -920,6 +965,8 @@ function appendUserMsg(text) {
   html = html.replace(/@(\/[^\s]+\.(png|jpg|jpeg|gif|webp))/gi, (_, path) =>
     `<img src="file://${escapeHtml(path)}" style="max-height:200px;border-radius:8px;margin:4px 0;display:block">`)
   group.innerHTML = `<div class="msg user">${html}</div>`
+  // Copy button — copies the original (un-escaped) text the user sent.
+  ensureMsgActions(group).appendChild(makeCopyButton(() => text))
   messagesEl.appendChild(group)
   scrollToBottom()
 }
@@ -930,8 +977,12 @@ function appendFinalAssistantMsg(text) {
   const msgEl = document.createElement('div')
   msgEl.className = 'msg assistant'
   msgEl.innerHTML = renderMarkdown(text)
+  // Stash the raw markdown source for the copy button — the rendered HTML
+  // alone can't be reversed back to original markdown.
+  msgEl.dataset.md = text || ''
   group.appendChild(msgEl)
   postProcessMsg(msgEl)
+  ensureMsgActions(group).appendChild(makeCopyButton(() => msgEl.dataset.md || ''))
   messagesEl.appendChild(group)
 }
 
@@ -1055,6 +1106,7 @@ function appendStreamText(text) {
     group.appendChild(msgEl)
   }
   msgEl.innerHTML = renderMarkdown(streamBuffer)
+  msgEl.dataset.md = streamBuffer
   msgEl.classList.add('streaming')
   scrollToBottom()
 }
@@ -1065,6 +1117,11 @@ function finalizeStream() {
   if (msgEl) {
     msgEl.classList.remove('streaming')
     postProcessMsg(msgEl)
+    // Attach the copy button once the bubble is finalized.
+    const bar = ensureMsgActions(currentMsgGroup)
+    if (!bar.querySelector('.msg-action-btn')) {
+      bar.appendChild(makeCopyButton(() => msgEl.dataset.md || ''))
+    }
   }
   // 对齐 cc 的 content-block 模型：每段 text block 到此收口。
   // 下一段 text_delta 必须新建 msg-group，不能回填旧组——否则 tool_use 之后的第二段正文
