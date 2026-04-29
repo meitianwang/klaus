@@ -716,6 +716,7 @@ async function switchSession(id) {
       else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp)
       else appendFinalAssistantMsg(msg.text, msg.timestamp)
     }
+    pruneIntermediateAssistantActions()
   }
 
   // Drain pending permission asks that arrived while this session was
@@ -973,6 +974,7 @@ async function reloadSessionTranscript(sessionId) {
     else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp)
     else appendFinalAssistantMsg(msg.text, msg.timestamp)
   }
+  pruneIntermediateAssistantActions()
   // Artifacts panel — host rebuilt the session_artifacts table from the
   // truncated transcript, so refresh the panel to drop ghost rows.
   try { if (typeof loadArtifacts === 'function') await loadArtifacts(sessionId) } catch {}
@@ -1293,18 +1295,48 @@ function finalizeStream() {
   if (msgEl) {
     msgEl.classList.remove('streaming')
     postProcessMsg(msgEl)
-    // Attach the time label + copy button once the bubble is finalized.
-    const bar = ensureMsgActions(currentMsgGroup)
-    if (!bar.querySelector('.msg-action-btn')) {
-      appendTimeLabel(bar, Date.now())
-      bar.appendChild(makeCopyButton(() => msgEl.dataset.md || ''))
-    }
+    // 不在这里挂时间+复制按钮 —— 一轮里 text 段可能被 tool_use 切成多段，
+    // 中间段不该带按钮。统一在 `done` 事件里给本轮最后一段挂
+    // (attachCopyToTurnTail)。
   }
   // 对齐 cc 的 content-block 模型：每段 text block 到此收口。
   // 下一段 text_delta 必须新建 msg-group，不能回填旧组——否则 tool_use 之后的第二段正文
   // 会覆盖到第一段上面的旧气泡里，顺序和光标都会错位。
   currentMsgGroup = null
   streamBuffer = ''
+}
+
+// 给本轮最后一段 assistant text 气泡挂时间+复制按钮。在 `done` 时调用。
+function attachCopyToTurnTail() {
+  const groups = messagesEl.querySelectorAll(':scope > .msg-group.assistant')
+  const last = groups[groups.length - 1]
+  if (!last) return
+  const msgEl = last.querySelector(':scope > .msg.assistant')
+  if (!msgEl) return
+  const bar = ensureMsgActions(last)
+  if (bar.querySelector('.msg-action-btn')) return
+  appendTimeLabel(bar, Date.now())
+  bar.appendChild(makeCopyButton(() => msgEl.dataset.md || ''))
+}
+
+// 历史还原时每条 assistant 行各自走 appendFinalAssistantMsg 都挂了按钮,
+// 走完整列表后用这个把"中间段"按钮拿掉 —— 一段是不是中间段，看它后面在遇到
+// 下一个 .msg-group.user 之前是否还有 .msg-group.assistant。
+function pruneIntermediateAssistantActions() {
+  const groups = messagesEl.querySelectorAll(':scope > .msg-group.assistant')
+  for (const group of groups) {
+    let next = group.nextElementSibling
+    while (next) {
+      if (next.classList?.contains('msg-group')) {
+        if (next.classList.contains('user')) break // 下一轮 — 当前是末尾段，保留
+        if (next.classList.contains('assistant')) {
+          group.querySelector(':scope > .msg-actions')?.remove()
+          break
+        }
+      }
+      next = next.nextElementSibling
+    }
+  }
 }
 
 // ==================== Tool rendering ====================
@@ -2341,6 +2373,8 @@ klausApi.on.chatEvent((event) => {
     }
     case 'done':
       thinkingUI.finalize(); finalizeStream()
+      // 本轮最后一段 assistant 才该带时间+复制按钮(中间段被 tool_use 切开过)。
+      attachCopyToTurnTail()
       // Just-sent user bubbles missed the uuid in appendUserMsg; the host has
       // now flushed their JSONL line, so backfill uuids + delete/rewind buttons.
       refreshLiveUserUuids(event.sessionId)
