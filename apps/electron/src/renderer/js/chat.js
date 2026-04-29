@@ -713,7 +713,7 @@ async function switchSession(id) {
     }
     for (const msg of history) {
       if (msg.role === 'user') appendUserMsg(msg.text, msg.timestamp, msg.uuid)
-      else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp)
+      else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
       else appendFinalAssistantMsg(msg.text, msg.timestamp)
     }
     pruneIntermediateAssistantActions()
@@ -1158,51 +1158,73 @@ function appendFinalAssistantMsg(text, ts) {
 // Cmd+R reload looks identical to what the user saw during streaming. Block
 // shapes match CC: { type: 'thinking', thinking } / { type: 'text', text } /
 // { type: 'tool_use', name, id, input } / { type: 'tool_result', ... }.
-function appendAssistantFromBlocks(blocks, ts) {
+// `thinkingDurationMs`：getHistory 从 sidecar JSON 读到的 live 测时长（如果有），
+// 用来还原 "Thought for Xs"。没记到（旧会话或非 thinking 模型）就退回 "…"。
+//
+// 渲染顺序遵循 contentBlocks 数组次序 —— 这次渲染流（thinking → text → tool 或
+// thinking → tool → text，由模型实际发出顺序决定）跟 live 一致。多个连续
+// thinking block 累成一个 fold；同一段连续 tool_use 进同一个 tool-container；
+// text 块各自起一个 bubble（被 tool / thinking 切开就分段）。
+function appendAssistantFromBlocks(blocks, ts, thinkingDurationMs) {
   if (!Array.isArray(blocks) || blocks.length === 0) return
-  // Collect thinking & text separately so we can render one fold + one bubble
-  // per turn, matching the live UI.
-  let thinkingText = ''
-  let mainText = ''
-  const toolBlocks = []
+
+  let pendingThinking = ''
+  let thinkingDurationUsed = false  // 一次 msg 里可能有多段 thinking，duration 只挂第一段
+  let pendingText = ''
+  let toolContainer = null  // 当前累积工具卡片的 .tool-container；遇到 text/thinking 后置 null，下一个 tool 会新建
+
+  const flushThinking = () => {
+    if (!pendingThinking.trim()) { pendingThinking = ''; return }
+    const dur = (!thinkingDurationUsed && typeof thinkingDurationMs === 'number' && Number.isFinite(thinkingDurationMs) && thinkingDurationMs >= 0)
+      ? `${Math.max(1, Math.round(thinkingDurationMs / 1000))}s`
+      : '…'
+    const done = document.createElement('div')
+    done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
+    done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${dur}</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(pendingThinking)}</div>`
+    done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
+    messagesEl.appendChild(done)
+    pendingThinking = ''
+    thinkingDurationUsed = true
+    toolContainer = null
+  }
+  const flushText = () => {
+    if (!pendingText.trim()) { pendingText = ''; return }
+    appendFinalAssistantMsg(pendingText, ts)
+    pendingText = ''
+    toolContainer = null
+  }
+
   for (const b of blocks) {
     if (!b || typeof b !== 'object') continue
     if (b.type === 'thinking' || b.type === 'redacted_thinking') {
-      thinkingText += (b.thinking ?? b.data ?? '')
+      // thinking 出现在 text 后面（罕见）：先把之前的 text bubble 收口
+      flushText()
+      pendingThinking += (b.thinking ?? b.data ?? '')
     } else if (b.type === 'text' && typeof b.text === 'string') {
-      mainText += b.text
+      flushThinking()
+      pendingText += b.text
+      toolContainer = null
     } else if (b.type === 'tool_use') {
-      toolBlocks.push(b)
-    }
-  }
-  // Thinking fold (no duration from disk — show just the content)
-  if (thinkingText.trim()) {
-    const done = document.createElement('div')
-    done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
-    done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>…</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(thinkingText)}</div>`
-    done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
-    messagesEl.appendChild(done)
-  }
-  // Tool cards (simplified, matches live tool-start/end visual). Any
-  // AskUserQuestion blocks rebuild their resolved interactive card below.
-  const askBlocks = []
-  const plainToolBlocks = []
-  for (const tb of toolBlocks) {
-    if (tb?.name === 'AskUserQuestion') askBlocks.push(tb)
-    else plainToolBlocks.push(tb)
-  }
-  if (plainToolBlocks.length > 0) {
-    const container = document.createElement('div')
-    container.className = 'tool-container'
-    container.dataset.done = '1'
-    for (const tb of plainToolBlocks) {
+      flushThinking()
+      flushText()
+      if (b.name === 'AskUserQuestion') {
+        rebuildAskUserQuestionCard(b)
+        toolContainer = null
+        continue
+      }
       // Skip Agent — its sub-tools and resolution are reconstructed elsewhere;
       // showing it as a plain card would duplicate the agent panel info.
-      if (getToolCategory(tb.name || '') === 'agent') continue
-      const item = renderToolCard(tb.name || '', tb.id || '', tb.input, 'done')
+      if (getToolCategory(b.name || '') === 'agent') continue
+      if (!toolContainer) {
+        toolContainer = document.createElement('div')
+        toolContainer.className = 'tool-container'
+        toolContainer.dataset.done = '1'
+        messagesEl.appendChild(toolContainer)
+      }
+      const item = renderToolCard(b.name || '', b.id || '', b.input, 'done')
       // engine-host.getHistory attaches __result onto the tool_use block when a
       // matching tool_result was found in the same transcript pass.
-      const result = sanitizeToolOutput(tb.__result)
+      const result = sanitizeToolOutput(b.__result)
       if (result) {
         const outPre = ensureToolOutputPre(item)
         if (outPre) {
@@ -1210,15 +1232,13 @@ function appendAssistantFromBlocks(blocks, ts) {
           updateOutputMeta(outPre)
         }
       }
-      container.appendChild(item)
+      toolContainer.appendChild(item)
     }
-    messagesEl.appendChild(container)
   }
-  for (const tb of askBlocks) {
-    rebuildAskUserQuestionCard(tb)
-  }
-  // Main text bubble
-  if (mainText.trim()) appendFinalAssistantMsg(mainText, ts)
+  // Trailing flushes — order matters: thinking before text so a final
+  // thinking-only block lands before any (empty) text segment would.
+  flushThinking()
+  flushText()
 }
 
 function ensureAssistantGroup() {

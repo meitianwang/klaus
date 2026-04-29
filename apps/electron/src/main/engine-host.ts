@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { join, basename as pathBasename } from 'path'
 import { homedir } from 'os'
-import { mkdirSync, unlinkSync, existsSync, rmSync } from 'fs'
+import { mkdirSync, unlinkSync, existsSync, rmSync, readFileSync, writeFileSync } from 'fs'
 import type { BrowserWindow } from 'electron'
 import type { SettingsStore } from './settings-store.js'
 import { SessionKeyRegistry } from './session-registry.js'
@@ -202,6 +202,14 @@ interface SessionEntry {
   streamedBlockTypes: Map<string, Set<string>>
   /** message_start 记录的当前流式 message id，供后续 content_block_delta 归属到对应 message。 */
   currentStreamingMessageId?: string
+  /**
+   * `stream_request_start` 时打的本地时间戳。case 'assistant' 收到首条带非 thinking
+   * block（text / tool_use）的消息时计算 elapsed 写到 sidecar，作为"思考时长"的
+   * 真实测量值（CC JSONL 不带 duration，恢复时只能靠这份外挂数据还原 live 显示）。
+   * sawThinkingInResponse 标记本次 model 调用里是否真出现过 thinking，没出现就别写。
+   */
+  streamThinkingStartTs?: number
+  sawThinkingInResponse?: boolean
 }
 
 class ToolLoopDetector {
@@ -626,6 +634,12 @@ export class EngineHost {
     if (existsSync(filePath)) {
       try { unlinkSync(filePath) } catch (err) { console.warn('[Engine] deleteSession unlink failed:', err) }
     }
+    // sidecar 跟着 jsonl 一起清理 — 留着会让下次同 uuid 的 session（重建很罕见但
+    // 理论上可能）读到陈旧的 thinking 时长。
+    const sidecarPath = this.thinkingDurationsPath(uuid as any)
+    if (existsSync(sidecarPath)) {
+      try { unlinkSync(sidecarPath) } catch (err) { console.warn('[Engine] deleteSession unlink sidecar failed:', err) }
+    }
     this.sessions.delete(sessionId)
     this.sessionEmitters.delete(sessionId)
     this.sessionPermissionEmitters.delete(sessionId)
@@ -684,6 +698,9 @@ export class EngineHost {
       // just one turn and silently dropped the rest.
       const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
 
+      // Sidecar (best-effort)：live 测的 thinking 时长 keyed by message.id。
+      const thinkingDurationsByMsgId = this.readThinkingDurations(uuid)
+
       // First pass: collect tool_result payloads keyed by tool_use_id, so that
       // the second pass can attach the final answers back onto the matching
       // AskUserQuestion tool_use block (the interactive card is rebuilt from
@@ -715,6 +732,11 @@ export class EngineHost {
 
       const out: ChatMessage[] = []
       let i = 0
+      // 同次 model 调用的 content block 会被 CC 拆成多条 assistant JSONL（一条 thinking
+      // 一行、tool_use 又一行），共享同一 message.id。CC 自己在 normalizeMessagesForAPI
+      // 里按 message.id 合并（messages.ts:2246）；getHistory 也得做这一步，否则连续两条
+      // thinking 行会渲染成两个 fold（见 2026-04-29 用户反馈）。
+      let lastAssistantMsgId: string | undefined
       for (const m of messages.values()) {
         if (m.type !== 'user' && m.type !== 'assistant') continue
         // Subagent (Task tool) internals — don't render in the main transcript.
@@ -749,7 +771,27 @@ export class EngineHost {
             : ''
         // Drop fully-empty user bubbles (rare, but e.g. attachment-only rows
         // that didn't survive serialization would render as a blank box).
-        if (m.type === 'user' && !text.trim() && !blocks?.length) continue
+        if (m.type === 'user' && !text.trim() && !blocks?.length) {
+          // 还要重置 lastAssistantMsgId — 但 user 行如果是 tool_result 会被前面跳过，
+          // 这里走到说明是真的 user 输入或纯空，且当前不会破坏 assistant 合并连续性
+          // （真的 user 行已经是不同 msgId 的边界）。
+          continue
+        }
+
+        const msgId = m.type === 'assistant'
+          ? ((m as any).message?.id as string | undefined)
+          : undefined
+
+        // 同 msgId 的连续 assistant 行：合并到上一条 entry，不新建。
+        if (m.type === 'assistant' && msgId && msgId === lastAssistantMsgId && out.length > 0) {
+          const prev = out[out.length - 1]!
+          if (blocks && blocks.length > 0) {
+            prev.contentBlocks = [...(prev.contentBlocks || []), ...blocks]
+          }
+          if (text) prev.text = (prev.text || '') + text
+          continue
+        }
+
         out.push({
           id: `${sessionId}-${i++}`,
           uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
@@ -757,7 +799,9 @@ export class EngineHost {
           text,
           contentBlocks: blocks,
           timestamp: Date.parse((m as any).timestamp || '') || 0,
+          thinkingDurationMs: msgId ? thinkingDurationsByMsgId.get(msgId) : undefined,
         })
+        lastAssistantMsgId = m.type === 'assistant' ? msgId : undefined
       }
       // Stable sort by timestamp; ties keep file-insertion order.
       out.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
@@ -765,6 +809,51 @@ export class EngineHost {
     } catch (err) {
       console.warn('[Engine] getHistory failed:', err)
       return []
+    }
+  }
+
+  /**
+   * Sidecar JSON next to the JSONL: { [messageId]: durationMs }. Live measurement
+   * happens in processStreamEvent; getHistory reads to restore "Thought for Xs"
+   * on rebuild. Best-effort — corrupted/missing file just yields an empty map.
+   */
+  private thinkingDurationsPath(uuid: string): string {
+    return join(getProjectDir(CANONICAL_CWD), `${uuid}.thinking-durations.json`)
+  }
+
+  private readThinkingDurations(uuid: string): Map<string, number> {
+    const map = new Map<string, number>()
+    if (!uuid) return map
+    const path = this.thinkingDurationsPath(uuid)
+    if (!existsSync(path)) return map
+    try {
+      const raw = JSON.parse(readFileSync(path, 'utf8'))
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === 'number' && Number.isFinite(v)) map.set(k, v)
+        }
+      }
+    } catch (err) {
+      console.warn('[Engine] thinking-durations read failed:', err)
+    }
+    return map
+  }
+
+  private writeThinkingDuration(uuid: string, msgId: string, durationMs: number): void {
+    if (!uuid || !msgId) return
+    const path = this.thinkingDurationsPath(uuid)
+    let data: Record<string, number> = {}
+    try {
+      if (existsSync(path)) {
+        const parsed = JSON.parse(readFileSync(path, 'utf8'))
+        if (parsed && typeof parsed === 'object') data = parsed
+      }
+    } catch {}
+    data[msgId] = durationMs
+    try {
+      writeFileSync(path, JSON.stringify(data))
+    } catch (err) {
+      console.warn('[Engine] thinking-durations write failed:', err)
     }
   }
 
@@ -1242,7 +1331,7 @@ export class EngineHost {
       // built-in agents (general-purpose / Explore / Plan / …) + 用户/项目 .claude/agents/*.md
       // + plugin agents。Klaus 桌面端必须保留这套，否则：
       //   - AgentTool.ts:344 在 activeAgents 里 find('general-purpose') 拿到 undefined
-      //     → throw "Agent type 'general-purpose' not found"
+      //     → throw "Agent type 'general-purpose' not found"（截图里的失败）
       //   - AgentTool/prompt.ts:198 "Available agent types: " 列空，但同一 prompt 仍告诉
       //     模型"省略时用 general-purpose" → 模型按描述调用 → 必失败
       //   - WebSearchTool / spawnMultiAgent / ExitPlanMode 等读 activeAgents 的工具描述
@@ -1678,6 +1767,10 @@ export class EngineHost {
       case 'stream_request_start': {
         this.pushEvent({ type: 'stream_mode', sessionId, mode: 'requesting' })
         this.pushEvent({ type: 'requesting', sessionId })
+        // 思考时长测量起点：本次 model 调用的开始。CC JSONL 不记 duration，所以在
+        // 这里打本地时间戳，下游 case 'assistant' 收到首个非 thinking block 时算 elapsed。
+        session.streamThinkingStartTs = Date.now()
+        session.sawThinkingInResponse = false
         break
       }
 
@@ -1694,6 +1787,20 @@ export class EngineHost {
         const streamed = msgId ? session.streamedBlockTypes.get(msgId) : undefined
         const wasStreamed = (t: string) => !!streamed?.has(t)
         const content = (event as any).message?.content
+        // 思考时长测量：扫一眼这条消息里的 block 类型，决定是 mark sawThinking 还是 flush。
+        // 同 msgId 可能被 CC 拆成多条 assistant JSONL（连续 thinking 行 + tool_use 行），
+        // sawThinkingInResponse 跨多次 case 'assistant' 累计；遇到首个非 thinking block 才落盘。
+        if (Array.isArray(content) && msgId && session.streamThinkingStartTs != null) {
+          const hasThinking = content.some((b: any) => b?.type === 'thinking' || b?.type === 'redacted_thinking')
+          const hasNonThinking = content.some((b: any) => b && b.type !== 'thinking' && b.type !== 'redacted_thinking')
+          if (hasThinking) session.sawThinkingInResponse = true
+          if (hasNonThinking && session.sawThinkingInResponse) {
+            const elapsedMs = Math.max(0, Date.now() - session.streamThinkingStartTs)
+            this.writeThinkingDuration(session.uuid, msgId, elapsedMs)
+            session.streamThinkingStartTs = undefined
+            session.sawThinkingInResponse = false
+          }
+        }
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'text' && block.text && !wasStreamed('text')) {

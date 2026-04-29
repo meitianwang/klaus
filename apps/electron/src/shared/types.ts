@@ -23,6 +23,12 @@ export interface ChatMessage {
   thinking?: string
   toolCalls?: ToolCallInfo[]
   timestamp: number
+  /** Live-measured thinking duration (ms) keyed by message.id, persisted to a
+   *  sidecar JSON next to the JSONL. Restored sessions use this to show
+   *  "Thought for Xs" matching the original live render. Undefined for legacy
+   *  transcripts written before this was tracked, or when the assistant turn
+   *  had no thinking block — the renderer falls back to "…" in that case. */
+  thinkingDurationMs?: number
 }
 
 export interface ToolCallInfo {
