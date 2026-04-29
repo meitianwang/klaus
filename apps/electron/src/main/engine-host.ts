@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { join, basename as pathBasename } from 'path'
+import { join, basename as pathBasename, dirname } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, unlinkSync, existsSync, rmSync, readFileSync, writeFileSync } from 'fs'
 import type { BrowserWindow } from 'electron'
@@ -72,6 +72,7 @@ import {
   listTasks as engineListTasks,
   onTasksUpdated,
   getTaskListId as engineGetTaskListId,
+  getTasksDir as engineGetTasksDir,
   type Task as EngineTask,
 } from '../engine/utils/tasks.js'
 import type { TaskItem } from '../shared/types.js'
@@ -732,6 +733,24 @@ export class EngineHost {
     this.registry.forgetUuid(uuid)
     // Cascade: drop recorded artifacts for this session.
     try { this.store.deleteArtifactsBySession(sessionId) } catch {}
+    // Cascade: drop the CC task list directory for this session. For
+    // standalone sessions taskListId === uuid (CC fallback in getTaskListId),
+    // so the dir is exclusive to this session. Team task lists (keyed by
+    // team name) are shared and intentionally NOT cleaned here — destroying
+    // a teammate's session shouldn't wipe the leader's shared task list.
+    if (uuid) {
+      try {
+        const tasksDir = engineGetTasksDir(uuid as string)
+        // Defense in depth: refuse to recurse-delete anything that isn't a
+        // direct child of the tasks/ root, even though sanitizePathComponent
+        // already strips path-traversal chars from the uuid input.
+        if (dirname(tasksDir).endsWith('/tasks') && existsSync(tasksDir)) {
+          rmSync(tasksDir, { recursive: true, force: true })
+        }
+      } catch (err) {
+        console.warn('[Engine] deleteSession rm tasks dir failed:', err)
+      }
+    }
     // Optionally wipe the session's workspace directory and all its files.
     // Guard: never let this escape SESSIONS_DIR (defense against weird sessionIds).
     if (opts?.wipeWorkspace) {
