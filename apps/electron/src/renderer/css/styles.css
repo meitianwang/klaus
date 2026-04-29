@@ -337,6 +337,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 #sidebar.collapsed .sidebar-nav-item { justify-content: center; padding: 10px; }
 #sidebar.collapsed .sidebar-section-label { display: none; }
 #sidebar.collapsed .session-list { display: none; }
+#sidebar.collapsed .cron-pinned-wrap { display: none; }
 #sidebar.collapsed .sidebar-footer { padding: 12px 8px; display: flex; justify-content: center; }
 #sidebar.collapsed .sidebar-user-info { display: none; }
 
