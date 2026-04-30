@@ -738,11 +738,7 @@ async function switchSession(id) {
         if (run && run.status === 'running') thinkingUI.show()
       }
     }
-    for (const msg of history) {
-      if (msg.role === 'user') appendUserMsg(msg.text, msg.timestamp, msg.uuid)
-      else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
-      else appendFinalAssistantMsg(msg.text, msg.timestamp)
-    }
+    for (const msg of history) renderHistoryMessage(msg)
     pruneIntermediateAssistantActions()
   }
 
@@ -996,11 +992,7 @@ async function reloadSessionTranscript(sessionId) {
   }
   messagesEl.style.display = 'block'
   welcomeEl.style.display = 'none'
-  for (const msg of history) {
-    if (msg.role === 'user') appendUserMsg(msg.text, msg.timestamp, msg.uuid)
-    else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp)
-    else appendFinalAssistantMsg(msg.text, msg.timestamp)
-  }
+  for (const msg of history) renderHistoryMessage(msg)
   pruneIntermediateAssistantActions()
   // Artifacts panel — host rebuilt the session_artifacts table from the
   // truncated transcript, so refresh the panel to drop ghost rows.
@@ -1182,6 +1174,43 @@ function appendFinalAssistantMsg(text, ts) {
   appendTimeLabel(bar, ts ?? Date.now())
   bar.appendChild(makeCopyButton(() => msgEl.dataset.md || ''))
   messagesEl.appendChild(group)
+}
+
+// CC's persisted slash-command breadcrumb: a "/compact" pill rendered like a
+// terse command line, not a regular user bubble. Same visual grammar a CLI
+// transcript would show — terminal prompt + command — so users reading the
+// reloaded conversation see "ah, here's where I ran /compact".
+function appendSlashCommandRow(commandName) {
+  const group = document.createElement('div')
+  group.className = 'msg-group system slash-command-row'
+  const inner = document.createElement('div')
+  inner.className = 'slash-command-pill'
+  inner.innerHTML = `<span class="slash-command-prompt">/</span><span class="slash-command-name">${escapeHtml(commandName || 'command')}</span>`
+  group.appendChild(inner)
+  messagesEl.appendChild(group)
+}
+
+// Captured stdout from a local command (e.g. compact's "Compacted X→Y").
+// Dim system row, mirrors how CC TUI shows local-command-stdout.
+function appendCommandStdoutRow(text) {
+  const group = document.createElement('div')
+  group.className = 'msg-group system command-stdout-row'
+  const inner = document.createElement('div')
+  inner.className = 'command-stdout-text'
+  inner.textContent = text
+  group.appendChild(inner)
+  messagesEl.appendChild(group)
+}
+
+// Single dispatch point used by both initial history load (switchSession,
+// truncateAtMessage flow) and post-compact reload. Handles the three special
+// kinds that need bespoke rendering plus the default user/assistant bubbles.
+function renderHistoryMessage(msg) {
+  if (msg.kind === 'slash-command') return appendSlashCommandRow(msg.commandName || msg.text)
+  if (msg.kind === 'command-stdout') return appendCommandStdoutRow(msg.text)
+  if (msg.role === 'user') return appendUserMsg(msg.text, msg.timestamp, msg.uuid)
+  if (Array.isArray(msg.contentBlocks)) return appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
+  return appendFinalAssistantMsg(msg.text, msg.timestamp)
 }
 
 // Restore an assistant turn from its original engine content block array.
@@ -2133,11 +2162,7 @@ async function reloadTranscriptForCurrentSession() {
     return
   }
   if (currentSessionId !== id) return  // user switched away mid-await
-  for (const msg of history) {
-    if (msg.role === 'user') appendUserMsg(msg.text, msg.timestamp, msg.uuid)
-    else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
-    else appendFinalAssistantMsg(msg.text, msg.timestamp)
-  }
+  for (const msg of history) renderHistoryMessage(msg)
   pruneIntermediateAssistantActions()
   const hasContent = messagesEl.childNodes.length > 0
   messagesEl.style.display = hasContent ? 'block' : 'none'

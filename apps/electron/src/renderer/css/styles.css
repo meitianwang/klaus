@@ -3670,7 +3670,44 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   flex-shrink: 0;
 }
 
-/* ===== Compacting toast (manual /compact lifecycle) =====
+/* ===== Slash-command breadcrumb (CC's persisted /compact pill) =====
+   Centered pill rendered in transcript when reload sees a user message
+   carrying <command-name>. Reads as "the user invoked /compact here". */
+.msg-group.slash-command-row {
+  display: flex; justify-content: center;
+  margin: 8px 0 4px;
+}
+.slash-command-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.slash-command-prompt { color: var(--fg-quaternary); }
+.slash-command-name { color: var(--fg); font-weight: 500; }
+
+/* ===== Local-command stdout row (e.g. "Compacted: 88k → 1.2k tokens") =====
+   Centered dim caption immediately after the slash-command pill. CC TUI
+   uses chalk.dim for the same effect. */
+.msg-group.command-stdout-row {
+  display: flex; justify-content: center;
+  margin: 0 0 10px;
+}
+.command-stdout-text {
+  font-size: 11.5px;
+  color: var(--fg-tertiary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  max-width: 80%;
+}
+
+/* ===== Compacting indicator (manual /compact lifecycle) =====
    Shown as a system message in the transcript while compactSession runs;
    removed on compact_boundary / compaction_error. */
 .compacting-row {

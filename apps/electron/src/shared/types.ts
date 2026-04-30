@@ -29,6 +29,20 @@ export interface ChatMessage {
    *  transcripts written before this was tracked, or when the assistant turn
    *  had no thinking block — the renderer falls back to "…" in that case. */
   thinkingDurationMs?: number
+  /**
+   * Special-render kinds for transcript entries that aren't a normal user/
+   * assistant bubble. Mirrors how CC's `processSlashCommand` persists slash
+   * commands into the transcript so resume sees them later:
+   *   'slash-command'    → user-typed `/foo` line, rendered as a command pill
+   *   'command-stdout'   → captured local-command output (e.g. "Compacted X→Y"),
+   *                        rendered as a dim system row
+   * Default (undefined) means a regular bubble. The renderer dispatches on
+   * this field instead of pattern-matching the raw text every time.
+   */
+  kind?: 'slash-command' | 'command-stdout'
+  /** When kind === 'slash-command', the command name (e.g. 'compact') stripped
+   *  of leading slash for display. */
+  commandName?: string
 }
 
 export interface ToolCallInfo {

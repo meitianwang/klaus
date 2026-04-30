@@ -88,7 +88,17 @@ import {
 import { runPostCompactCleanup } from '../engine/services/compact/postCompactCleanup.js'
 import { suppressCompactWarning } from '../engine/services/compact/compactWarningState.js'
 import { setLastSummarizedMessageId } from '../engine/services/SessionMemory/sessionMemoryUtils.js'
-import { getMessagesAfterCompactBoundary } from '../engine/utils/messages.js'
+import {
+  getMessagesAfterCompactBoundary,
+  createSyntheticUserCaveatMessage,
+  createUserMessage as engineCreateUserMessage,
+  formatCommandInputTags,
+} from '../engine/utils/messages.js'
+import {
+  COMMAND_NAME_TAG,
+  LOCAL_COMMAND_CAVEAT_TAG,
+  LOCAL_COMMAND_STDOUT_TAG,
+} from '../engine/constants/xml.js'
 import { tokenCountWithEstimation } from '../engine/utils/tokens.js'
 import {
   calculateTokenWarningState,
@@ -874,6 +884,15 @@ export class EngineHost {
       // 一行、tool_use 又一行），共享同一 message.id。CC 自己在 normalizeMessagesForAPI
       // 里按 message.id 合并（messages.ts:2246）；getHistory 也得做这一步，否则连续两条
       // thinking 行会渲染成两个 fold（见 2026-04-29 用户反馈）。
+      // Regexes for the slash-command breadcrumb trio. Pre-compute for the
+      // hot loop. caveat is dropped entirely (model-only); command-input and
+      // command-stdout are surfaced via ChatMessage.kind so the renderer can
+      // draw them as a command pill / dim system stdout instead of a normal
+      // user bubble. Same scheme CC's REPL uses.
+      const RE_CAVEAT_TAG = new RegExp(`<${LOCAL_COMMAND_CAVEAT_TAG}>[\\s\\S]*?</${LOCAL_COMMAND_CAVEAT_TAG}>`)
+      const RE_COMMAND_NAME = new RegExp(`<${COMMAND_NAME_TAG}>(.*?)</${COMMAND_NAME_TAG}>`)
+      const RE_COMMAND_STDOUT = new RegExp(`<${LOCAL_COMMAND_STDOUT_TAG}>([\\s\\S]*?)</${LOCAL_COMMAND_STDOUT_TAG}>`)
+
       let lastAssistantMsgId: string | undefined
       for (const m of messages.values()) {
         if (m.type !== 'user' && m.type !== 'assistant') continue
@@ -886,6 +905,48 @@ export class EngineHost {
         if (m.type === 'user' && blocks && blocks.length > 0
             && blocks.every((b: any) => b?.type === 'tool_result')) {
           continue
+        }
+        // Slash-command breadcrumb dispatch (only meaningful for user msgs;
+        // assistant turns never carry these tags).
+        if (m.type === 'user') {
+          const rawText = typeof content === 'string'
+            ? content
+            : blocks
+              ? blocks.filter((b: any) => b && b.type === 'text').map((b: any) => b.text || '').join('')
+              : ''
+          // Caveat is the model-facing "ignore the local-command output below"
+          // notice — never user-visible.
+          if (rawText && RE_CAVEAT_TAG.test(rawText)) continue
+          // `<command-name>` → render as a command pill ("/compact").
+          const cmdMatch = rawText && rawText.match(RE_COMMAND_NAME)
+          if (cmdMatch) {
+            const commandName = cmdMatch[1].replace(/^\//, '')
+            out.push({
+              id: `${sessionId}-${i++}`,
+              uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
+              role: 'user',
+              text: `/${commandName}`,
+              timestamp: Date.parse((m as any).timestamp || '') || 0,
+              kind: 'slash-command',
+              commandName,
+            })
+            lastAssistantMsgId = undefined
+            continue
+          }
+          // `<local-command-stdout>` → render as a dim system stdout row.
+          const stdoutMatch = rawText && rawText.match(RE_COMMAND_STDOUT)
+          if (stdoutMatch) {
+            out.push({
+              id: `${sessionId}-${i++}`,
+              uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
+              role: 'user',
+              text: stdoutMatch[1].trim(),
+              timestamp: Date.parse((m as any).timestamp || '') || 0,
+              kind: 'command-stdout',
+            })
+            lastAssistantMsgId = undefined
+            continue
+          }
         }
         // Attach tool_result content back onto the matching tool_use block so
         // the renderer can show the execution output in the expanded card.
@@ -2056,8 +2117,6 @@ export class EngineHost {
         forkContextMessages: messagesForCompact,
       }
 
-      const preTokens = tokenCountWithEstimation(session.messages)
-
       const result = await runWithCwdOverride(runtime.sessionDir, () =>
         compactConversation(
           messagesForCompact,
@@ -2069,9 +2128,41 @@ export class EngineHost {
         ),
       )
 
-      // Replace session.messages with [summaryMessage, ...attachments] —
-      // mirrors what CC's processSlashCommand does for type:'compact' results.
-      const postCompactMessages = buildPostCompactMessages(result) as Message[]
+      // CC's processSlashCommand inlines three "command breadcrumbs" into
+      // messagesToKeep when /compact returns (see processSlashCommand.tsx
+      // L682): a synthetic caveat user message (isMeta — instructs the
+      // model to ignore these), the user's `/compact` invocation rendered
+      // via formatCommandInputTags, and a local-command-stdout user
+      // message carrying displayText. These persist in the transcript so
+      // reload / --resume can show "yep, the user ran compact here, this
+      // summary is what came of it" — without them, the only visible mark
+      // of the compaction is the summary itself, which reads as a
+      // mysterious assistant turn from nowhere. Klaus desktop has no
+      // slash command surface (the user clicks a toolbar button), so we
+      // synthesize the equivalent of `/compact` here.
+      const preTokens = result.preCompactTokenCount ?? tokenCountWithEstimation(messagesForCompact)
+      const postTokensFromResult = result.truePostCompactTokenCount ?? result.postCompactTokenCount
+      const fmt = (n: number) => n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n)
+      const stdoutText = `Compacted: ${fmt(preTokens)} → ${fmt(postTokensFromResult)} tokens`
+      const breadcrumbs: Message[] = [
+        createSyntheticUserCaveatMessage() as Message,
+        engineCreateUserMessage({
+          content: formatCommandInputTags('compact', customInstructions || ''),
+        }) as Message,
+        engineCreateUserMessage({
+          content: `<${LOCAL_COMMAND_STDOUT_TAG}>${stdoutText}</${LOCAL_COMMAND_STDOUT_TAG}>`,
+        }) as Message,
+      ]
+      const resultWithBreadcrumbs = {
+        ...result,
+        messagesToKeep: [...(result.messagesToKeep ?? []), ...breadcrumbs],
+      }
+
+      // Replace session.messages with the composed post-compact view —
+      // [boundary, summary, messagesToKeep + breadcrumbs, attachments,
+      // hookResults]. Mirrors what CC's processSlashCommand does for
+      // type:'compact' results.
+      const postCompactMessages = buildPostCompactMessages(resultWithBreadcrumbs) as Message[]
       session.messages = postCompactMessages
 
       // Persist post-compact messages to JSONL so the next reload sees the
