@@ -95,6 +95,14 @@ let taskPanel = {
 const AGENT_COLOR_MAP = { blue: '#3b82f6', green: '#16a34a', purple: '#9333ea', orange: '#ea580c', red: '#dc2626', yellow: '#eab308' }
 let pendingFiles = []  // { file, objectUrl, uploadId, uploading }
 let sessionDom = new Map()  // sessionId → DocumentFragment cache
+
+// Compact / verbose-history state. The renderer caches the most recently
+// loaded ChatMessage[] for each session so toggling the "expand hidden
+// history" pill can re-render without another IPC round trip. compactedHistoryShown
+// remembers per-session whether the user has chosen to reveal pre-boundary
+// messages (default false; resets on a new compact event).
+const sessionHistoryCache = new Map()  // sessionId → ChatMessage[]
+const compactedHistoryShown = new Map()  // sessionId → boolean
 // sessionId → PermissionRequest[]: permission asks that arrived while the user
 // was looking at a different session (cron-run sessions trigger these in the
 // background). switchSession() drains the list when the user opens that session
@@ -738,7 +746,9 @@ async function switchSession(id) {
         if (run && run.status === 'running') thinkingUI.show()
       }
     }
-    for (const msg of history) renderHistoryMessage(msg)
+    sessionHistoryCache.set(id, history)
+    if (!compactedHistoryShown.has(id)) compactedHistoryShown.set(id, false)
+    for (const msg of visibleHistory(id, history)) renderHistoryMessage(msg, id)
     pruneIntermediateAssistantActions()
   }
 
@@ -992,7 +1002,9 @@ async function reloadSessionTranscript(sessionId) {
   }
   messagesEl.style.display = 'block'
   welcomeEl.style.display = 'none'
-  for (const msg of history) renderHistoryMessage(msg)
+  sessionHistoryCache.set(sessionId, history)
+  if (!compactedHistoryShown.has(sessionId)) compactedHistoryShown.set(sessionId, false)
+  for (const msg of visibleHistory(sessionId, history)) renderHistoryMessage(msg, sessionId)
   pruneIntermediateAssistantActions()
   // Artifacts panel — host rebuilt the session_artifacts table from the
   // truncated transcript, so refresh the panel to drop ghost rows.
@@ -1176,41 +1188,115 @@ function appendFinalAssistantMsg(text, ts) {
   messagesEl.appendChild(group)
 }
 
-// CC's persisted slash-command breadcrumb: a "/compact" pill rendered like a
-// terse command line, not a regular user bubble. Same visual grammar a CLI
-// transcript would show — terminal prompt + command — so users reading the
-// reloaded conversation see "ah, here's where I ran /compact".
-function appendSlashCommandRow(commandName) {
+// ── Compaction marker pill ─────────────────────────────────────────────
+// Single visual record of a compact event. Loading state is rendered by
+// triggerCompact (transient, not in history); done state comes from the
+// persisted boundary marker in getHistory. Click toggles the per-session
+// showCompactedHistory state and re-renders the transcript.
+function appendCompactionPill({ sessionId, loading, trigger }) {
   const group = document.createElement('div')
-  group.className = 'msg-group system slash-command-row'
-  const inner = document.createElement('div')
-  inner.className = 'slash-command-pill'
-  inner.innerHTML = `<span class="slash-command-prompt">/</span><span class="slash-command-name">${escapeHtml(commandName || 'command')}</span>`
-  group.appendChild(inner)
+  group.className = 'msg-group system compaction-row'
+  if (loading) group.classList.add('loading')
+  const expanded = !!compactedHistoryShown.get(sessionId)
+  const labelKey = loading
+    ? (trigger === 'manual' ? 'compaction_starting_manual' : 'compaction_starting_auto')
+    : (expanded ? 'compaction_collapse_history' : 'compaction_expand_history')
+  const label = tt(labelKey) ||
+    (loading ? 'Compacting conversation history…'
+             : (expanded ? 'Click to collapse hidden history' : 'Click to expand hidden history'))
+  const pill = document.createElement(loading ? 'div' : 'button')
+  pill.type = loading ? undefined : 'button'
+  pill.className = 'compaction-pill' + (loading ? ' is-loading' : ' is-clickable')
+  pill.innerHTML = loading
+    ? `<span class="compaction-spinner"></span><span class="compaction-label">${escapeHtml(label)}</span>`
+    : `<svg class="compaction-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M5 11V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/><path d="M9 7h6"/></svg><span class="compaction-label">${escapeHtml(label)}</span>`
+  if (!loading) {
+    pill.addEventListener('click', () => {
+      const next = !compactedHistoryShown.get(sessionId)
+      compactedHistoryShown.set(sessionId, next)
+      // Re-render the cached history with the new filter.
+      renderTranscriptFromCache(sessionId)
+    })
+  }
+  group.appendChild(pill)
   messagesEl.appendChild(group)
 }
 
-// Captured stdout from a local command (e.g. compact's "Compacted X→Y").
-// Dim system row, mirrors how CC TUI shows local-command-stdout.
-function appendCommandStdoutRow(text) {
+// Compact summary card — Qritor-style: small uppercase label + body text.
+// Body uses CollapsibleMessage-equivalent: full content rendered, but if
+// it overflows ~300px the bottom is faded with a "click to expand" toggle.
+function appendCompactSummaryCard(text) {
   const group = document.createElement('div')
-  group.className = 'msg-group system command-stdout-row'
-  const inner = document.createElement('div')
-  inner.className = 'command-stdout-text'
-  inner.textContent = text
-  group.appendChild(inner)
+  group.className = 'msg-group system compact-summary-row'
+  const card = document.createElement('div')
+  card.className = 'compact-summary-card'
+  const head = document.createElement('div')
+  head.className = 'compact-summary-head'
+  head.innerHTML = `
+    <svg class="compact-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
+    <span>${escapeHtml(tt('compact_summary_title') || 'Conversation summary')}</span>
+  `
+  const body = document.createElement('div')
+  body.className = 'compact-summary-body'
+  body.innerHTML = renderMarkdown(text || '')
+  card.appendChild(head)
+  card.appendChild(body)
+  group.appendChild(card)
   messagesEl.appendChild(group)
+  // After mount, decide whether to show the expand toggle (if body overflows).
+  requestAnimationFrame(() => {
+    if (body.scrollHeight > body.clientHeight + 2) {
+      const toggle = document.createElement('button')
+      toggle.type = 'button'
+      toggle.className = 'compact-summary-toggle'
+      toggle.textContent = tt('compact_summary_expand') || 'Show full summary'
+      toggle.addEventListener('click', () => {
+        const expanded = card.classList.toggle('expanded')
+        toggle.textContent = expanded
+          ? (tt('compact_summary_collapse') || 'Show less')
+          : (tt('compact_summary_expand') || 'Show full summary')
+      })
+      card.appendChild(toggle)
+    }
+  })
 }
 
-// Single dispatch point used by both initial history load (switchSession,
-// truncateAtMessage flow) and post-compact reload. Handles the three special
-// kinds that need bespoke rendering plus the default user/assistant bubbles.
-function renderHistoryMessage(msg) {
-  if (msg.kind === 'slash-command') return appendSlashCommandRow(msg.commandName || msg.text)
-  if (msg.kind === 'command-stdout') return appendCommandStdoutRow(msg.text)
+// Filter history based on per-session showCompactedHistory state, then walk
+// the visible slice and dispatch each message to its renderer.
+function visibleHistory(sessionId, history) {
+  if (compactedHistoryShown.get(sessionId)) return history
+  // Default: hide everything before the LAST compaction marker (inclusive).
+  // A transcript without compaction markers shows everything as-is.
+  let lastBoundaryIdx = -1
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].kind === 'compaction') { lastBoundaryIdx = i; break }
+  }
+  return lastBoundaryIdx >= 0 ? history.slice(lastBoundaryIdx) : history
+}
+
+function renderHistoryMessage(msg, sessionId) {
+  if (msg.kind === 'compaction') {
+    return appendCompactionPill({ sessionId, loading: !!msg.isCompactionStart, trigger: msg.compactionTrigger })
+  }
+  if (msg.kind === 'compact-summary') return appendCompactSummaryCard(msg.text)
   if (msg.role === 'user') return appendUserMsg(msg.text, msg.timestamp, msg.uuid)
   if (Array.isArray(msg.contentBlocks)) return appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
   return appendFinalAssistantMsg(msg.text, msg.timestamp)
+}
+
+// Re-render the transcript from cached history (used when the user toggles
+// the compaction pill without a fresh IPC round trip).
+function renderTranscriptFromCache(sessionId) {
+  const history = sessionHistoryCache.get(sessionId)
+  if (!history) return
+  messagesEl.innerHTML = ''
+  resetStreamState()
+  for (const msg of visibleHistory(sessionId, history)) renderHistoryMessage(msg, sessionId)
+  pruneIntermediateAssistantActions()
+  const hasContent = messagesEl.childNodes.length > 0
+  messagesEl.style.display = hasContent ? 'block' : 'none'
+  welcomeEl.style.display = hasContent ? 'none' : 'flex'
+  scrollToBottom()
 }
 
 // Restore an assistant turn from its original engine content block array.
@@ -2106,101 +2192,170 @@ function refreshContextStatsThrottled(sessionId, delay = 250) {
   ctxPanel.pending.set(sessionId, handle)
 }
 
-// ==================== Manual /compact (input-toolbar button) ====================
-// Match CC's /compact UX: no confirm dialog, no custom toast — the moment
-// the user clicks, the transcript shows a three-dot streaming indicator
-// (same component the main thinking flow uses, so the visual grammar is
-// consistent), and the send button flips into busy/stop mode. When the
-// summary stream finishes, the indicator goes away and the transcript is
-// reloaded to display the post-compact view (boundary → summary →
-// attachments). CC's REPL achieves the same end state by replacing its
-// messages state when /compact returns.
+// ==================== Manual compact (input-toolbar button) ====================
+// Click the button → a compaction pill appears in the transcript in
+// loading state ("Compacting conversation history…" with a spinner).
+// When the engine finishes, the transcript reloads and the loading pill
+// is replaced by the persisted boundary marker (same pill, done state,
+// clickable to expand pre-boundary history). Mirrors qritor-desktop's
+// AiAssistant compact UX exactly — no /compact bubble, no separate stdout
+// row, the pill is the single visual record of the operation.
 const btnCompact = document.getElementById('compact-btn')
 
-// Lightweight progress indicator reusing .thinking-indicator styles. The
-// stock thinkingUI singleton is reserved for actual model-thinking output;
-// keeping a separate compact indicator means a mid-flight chat turn won't
-// race with a compact triggered from the toolbar.
-const compactProgress = {
-  el: null,
-  show() {
-    this.hide()
-    finalizeStream()
-    const el = document.createElement('div')
-    el.className = 'thinking-indicator'
-    el.innerHTML = `<div class="thinking-dots"><span></span><span></span><span></span></div><span class="thinking-label">${escapeHtml(tt('compacting_in_progress') || 'Compacting conversation…')}</span>`
-    messagesEl.appendChild(el)
-    this.el = el
-    scrollToBottom()
-  },
-  hide() {
-    if (this.el) { this.el.remove(); this.el = null }
-  },
+// Helpers that mutate the per-session ChatMessage[] cache directly. The
+// renderer no longer reloads from IPC after a compact — it just pushes/
+// updates rows in cache and re-renders. Same pattern qritor-desktop uses.
+function compactCacheStartMarker(sessionId, trigger) {
+  if (!sessionHistoryCache.has(sessionId)) sessionHistoryCache.set(sessionId, [])
+  const cache = sessionHistoryCache.get(sessionId)
+  // Don't double-add if a loading marker is already pending (e.g. user
+  // clicked twice or compaction_start arrived after our optimistic push).
+  if (cache.some(m => m.kind === 'compaction' && m.isCompactionStart)) return
+  cache.push({
+    id: `${sessionId}-compaction-${Date.now()}`,
+    role: 'user',
+    text: '',
+    timestamp: Date.now(),
+    kind: 'compaction',
+    isCompactionStart: true,
+    compactionTrigger: trigger || 'manual',
+  })
+  // New compact event resets verbose toggle — pre-boundary history hides.
+  compactedHistoryShown.set(sessionId, false)
+}
+
+function compactCacheFinishMarker(sessionId, summaryText, summaryUuid, trigger) {
+  if (!sessionHistoryCache.has(sessionId)) sessionHistoryCache.set(sessionId, [])
+  const cache = sessionHistoryCache.get(sessionId)
+  let marker = null
+  for (let i = cache.length - 1; i >= 0; i--) {
+    if (cache[i].kind === 'compaction' && cache[i].isCompactionStart) {
+      marker = cache[i]
+      break
+    }
+  }
+  if (marker) {
+    marker.isCompactionStart = false
+  } else {
+    cache.push({
+      id: `${sessionId}-compaction-${Date.now()}`,
+      role: 'user',
+      text: '',
+      timestamp: Date.now(),
+      kind: 'compaction',
+      isCompactionStart: false,
+      compactionTrigger: trigger || 'manual',
+    })
+  }
+  if (summaryText) {
+    cache.push({
+      id: `${sessionId}-summary-${Date.now()}`,
+      uuid: summaryUuid,
+      role: 'user',
+      text: summaryText,
+      timestamp: Date.now(),
+      kind: 'compact-summary',
+    })
+  }
+}
+
+function compactCacheDropLoading(sessionId) {
+  const cache = sessionHistoryCache.get(sessionId)
+  if (!cache) return
+  for (let i = cache.length - 1; i >= 0; i--) {
+    if (cache[i].kind === 'compaction' && cache[i].isCompactionStart) {
+      cache.splice(i, 1)
+      break
+    }
+  }
 }
 
 // After a manual compact, the engine's session.messages has been replaced
-// with [boundary, summary, attachments]. The renderer's DOM is still showing
-// the *pre-compact* messages, which is what made the original implementation
-// look like "nothing happened". CC's REPL handles this by replacing its
-// messages state and letting the framework re-render the transcript. We
-// don't have responsive bindings here, so we explicitly clear the transcript
-// and reload from disk — getHistory now projects past the most recent
-// compact_boundary, so it returns just the summary + attachments.
-async function reloadTranscriptForCurrentSession() {
-  if (!currentSessionId) return
+// with [boundary, summary, breadcrumbs, attachments]. The renderer's DOM
+// is still showing the *pre-compact* messages — CC's REPL handles this by
+// replacing its messages state and letting the framework re-render the
+// transcript; we don't have responsive bindings here, so we explicitly
+// clear the transcript and reload from disk. getHistory projects past the
+// most recent compact_boundary, so it returns just the post-compact view.
+//
+// Dedup guard: triggerCompact's IPC settle and the compact_boundary
+// chat:event are emitted ~simultaneously by the engine, so both paths
+// would race two interleaved (innerHTML = '' → await history → render)
+// cycles, the last clear potentially landing AFTER the previous render
+// and leaving a blank transcript until the next switchSession. Sharing
+// the same in-flight Promise ensures only one cycle runs; later callers
+// just await the first one's result.
+let reloadTranscriptInflight = null
+function reloadTranscriptForCurrentSession() {
+  if (reloadTranscriptInflight) return reloadTranscriptInflight
+  if (!currentSessionId) return Promise.resolve()
   const id = currentSessionId
-  // Drop the off-screen DOM cache for this session — those nodes were rendered
-  // from the pre-compact message list and would resurrect on next switchSession.
-  sessionDom.delete(id)
-  messagesEl.innerHTML = ''
-  resetStreamState()
-  let history
-  try {
-    history = await klausApi.session.history(id)
-  } catch (err) {
-    console.warn('[compact] history reload failed:', err)
-    return
-  }
-  if (currentSessionId !== id) return  // user switched away mid-await
-  for (const msg of history) renderHistoryMessage(msg)
-  pruneIntermediateAssistantActions()
-  const hasContent = messagesEl.childNodes.length > 0
-  messagesEl.style.display = hasContent ? 'block' : 'none'
-  welcomeEl.style.display = hasContent ? 'none' : 'flex'
-  scrollToBottom()
+  // Snapshot a few elements (compact pill / thinking indicator) we want to
+  // PRESERVE across the clear — they were appended by triggerCompact for
+  // immediate user feedback while compaction streams. Without this they
+  // get nuked the moment the boundary event fires, then re-rendered (or
+  // not) once history loads — which looked like "nothing happened" in
+  // the screenshot the user reported.
+  reloadTranscriptInflight = (async () => {
+    try {
+      sessionDom.delete(id)
+      let history
+      try {
+        history = await klausApi.session.history(id)
+      } catch (err) {
+        console.warn('[compact] history reload failed:', err)
+        return
+      }
+      if (currentSessionId !== id) return  // user switched away mid-await
+      sessionHistoryCache.set(id, history)
+      // Newly-loaded history may include a fresh compact boundary the user
+      // hasn't toggled verbose for yet — default to "hide pre-boundary".
+      compactedHistoryShown.set(id, false)
+      renderTranscriptFromCache(id)
+    } finally {
+      reloadTranscriptInflight = null
+    }
+  })()
+  return reloadTranscriptInflight
 }
 
 async function triggerCompact() {
   if (!currentSessionId) return
-  if (busy) {
-    // A turn is already streaming — bail silently rather than queueing.
-    // CC's /compact path also short-circuits when the loop is busy.
-    return
-  }
+  if (busy) return
+  const sessionId = currentSessionId
 
-  // Flip into busy state — same flag as a normal turn, so the send button
-  // changes to its stop affordance and the input keeps disabled-on-empty.
+  welcomeEl.style.display = 'none'
+  messagesEl.style.display = 'block'
+
   busy = true
   btnSend.classList.add('busy')
-  btnSend.disabled = false  // stop button is always clickable
+  btnSend.disabled = false
   if (btnCompact) btnCompact.disabled = true
-  compactProgress.show()
+
+  // Optimistic cache mutation: push a loading-state compaction marker into
+  // the in-memory ChatMessage cache and immediately re-render. Pre-boundary
+  // messages collapse behind it (visibleHistory slices to last marker), so
+  // the user sees the transcript switch from "live conversation" to
+  // "spinner pill" the instant they click — same pattern qritor-desktop
+  // uses (setMessages + push compaction segment).
+  finalizeStream()
+  compactCacheStartMarker(sessionId, 'manual')
+  renderTranscriptFromCache(sessionId)
 
   try {
-    const result = await klausApi.engine.compact(currentSessionId)
-    compactProgress.hide()
-    if (result?.ok) {
-      // compact_boundary event already triggered a reload; do it again
-      // unconditionally to cover the edge case where the event was missed
-      // (e.g. user navigated away mid-compact and the off-screen filter
-      // dropped it). Idempotent — the second reload just re-renders the
-      // same projected history.
-      await reloadTranscriptForCurrentSession()
-    } else {
+    const result = await klausApi.engine.compact(sessionId)
+    if (!result?.ok) {
+      // Roll back the optimistic loading marker on failure.
+      compactCacheDropLoading(sessionId)
+      if (sessionId === currentSessionId) renderTranscriptFromCache(sessionId)
       appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (result?.error || 'unknown error'))
     }
+    // On success: the compact_boundary chat:event handler has already
+    // mutated cache (loading marker → done + summary appended) and
+    // re-rendered. Nothing to do here.
   } catch (err) {
-    compactProgress.hide()
+    compactCacheDropLoading(sessionId)
+    if (sessionId === currentSessionId) renderTranscriptFromCache(sessionId)
     appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (err?.message || String(err)))
   } finally {
     busy = false
@@ -2208,7 +2363,7 @@ async function triggerCompact() {
     btnSend.disabled = !inputEl.value.trim()
     if (btnCompact) btnCompact.disabled = false
     inputEl.focus()
-    refreshContextStatsThrottled(currentSessionId, 50)
+    refreshContextStatsThrottled(sessionId, 50)
   }
 }
 
@@ -2865,27 +3020,30 @@ klausApi.on.chatEvent((event) => {
       break
     }
     case 'compaction_start':
-      // Auto-compact path (e.g. token-budget triggered): show the streaming
-      // indicator. Manual compact via the toolbar button has already shown
-      // it locally before the IPC fires; compactProgress.show() is
-      // idempotent so the duplicate is a no-op.
-      compactProgress.show()
+      // Auto-compact (token-budget triggered) or external trigger. Manual
+      // compact has already pushed the loading marker locally; this path
+      // adds it for the auto/external case. compactCacheStartMarker is
+      // idempotent on isCompactionStart so dup events are no-ops.
+      compactCacheStartMarker(event.sessionId, event.trigger || 'auto')
+      if (event.sessionId === currentSessionId) renderTranscriptFromCache(event.sessionId)
       break
     case 'compact_boundary':
-      // Compaction succeeded. Reload the transcript so the user sees the
-      // post-compact view (engine replaced session.messages with
-      // [boundary, summary, attachments]; getHistory projects past the
-      // boundary). Context panel refreshed too.
-      compactProgress.hide()
-      reloadTranscriptForCurrentSession()
+      // Engine signals completion + ships the summary text. Mutate the
+      // cache directly: flip the loading marker to done and append the
+      // summary message. No reload IPC — that round-trip was racing with
+      // the event and stranding users on the loading pill until Cmd+R.
+      compactCacheFinishMarker(event.sessionId, event.summaryText, event.summaryUuid, event.trigger || 'manual')
+      if (event.sessionId === currentSessionId) renderTranscriptFromCache(event.sessionId)
       refreshContextStatsThrottled(event.sessionId, 50)
       break
     case 'compaction_end':
-      compactProgress.hide()
+      // Legacy event — kept as a no-op for backwards compatibility. The
+      // boundary event is what flips the UI.
       refreshContextStatsThrottled(event.sessionId, 50)
       break
     case 'compaction_error':
-      compactProgress.hide()
+      compactCacheDropLoading(event.sessionId)
+      if (event.sessionId === currentSessionId) renderTranscriptFromCache(event.sessionId)
       appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (event.error || 'unknown'))
       break
     case 'done':

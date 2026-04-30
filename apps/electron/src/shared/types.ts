@@ -31,18 +31,31 @@ export interface ChatMessage {
   thinkingDurationMs?: number
   /**
    * Special-render kinds for transcript entries that aren't a normal user/
-   * assistant bubble. Mirrors how CC's `processSlashCommand` persists slash
-   * commands into the transcript so resume sees them later:
-   *   'slash-command'    → user-typed `/foo` line, rendered as a command pill
-   *   'command-stdout'   → captured local-command output (e.g. "Compacted X→Y"),
-   *                        rendered as a dim system row
-   * Default (undefined) means a regular bubble. The renderer dispatches on
-   * this field instead of pattern-matching the raw text every time.
+   * assistant bubble. The compact lifecycle borrows Qritor's GUI-native
+   * grammar (see qritor-desktop AiAssistant): a compaction marker pill
+   * stands in for the operation, and the summary is its own labeled
+   * card. The pill alone — not /compact + stdout breadcrumbs — is the
+   * visual record of "compact happened here."
+   *
+   *   'compaction'       → boundary marker pill. Loading state shows a
+   *                        spinner + "compacting…"; done state shows
+   *                        "click to expand/collapse hidden history."
+   *                        Click toggles the showCompactedHistory state
+   *                        in the renderer.
+   *   'compact-summary'  → user message with isCompactSummary set; renders
+   *                        as a labeled card (title "Compact summary" +
+   *                        max-height collapsible body — *not* one-line
+   *                        title-only by default, since GUI has the
+   *                        screen real estate CC TUI lacks).
+   * Default (undefined) means a regular bubble.
    */
-  kind?: 'slash-command' | 'command-stdout'
-  /** When kind === 'slash-command', the command name (e.g. 'compact') stripped
-   *  of leading slash for display. */
-  commandName?: string
+  kind?: 'compaction' | 'compact-summary'
+  /** kind === 'compaction' only — true while the compact run is still
+   *  in flight (loading pill), false once boundary marker is persisted. */
+  isCompactionStart?: boolean
+  /** kind === 'compaction' only — drives the loading-state label
+   *  ("compacting…" vs. "auto-compacting…"). */
+  compactionTrigger?: 'manual' | 'auto'
 }
 
 export interface ToolCallInfo {
@@ -167,13 +180,20 @@ export type EngineEvent =
   | { type: 'interrupted'; sessionId: string }
   | { type: 'requesting'; sessionId: string }
   | { type: 'compaction_end'; sessionId: string }
-  | { type: 'compact_boundary'; sessionId: string }
+  // Compact lifecycle events. Event-driven (not reload-based): the renderer
+  // mutates its in-memory ChatMessage[] cache directly on each event and
+  // re-renders. Mirrors qritor-desktop's AiAssistant compact stream.
+  //   compaction_start → renderer pushes a kind:'compaction' marker
+  //                      with isCompactionStart:true (loading pill).
+  //   compact_boundary → engine signals completion; renderer flips the
+  //                      marker to isCompactionStart:false AND pushes the
+  //                      summary message into the cache. summaryText is
+  //                      the model's compact summary content; summaryUuid
+  //                      pins it to the JSONL row so reload sees the same.
+  //   compaction_error → engine raised; renderer drops the loading marker.
+  | { type: 'compact_boundary'; sessionId: string; summaryText?: string; summaryUuid?: string; trigger?: 'manual' | 'auto' }
   | { type: 'tombstone'; sessionId: string; messageUuid: string }
-  // Manual /compact triggered from the input toolbar. compaction_start fires on
-  // entry so the renderer can show a "Compacting…" toast row; compaction_error
-  // fires on failure (compaction_end already fires on success via the engine's
-  // compact_boundary system message).
-  | { type: 'compaction_start'; sessionId: string }
+  | { type: 'compaction_start'; sessionId: string; trigger?: 'manual' | 'auto' }
   | { type: 'compaction_error'; sessionId: string; error: string }
   | { type: 'file'; sessionId: string; name?: string; url?: string }
   | { type: 'team_created'; sessionId: string; teamName: string }

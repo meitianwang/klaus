@@ -826,25 +826,13 @@ export class EngineHost {
     const filePath = join(projectDir, `${uuid}.jsonl`)
     if (!existsSync(filePath)) return []
     try {
-      // Walk ALL messages in file order (= append order = chronological). The
-      // older chain-walk only followed one leaf's parentUuid path, but real
-      // transcripts can have multiple disjoint roots (each new turn after a
-      // client restart re-starts with parentUuid=null). Chain-walking returned
-      // just one turn and silently dropped the rest.
-      const { messages: rawMessages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
-
-      // Project past the most recent compact boundary, mirroring how CC's
-      // REPL state replaces messages on /compact and how --resume seeds new
-      // turns. Without this, the renderer's transcript shows everything that
-      // ever happened in the file (pre-boundary noise + post-boundary
-      // summary), making manual /compact a visual no-op even though the
-      // engine is feeding the model a clean post-summary context.
-      const allOrdered = Array.from(rawMessages.values())
-      const projected = getMessagesAfterCompactBoundary(allOrdered)
-      // Re-key as a Map so the rest of this method can keep its existing
-      // Map-based traversal (toolResult collection, message-id merging).
-      const messages = new Map<string, typeof projected[number]>()
-      for (const m of projected) messages.set((m as any).uuid, m)
+      // Walk ALL messages in file order (= append order = chronological).
+      // We deliberately do NOT project past the latest compact boundary
+      // here: the renderer needs the full history so the user can toggle
+      // the "expand hidden history" pill (Qritor-style verbose mode).
+      // Filtering happens in the renderer based on a per-session
+      // showCompactedHistory flag.
+      const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
 
       // Sidecar (best-effort)：live 测的 thinking 时长 keyed by message.id。
       const thinkingDurationsByMsgId = this.readThinkingDurations(uuid)
@@ -895,9 +883,32 @@ export class EngineHost {
 
       let lastAssistantMsgId: string | undefined
       for (const m of messages.values()) {
+        // Compact boundary system messages → emit a compaction-pill entry so
+        // the renderer can draw the marker AND filter pre-boundary messages
+        // when the user has compacted-history collapsed (the default).
+        if ((m as any).type === 'system' && (m as any).subtype === 'compact_boundary') {
+          out.push({
+            id: `${sessionId}-${i++}`,
+            uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
+            role: 'user',
+            text: '',
+            timestamp: Date.parse((m as any).timestamp || '') || 0,
+            kind: 'compaction',
+            isCompactionStart: false,
+            compactionTrigger: (m as any).compactMetadata?.trigger ?? 'manual',
+          })
+          lastAssistantMsgId = undefined
+          continue
+        }
         if (m.type !== 'user' && m.type !== 'assistant') continue
         // Subagent (Task tool) internals — don't render in the main transcript.
         if ((m as any).isSidechain) continue
+        // NOTE: deliberately NOT skipping isVisibleInTranscriptOnly. CC's TUI
+        // hides the compact summary in chat view (only Ctrl+O transcript
+        // shows it) because terminals are cramped, but rich GUI surfaces
+        // (VSCode extension, this desktop app) render it inline as a
+        // collapsible labeled card — that's the whole point of running
+        // compact, the user wants to see what came out of it.
         const content = (m as any).message?.content
         let blocks = Array.isArray(content) ? content : undefined
         // Skip user rows that are pure tool_result replies (the renderer's
@@ -906,45 +917,33 @@ export class EngineHost {
             && blocks.every((b: any) => b?.type === 'tool_result')) {
           continue
         }
-        // Slash-command breadcrumb dispatch (only meaningful for user msgs;
-        // assistant turns never carry these tags).
+        // Compact-related user-message dispatch.
         if (m.type === 'user') {
           const rawText = typeof content === 'string'
             ? content
             : blocks
               ? blocks.filter((b: any) => b && b.type === 'text').map((b: any) => b.text || '').join('')
               : ''
-          // Caveat is the model-facing "ignore the local-command output below"
-          // notice — never user-visible.
-          if (rawText && RE_CAVEAT_TAG.test(rawText)) continue
-          // `<command-name>` → render as a command pill ("/compact").
-          const cmdMatch = rawText && rawText.match(RE_COMMAND_NAME)
-          if (cmdMatch) {
-            const commandName = cmdMatch[1].replace(/^\//, '')
+          // isCompactSummary → render as a labeled summary card.
+          if ((m as any).isCompactSummary) {
             out.push({
               id: `${sessionId}-${i++}`,
               uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
               role: 'user',
-              text: `/${commandName}`,
+              text: rawText,
               timestamp: Date.parse((m as any).timestamp || '') || 0,
-              kind: 'slash-command',
-              commandName,
+              kind: 'compact-summary',
             })
             lastAssistantMsgId = undefined
             continue
           }
-          // `<local-command-stdout>` → render as a dim system stdout row.
-          const stdoutMatch = rawText && rawText.match(RE_COMMAND_STDOUT)
-          if (stdoutMatch) {
-            out.push({
-              id: `${sessionId}-${i++}`,
-              uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
-              role: 'user',
-              text: stdoutMatch[1].trim(),
-              timestamp: Date.parse((m as any).timestamp || '') || 0,
-              kind: 'command-stdout',
-            })
-            lastAssistantMsgId = undefined
+          // Caveat / command-input / command-stdout breadcrumbs are still
+          // persisted (they're how CC's loader picks up "compact happened
+          // here") but the GUI substitutes a single compaction pill for the
+          // whole bundle, so drop them from the rendered transcript.
+          if (rawText && (RE_CAVEAT_TAG.test(rawText) ||
+                          RE_COMMAND_NAME.test(rawText) ||
+                          RE_COMMAND_STDOUT.test(rawText))) {
             continue
           }
         }
@@ -1002,8 +1001,10 @@ export class EngineHost {
         })
         lastAssistantMsgId = m.type === 'assistant' ? msgId : undefined
       }
-      // Stable sort by timestamp; ties keep file-insertion order.
-      out.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      // No timestamp sort — JSONL is append-only so file order is already
+      // chronological, and sorting by timestamp lets sub-second skew between
+      // synthesized messages (compact breadcrumbs vs. the model-emitted
+      // summary they precede) flip the UI order. File order is the truth.
       return out
     } catch (err) {
       console.warn('[Engine] getHistory failed:', err)
@@ -2143,22 +2144,34 @@ export class EngineHost {
         ),
       )
 
-      // CC's processSlashCommand inlines three "command breadcrumbs" into
-      // messagesToKeep when /compact returns (see processSlashCommand.tsx
-      // L682): a synthetic caveat user message (isMeta — instructs the
-      // model to ignore these), the user's `/compact` invocation rendered
-      // via formatCommandInputTags, and a local-command-stdout user
-      // message carrying displayText. These persist in the transcript so
-      // reload / --resume can show "yep, the user ran compact here, this
-      // summary is what came of it" — without them, the only visible mark
-      // of the compaction is the summary itself, which reads as a
-      // mysterious assistant turn from nowhere. Klaus desktop has no
-      // slash command surface (the user clicks a toolbar button), so we
-      // synthesize the equivalent of `/compact` here.
-      const preTokens = result.preCompactTokenCount ?? tokenCountWithEstimation(messagesForCompact)
-      const postTokensFromResult = result.truePostCompactTokenCount ?? result.postCompactTokenCount
-      const fmt = (n: number) => n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n)
-      const stdoutText = `Compacted: ${fmt(preTokens)} → ${fmt(postTokensFromResult)} tokens`
+      // CC's processSlashCommand persists three breadcrumbs (caveat,
+      // /compact command, local-command-stdout) so reload / --resume can
+      // show "the user ran compact here, this summary is what came of it"
+      // (see processSlashCommand.tsx L682). Without them, the only visible
+      // mark of compaction is the summary itself — a mysterious assistant
+      // turn from nowhere. Klaus desktop has no slash command surface
+      // (button click instead), so we synthesize the equivalent.
+      //
+      // Ordering: CC's buildPostCompactMessages places messagesToKeep
+      // *after* summaryMessages, so a vanilla CC transcript reads
+      //   [boundary, summary, /compact pill, stdout, ...].
+      // That's correct from the model's perspective — the boundary marks
+      // "everything before is now the summary; what follows is current" —
+      // but it reads inverted to a desktop user, who expects natural chat
+      // order: their command first, the response second. Compose the
+      // post-compact view manually so the breadcrumbs sit *before* the
+      // summary and the transcript reads /compact → stdout → summary.
+      // CC's processSlashCommand inlines three breadcrumbs into messagesToKeep
+      // when /compact returns (processSlashCommand.tsx L682). Mirror that 1:1
+      // — same content, same insertion point — so the persisted transcript
+      // looks identical to a CC TUI session. Order then comes from CC's
+      // buildPostCompactMessages: [boundary, summary, messagesToKeep,
+      // attachments, hookResults]. This places the summary user message
+      // (isCompactSummary + isVisibleInTranscriptOnly) right after boundary
+      // so the renderer's collapsible <CompactSummary>-equivalent card sits
+      // at the top of the post-compact view, with the /compact + stdout
+      // breadcrumbs immediately after — same shape as CC's chat screen.
+      const stdoutText = 'Compacted'
       const breadcrumbs: Message[] = [
         createSyntheticUserCaveatMessage() as Message,
         engineCreateUserMessage({
@@ -2170,13 +2183,8 @@ export class EngineHost {
       ]
       const resultWithBreadcrumbs = {
         ...result,
-        messagesToKeep: [...(result.messagesToKeep ?? []), ...breadcrumbs],
+        messagesToKeep: [...((result.messagesToKeep ?? []) as Message[]), ...breadcrumbs],
       }
-
-      // Replace session.messages with the composed post-compact view —
-      // [boundary, summary, messagesToKeep + breadcrumbs, attachments,
-      // hookResults]. Mirrors what CC's processSlashCommand does for
-      // type:'compact' results.
       const postCompactMessages = buildPostCompactMessages(resultWithBreadcrumbs) as Message[]
       session.messages = postCompactMessages
 
@@ -2200,12 +2208,33 @@ export class EngineHost {
       runPostCompactCleanup()
       markPostCompaction()
 
-      // Tell renderer to draw the boundary divider + collapse pre-boundary DOM,
-      // and then close the "Compacting…" toast.
-      this.pushEvent({ type: 'compact_boundary', sessionId })
-      this.pushEvent({ type: 'compaction_end', sessionId })
+      // Push the compact_boundary event with the summary payload so the
+      // renderer can mutate its cache state directly (event-driven, no
+      // reload IPC needed). Mirrors qritor-desktop's AiAssistant flow:
+      // start event puts a loading marker, boundary event flips marker
+      // to done + appends the summary row. The renderer's cache stays
+      // in sync with the JSONL because the same uuid is reused on both
+      // sides.
+      const summaryMsg = result.summaryMessages[0] as any
+      const summaryRawContent = summaryMsg?.message?.content
+      const summaryText = typeof summaryRawContent === 'string'
+        ? summaryRawContent
+        : Array.isArray(summaryRawContent)
+          ? summaryRawContent
+              .filter((b: any) => b && b.type === 'text')
+              .map((b: any) => b.text || '')
+              .join('\n')
+          : ''
+      this.pushEvent({
+        type: 'compact_boundary',
+        sessionId,
+        summaryText,
+        summaryUuid: summaryMsg?.uuid,
+        trigger: 'manual',
+      })
 
-      const postTokens = tokenCountWithEstimation(session.messages)
+      const preTokens = result.preCompactTokenCount ?? 0
+      const postTokens = result.truePostCompactTokenCount ?? result.postCompactTokenCount ?? tokenCountWithEstimation(session.messages)
       return { ok: true, preTokens, postTokens }
     } catch (err: any) {
       const error = err?.message ?? String(err)
