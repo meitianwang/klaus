@@ -43,12 +43,12 @@ const thinkingUI = {
     } else {
       const elapsed = Math.round((Date.now() - this.startTime) / 1000)
       const done = document.createElement('div')
-      done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
+      done.className = 'thinking-done' + (reasoningExpanded ? ' open' : '')
       // Split the label into its own data-i18n span so applyI18n() picks
       // it up on language switch — the parent span keeps the duration,
       // which stays numeric across locales.
       done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${elapsed}s</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(content)}</div>`
-      done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
+      done.querySelector('.thinking-toggle').onclick = () => setReasoningExpanded(!reasoningExpanded)
       this.el.replaceWith(done)
     }
     this.el = null
@@ -61,15 +61,26 @@ const thinkingUI = {
     this.startTime = 0
   },
 }
-// thinking-done 和 tool-item 的折叠箭头共享一个状态：点任意一个 → 全部同步开/合;
-// 流式输出过程中新创建的卡片也按当前状态初始化,避免与已展开的旁邻视觉错位
-let foldsOpen = false
-function setAllFolds(open) {
-  foldsOpen = open
-  document.querySelectorAll('.thinking-done, .tool-item').forEach(el => {
+// Reasoning (thinking) 折叠状态全局共享（点任意一个 thinking-done 同步切换所有），
+// 持久化到 localStorage 跨重启保留 — 对齐 qritor-desktop ReasoningCard 的
+// "qritor:reasoning-expanded" 偏好。默认展开（true），跟 Qritor / CC TUI 一致：
+// 思考通常希望"全部看 / 全部隐"。
+const REASONING_EXPANDED_KEY = 'klaus:reasoning-expanded'
+let reasoningExpanded = (() => {
+  try {
+    const v = localStorage.getItem(REASONING_EXPANDED_KEY)
+    return v === null ? true : v === 'true'
+  } catch { return true }
+})()
+function setReasoningExpanded(open) {
+  reasoningExpanded = open
+  try { localStorage.setItem(REASONING_EXPANDED_KEY, String(open)) } catch {}
+  document.querySelectorAll('.thinking-done').forEach(el => {
     el.classList.toggle('open', open)
   })
 }
+// Tool calls 每个独立折叠 — 不再 ride 全局开关。新建 tool-item 默认折叠
+// （没有 .open 类），点 header 只切自己。Qritor ToolCallCard 同模式。
 
 let slashSkillsCache = null
 let slashActiveIdx = -1
@@ -1330,9 +1341,9 @@ function appendAssistantFromBlocks(blocks, ts, thinkingDurationMs) {
       ? `${Math.max(1, Math.round(thinkingDurationMs / 1000))}s`
       : '…'
     const done = document.createElement('div')
-    done.className = 'thinking-done' + (foldsOpen ? ' open' : '')
+    done.className = 'thinking-done' + (reasoningExpanded ? ' open' : '')
     done.innerHTML = `<div class="thinking-toggle"><span><span data-i18n="thought_for">${tt('thought_for') || 'Thought for '}</span>${dur}</span><svg class="thinking-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 3l3 3-3 3"/></svg></div><div class="thinking-detail">${escapeHtml(pendingThinking)}</div>`
-    done.querySelector('.thinking-toggle').onclick = () => setAllFolds(!foldsOpen)
+    done.querySelector('.thinking-toggle').onclick = () => setReasoningExpanded(!reasoningExpanded)
     messagesEl.appendChild(done)
     pendingThinking = ''
     thinkingDurationUsed = true
@@ -1709,7 +1720,10 @@ function renderToolCard(toolName, toolCallId, args, state) {
   state = state || 'running'
   const cat = getToolCategory(toolName)
   const item = document.createElement('div')
-  item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state) + (foldsOpen ? ' open' : '')
+  // Tool cards default to collapsed (no .open). Each card toggles
+  // independently — clicking the header only flips its own state, mirrors
+  // qritor-desktop ToolCallCard's per-instance useState(false).
+  item.className = 'tool-item' + (cat ? ' ' + cat : '') + (state === 'running' ? '' : ' ' + state)
   item.id = 'tool-' + toolCallId
   const valueText = toolValueText(toolName, args)
   item.innerHTML = `
@@ -1721,7 +1735,7 @@ function renderToolCard(toolName, toolCallId, args, state) {
       ${toolChevronSvg()}
     </div>
     <div class="tool-item-detail">${renderInputBlock(args)}</div>`
-  item.querySelector('.tool-item-header').onclick = () => setAllFolds(!foldsOpen)
+  item.querySelector('.tool-item-header').onclick = () => item.classList.toggle('open')
   item.querySelectorAll('.tool-detail-bar-copy').forEach(bindCopyButton)
   return item
 }
