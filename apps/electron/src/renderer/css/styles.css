@@ -3764,17 +3764,15 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .compact-summary-card.expanded .compact-summary-body {
   max-height: none;
 }
-.compact-summary-body::after {
+/* Bottom fade — only present when the card is collapsible AND collapsed.
+ * 80px height matches Qritor's CollapsibleMessage gradient mask. */
+.compact-summary-card.has-toggle:not(.expanded) .compact-summary-body::after {
   content: '';
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  height: 60px;
-  background: linear-gradient(to bottom, transparent, var(--bg-surface));
+  height: 80px;
+  background: linear-gradient(to top, var(--bg-surface) 0%, var(--bg-surface) 25%, transparent 100%);
   pointer-events: none;
-}
-.compact-summary-card.expanded .compact-summary-body::after { display: none; }
-.compact-summary-card:not(:has(.compact-summary-toggle)) .compact-summary-body::after {
-  display: none;
 }
 .compact-summary-body p { margin: 0.5em 0; }
 .compact-summary-body p:first-child { margin-top: 0; }
@@ -3792,17 +3790,39 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   overflow-x: auto;
   font-size: 12px;
 }
+
+/* Floating Show more / Show less button — bottom-right, hover-revealed.
+ * Same affordance Qritor uses: transparent until you mouse over the card,
+ * stays visible while the body is expanded so it's discoverable to
+ * collapse again. */
 .compact-summary-toggle {
-  align-self: flex-start;
-  background: transparent;
-  border: none;
-  padding: 4px 0;
-  font-size: 12px;
-  color: var(--accent);
-  cursor: pointer;
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 500;
   font-family: inherit;
+  color: var(--fg-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  z-index: 2;
 }
-.compact-summary-toggle:hover { text-decoration: underline; }
+.compact-summary-card:hover .compact-summary-toggle,
+.compact-summary-toggle:focus-visible { opacity: 1; }
+.compact-summary-card.expanded .compact-summary-toggle { opacity: 1; }
+.compact-summary-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--input-border);
+  color: var(--fg);
+}
 
 /* ===== Skills page (settings → skills tab) ===== */
 .sk-section { padding-top: 4px; }

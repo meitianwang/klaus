@@ -1222,9 +1222,11 @@ function appendCompactionPill({ sessionId, loading, trigger }) {
   messagesEl.appendChild(group)
 }
 
-// Compact summary card — Qritor-style: small uppercase label + body text.
-// Body uses CollapsibleMessage-equivalent: full content rendered, but if
-// it overflows ~300px the bottom is faded with a "click to expand" toggle.
+// Compact summary card — Qritor-style CollapsibleMessage. Body is clipped
+// to a max-height; if it overflows we add a `has-toggle` class to the card
+// and inject a "Show more" button at the bottom-right that fades in on
+// hover (not always visible). Once expanded the button stays visible so
+// the user can collapse without hunting.
 function appendCompactSummaryCard(text) {
   const group = document.createElement('div')
   group.className = 'msg-group system compact-summary-row'
@@ -1243,18 +1245,21 @@ function appendCompactSummaryCard(text) {
   card.appendChild(body)
   group.appendChild(card)
   messagesEl.appendChild(group)
-  // After mount, decide whether to show the expand toggle (if body overflows).
+  // After mount, see if body overflows. If so, mark the card and inject
+  // the expand button — Qritor's CollapsibleMessage uses scrollHeight vs
+  // maxHeight here, same idea.
   requestAnimationFrame(() => {
     if (body.scrollHeight > body.clientHeight + 2) {
+      card.classList.add('has-toggle')
       const toggle = document.createElement('button')
       toggle.type = 'button'
       toggle.className = 'compact-summary-toggle'
-      toggle.textContent = tt('compact_summary_expand') || 'Show full summary'
+      toggle.textContent = tt('compact_summary_expand') || 'Show more'
       toggle.addEventListener('click', () => {
         const expanded = card.classList.toggle('expanded')
         toggle.textContent = expanded
           ? (tt('compact_summary_collapse') || 'Show less')
-          : (tt('compact_summary_expand') || 'Show full summary')
+          : (tt('compact_summary_expand') || 'Show more')
       })
       card.appendChild(toggle)
     }
