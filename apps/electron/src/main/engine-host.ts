@@ -1924,9 +1924,24 @@ export class EngineHost {
     if (!session) return null
     try {
       const runtime = await this.buildOutOfTurnRuntime(session)
+      // analyzeContextUsage's getCurrentUsage() walks messages from the tail
+      // looking for the last assistant message with `usage` and reports its
+      // input_tokens as the hero number. Klaus pushes Task-tool sub-agent
+      // assistant messages onto the same session.messages array (with
+      // isSidechain: true; see processStreamEvent), so during fork the tail
+      // is "the sub-agent's first reply" — which has input_tokens ~= the
+      // sub-agent's tiny prompt (e.g. 25), not the main session's. Hero
+      // momentarily collapses from 88k → 25 until the next main-thread
+      // assistant message lands.
+      //
+      // Fix: feed analyze the main-thread projection. Sidechain messages
+      // don't reach the API on the main turn (normalizeMessagesForAPI
+      // strips them) so excluding them from token accounting matches what
+      // the model actually sees.
+      const mainThreadMessages = session.messages.filter(m => !(m as any).isSidechain) as Message[]
       const data = await runWithCwdOverride(runtime.sessionDir, async () =>
         analyzeContextUsage(
-          session.messages,
+          mainThreadMessages,
           runtime.model,
           async () => runtime.toolPermissionContext,
           runtime.tools as any,
@@ -1934,7 +1949,7 @@ export class EngineHost {
           80,
           undefined,
           undefined,
-          undefined,
+          mainThreadMessages,
         ),
       )
       const warning = calculateTokenWarningState(data.totalTokens, runtime.model)
