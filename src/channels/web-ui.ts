@@ -17,6 +17,7 @@ import { getChatI18n } from "./web-ui-i18n.js";
 import { getSettingsJs } from "./web-ui-settings-js.js";
 import { getChatMainJs } from "./web-ui-chat-js.js";
 import { getMessagesJs } from "./web-ui-messages-js.js";
+import { getDialogCss, getDialogJs } from "./web-ui-dialog.js";
 
 export function getChatHtml(): string {
   return `<!DOCTYPE html>
@@ -32,6 +33,7 @@ export function getChatHtml(): string {
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"><\/script>
 <style>
 ${getChatCss()}
+${getDialogCss()}
 </style>
 </head>
 <body>
@@ -50,6 +52,8 @@ ${getChatBodyHtml()}
 ${getChatI18n()}
   var currentLang = localStorage.getItem("klaus_lang") || "en";
   function tt(key) { return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
+  window.tt = tt;
+${getDialogJs()}
   function notifyIframes(data) {
     document.querySelectorAll("iframe").forEach(function(f) {
       if (f.contentWindow) f.contentWindow.postMessage(data, "*");

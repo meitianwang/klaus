@@ -420,9 +420,9 @@ export function getSettingsJs(): string {
       });
       // Bind uninstall buttons
       sMcpWrap.querySelectorAll(".sk-uninstall-btn[data-delmcp]").forEach(function(el) {
-        el.addEventListener("click", function() {
+        el.addEventListener("click", async function() {
           var name = el.getAttribute("data-delmcp");
-          if (!confirm(tt("settings_mcp_delete_confirm"))) return;
+          if (!(await window.klausDialog.confirm({ message: tt("settings_mcp_delete_confirm"), danger: true }))) return;
           mcpApi("", "DELETE", { name: name })
             .then(function() { loadMcpServers(); showSettingsToast(tt("settings_deleted")); });
         });
@@ -541,7 +541,7 @@ export function getSettingsJs(): string {
       .finally(function() { sCfSave.disabled = false; });
   };
 
-  sCronWrap.addEventListener("click", function(e) {
+  sCronWrap.addEventListener("click", async function(e) {
     var btn = e.target.closest("button");
     if (!btn) return;
     e.stopPropagation();
@@ -550,7 +550,7 @@ export function getSettingsJs(): string {
       userApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.togglecron), "PATCH", { enabled: !enabled })
         .then(function() { loadCronTasks(); });
     } else if (btn.dataset.delcron) {
-      if (!confirm(tt("settings_cron_delete_confirm"))) return;
+      if (!(await window.klausDialog.confirm({ message: tt("settings_cron_delete_confirm"), danger: true }))) return;
       userApi("cron/tasks?id=" + encodeURIComponent(btn.dataset.delcron), "DELETE")
         .then(function() { loadCronTasks(); showSettingsToast(tt("settings_deleted")); });
     }
@@ -706,8 +706,8 @@ export function getSettingsJs(): string {
 
   // Generic disconnect handler
   function disconnectChannel(id, showFn) {
-    document.getElementById("s-ch-" + id + "-disconnect-btn").addEventListener("click", function() {
-      if (!confirm(tt("settings_confirm_delete"))) return;
+    document.getElementById("s-ch-" + id + "-disconnect-btn").addEventListener("click", async function() {
+      if (!(await window.klausDialog.confirm({ message: tt("settings_confirm_delete"), danger: true }))) return;
       adminApi("channels/" + id, "DELETE")
         .then(function() {
           showSettingsToast(tt("settings_ch_disconnected"));
@@ -821,8 +821,8 @@ export function getSettingsJs(): string {
   }
 
   // Override WhatsApp disconnect to clean up poll timer
-  document.getElementById("s-ch-whatsapp-disconnect-btn").addEventListener("click", function() {
-    if (!confirm(tt("settings_confirm_delete"))) return;
+  document.getElementById("s-ch-whatsapp-disconnect-btn").addEventListener("click", async function() {
+    if (!(await window.klausDialog.confirm({ message: tt("settings_confirm_delete"), danger: true }))) return;
     if (waPollTimer) { clearInterval(waPollTimer); waPollTimer = null; }
     adminApi("channels/whatsapp", "DELETE").then(function() {
       showWhatsAppState("setup", null);
@@ -938,9 +938,9 @@ export function getSettingsJs(): string {
       });
       // Bind uninstall buttons
       skGrid.querySelectorAll(".sk-uninstall-btn").forEach(function(el) {
-        el.addEventListener("click", function() {
+        el.addEventListener("click", async function() {
           var name = el.getAttribute("data-skill");
-          if (!confirm(tt("settings_skills_uninstall") + ": " + name + "?")) return;
+          if (!(await window.klausDialog.confirm({ message: tt("settings_skills_uninstall") + ": " + name + "?", danger: true }))) return;
           el.disabled = true;
           fetch("/api/skills/installed/" + encodeURIComponent(name), { method: "DELETE", credentials: "same-origin" }).then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function() {
             showSettingsToast(tt("settings_skills_uninstalled_toast"));

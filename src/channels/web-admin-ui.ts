@@ -8,6 +8,8 @@
  *  - Cron: task list with CRUD + scheduler status
  */
 
+import { getDialogCss, getDialogJs } from "./web-ui-dialog.js";
+
 export function getAdminHtml(): string {
   return `<!DOCTYPE html>
 <html>
@@ -232,6 +234,7 @@ tr.clickable:hover { background: var(--card-bg); }
   #content { padding: 20px 16px; }
   .task-form-grid { grid-template-columns: 1fr; }
 }
+${getDialogCss()}
 </style>
 </head>
 <body>
@@ -657,6 +660,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_cron_max_concurrent: "Max Concurrent Runs",
       unit_days: "days", unit_minutes: "min",
       btn_save: "Save", btn_create: "Create", btn_cancel: "Cancel",
+      cancel: "Cancel", dialog_ok: "OK", delete_title: "Delete",
       on: "On", off: "Off",
       saved: "Saved!", failed: "Failed",
       no_invites: "No invite codes yet.",
@@ -695,6 +699,7 @@ tr.clickable:hover { background: var(--card-bg); }
       lbl_cron_max_concurrent: "最大并发数",
       unit_days: "天", unit_minutes: "分钟",
       btn_save: "保存", btn_create: "创建", btn_cancel: "取消",
+      cancel: "取消", dialog_ok: "确定", delete_title: "删除",
       on: "开启", off: "关闭",
       saved: "已保存!", failed: "失败",
       no_invites: "还没有邀请码。",
@@ -721,6 +726,8 @@ tr.clickable:hover { background: var(--card-bg); }
   };
   var lang = localStorage.getItem("klaus_lang") || "en";
   function tt(k) { return (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k; }
+  window.tt = tt;
+${getDialogJs()}
   function applyI18n() {
     document.querySelectorAll("[data-i18n]").forEach(function(el) { el.textContent = tt(el.getAttribute("data-i18n")); });
   }
@@ -810,8 +817,8 @@ tr.clickable:hover { background: var(--card-bg); }
 
     // Attach delete handlers
     permRulesList.querySelectorAll("[data-perm-del-behavior]").forEach(function(btn) {
-      btn.onclick = function() {
-        if (!confirm(tt("perm_confirm_delete"))) return;
+      btn.onclick = async function() {
+        if (!(await window.klausDialog.confirm({ message: tt("perm_confirm_delete"), danger: true }))) return;
         var opts = {
           method: "DELETE",
           credentials: "same-origin",
@@ -1037,12 +1044,15 @@ tr.clickable:hover { background: var(--card-bg); }
     });
   }
 
-  invWrap.addEventListener("click", function(e) {
+  invWrap.addEventListener("click", async function(e) {
     var btn = e.target.closest("button");
     if (!btn) return;
     e.stopPropagation();
     if (btn.dataset.code) navigator.clipboard.writeText(btn.dataset.code).then(function() { showToast(tt("code_copied")); });
-    else if (btn.dataset.del) { if (!confirm(tt("confirm_delete"))) return; api("invites", "DELETE", { code: btn.dataset.del }).then(function() { loadInvites(); showToast(tt("deleted")); }); }
+    else if (btn.dataset.del) {
+      if (!(await window.klausDialog.confirm({ message: tt("confirm_delete"), danger: true }))) return;
+      api("invites", "DELETE", { code: btn.dataset.del }).then(function() { loadInvites(); showToast(tt("deleted")); });
+    }
   });
 
   var createBtn = document.getElementById("create-btn");
@@ -1334,12 +1344,12 @@ tr.clickable:hover { background: var(--card-bg); }
     api("models?id=" + encodeURIComponent(id), "PATCH", { role: role }).then(function() { loadModels(); });
   });
 
-  modelsWrap.addEventListener("click", function(e) {
+  modelsWrap.addEventListener("click", async function(e) {
     var btn = e.target.closest("button");
     if (!btn) return;
     e.stopPropagation();
     if (btn.dataset.delmodel) {
-      if (!confirm(tt("confirm_delete_model"))) return;
+      if (!(await window.klausDialog.confirm({ message: tt("confirm_delete_model"), danger: true }))) return;
       api("models?id=" + encodeURIComponent(btn.dataset.delmodel), "DELETE").then(function() { loadModels(); showToast(tt("deleted")); });
     } else if (btn.dataset.setdefault) {
       api("models?id=" + encodeURIComponent(btn.dataset.setdefault), "PATCH", { is_default: true }).then(function() { loadModels(); });
@@ -1460,12 +1470,12 @@ tr.clickable:hover { background: var(--card-bg); }
       .finally(function() { pfSave.disabled = false; });
   };
 
-  promptsWrap.addEventListener("click", function(e) {
+  promptsWrap.addEventListener("click", async function(e) {
     var btn = e.target.closest("button");
     if (!btn) return;
     e.stopPropagation();
     if (btn.dataset.delprompt) {
-      if (!confirm(tt("confirm_delete_prompt"))) return;
+      if (!(await window.klausDialog.confirm({ message: tt("confirm_delete_prompt"), danger: true }))) return;
       api("prompts?id=" + encodeURIComponent(btn.dataset.delprompt), "DELETE").then(function() { loadPrompts(); showToast(tt("deleted")); });
     } else if (btn.dataset.editprompt) {
       var pid = btn.dataset.editprompt;
