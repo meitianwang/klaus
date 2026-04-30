@@ -737,6 +737,19 @@ async function switchSession(id) {
   if (cached) {
     messagesEl.appendChild(cached)
     sessionDom.delete(id)
+    // sessionDom only carries the DOM nodes — the structured ChatMessage[]
+    // cache that triggerCompact / verbose-toggle depend on is *not* mirrored
+    // there. If we never loaded it (or the previous load happened in another
+    // tab), seed it lazily so a later compact click doesn't render an empty
+    // transcript. Async, non-blocking — switchSession itself stays snappy.
+    if (!sessionHistoryCache.has(id)) {
+      klausApi.session.history(id)
+        .then(h => {
+          sessionHistoryCache.set(id, h)
+          if (!compactedHistoryShown.has(id)) compactedHistoryShown.set(id, false)
+        })
+        .catch(err => console.warn('[history] background seed failed:', err))
+    }
   } else {
     const history = await klausApi.session.history(id)
     // If the user clicked another session while we were awaiting history,
@@ -2346,6 +2359,25 @@ async function triggerCompact() {
   welcomeEl.style.display = 'none'
   messagesEl.style.display = 'block'
 
+  // sessionHistoryCache is only seeded at switchSession; subsequent chat
+  // turns mutate the DOM but not the cache. So by the time Compact is
+  // clicked the cache is stale (missing every message sent + assistant
+  // reply received since switching in). Pushing the loading marker into
+  // a stale cache and re-rendering would erase those turns from the
+  // visible transcript — exactly the bug screenshot showed.
+  //
+  // Always refetch right before compact so the cache mirrors main's
+  // current session.messages. IPC round-trip is dwarfed by the LLM call.
+  try {
+    const fresh = await klausApi.session.history(sessionId)
+    sessionHistoryCache.set(sessionId, fresh || [])
+    if (!compactedHistoryShown.has(sessionId)) compactedHistoryShown.set(sessionId, false)
+  } catch (err) {
+    console.warn('[compact] history refresh failed:', err)
+    if (!sessionHistoryCache.has(sessionId)) sessionHistoryCache.set(sessionId, [])
+  }
+  if (currentSessionId !== sessionId) return  // session changed mid-await
+
   busy = true
   btnSend.classList.add('busy')
   btnSend.disabled = false
@@ -2364,15 +2396,16 @@ async function triggerCompact() {
   try {
     const result = await klausApi.engine.compact(sessionId)
     if (!result?.ok) {
-      // Roll back the optimistic loading marker on failure.
+      // The chat:event 'compaction_error' handler has already dropped the
+      // marker, re-rendered, and appended an error row. Don't double-report
+      // here — just be defensive in case the event was lost (idempotent).
       compactCacheDropLoading(sessionId)
       if (sessionId === currentSessionId) renderTranscriptFromCache(sessionId)
-      appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (result?.error || 'unknown error'))
     }
-    // On success: the compact_boundary chat:event handler has already
-    // mutated cache (loading marker → done + summary appended) and
-    // re-rendered. Nothing to do here.
+    // Success: chat:event 'compact_boundary' handler has flipped the marker
+    // to done and appended the summary card. Nothing to do.
   } catch (err) {
+    // IPC promise rejected — chat:event likely never fired, surface here.
     compactCacheDropLoading(sessionId)
     if (sessionId === currentSessionId) renderTranscriptFromCache(sessionId)
     appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (err?.message || String(err)))
@@ -3239,9 +3272,64 @@ inputEl.addEventListener('input', () => {
   autoResize(); updateSendBtn(); handleSlashMenu()
   if (currentSessionId) setDraft(currentSessionId, inputEl.value)
 })
+// Optimistic abort UI — Qritor's handleAbort pattern. Flip the renderer
+// to its post-stop state immediately, then fire the IPC asynchronously.
+// Without this, the user clicks Stop and waits for main's `done` event
+// to bounce back before the button restores or the compact loading pill
+// disappears (~hundreds of ms during which the UI looks frozen).
+function optimisticAbortUI() {
+  const sessionId = currentSessionId
+  // Reset busy state + send button affordance.
+  busy = false
+  btnSend.classList.remove('busy')
+  btnSend.disabled = !inputEl.value.trim()
+  if (btnCompact) btnCompact.disabled = false
+  // Cleanup streaming surfaces.
+  thinkingUI.finalize()
+  finalizeStream()
+  // If a manual compact was in flight, drop the optimistic loading marker
+  // and re-render so pre-boundary messages come back. compaction_error
+  // event will follow but the render is idempotent.
+  if (sessionId && sessionHistoryCache.has(sessionId)) {
+    const cache = sessionHistoryCache.get(sessionId)
+    if (cache.some(m => m.kind === 'compaction' && m.isCompactionStart)) {
+      compactCacheDropLoading(sessionId)
+      renderTranscriptFromCache(sessionId)
+    }
+  }
+  // Mark the last in-progress assistant bubble as aborted (Qritor sets
+  // isAborted on the message; we tag DOM with .aborted class so CSS can
+  // style it differently if needed). Picks up streaming text bubbles AND
+  // streaming JSON-preview cards.
+  const liveStreamingNodes = messagesEl.querySelectorAll('.msg.assistant.streaming, .streaming-dots')
+  liveStreamingNodes.forEach(el => {
+    el.classList.remove('streaming')
+    if (el.classList.contains('streaming-dots')) el.remove()
+    else el.classList.add('aborted')
+  })
+  // Append a small "Stopped" caption so the user sees confirmation that
+  // their click took effect — Qritor surfaces the same via isAborted
+  // styling on the message itself.
+  appendStopHint()
+}
+
+function appendStopHint() {
+  const group = document.createElement('div')
+  group.className = 'msg-group system stop-hint-row'
+  const inner = document.createElement('div')
+  inner.className = 'stop-hint-text'
+  inner.textContent = tt('chat_aborted') || 'Stopped'
+  group.appendChild(inner)
+  messagesEl.appendChild(group)
+}
+
 btnSend.addEventListener('click', () => {
   if (busy) {
-    // 中断当前响应
+    // Optimistic UI first — flip to post-stop state in the same frame —
+    // then fire the IPC. main's `interrupted` / `compaction_error` /
+    // `done` events that arrive afterwards are idempotent against the
+    // already-restored state.
+    optimisticAbortUI()
     if (currentSessionId) klausApi.chat.interrupt(currentSessionId).catch(() => {})
   } else {
     send()
