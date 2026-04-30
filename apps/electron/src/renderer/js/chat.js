@@ -2190,7 +2190,10 @@ function renderContextPanel() {
     </div>
   `
 
-  if (meta) meta.textContent = `${formatTokens(stats.tokens)} · ${pctDisplay}`
+  // Header meta intentionally left empty — the hero card below already
+  // shows "111k / 200k tokens · 55%" big with a progress bar; repeating
+  // it next to the section title was visual duplication.
+  if (meta) meta.textContent = ''
 }
 
 async function fetchContextStats(sessionId) {
