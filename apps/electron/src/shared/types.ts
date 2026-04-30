@@ -155,6 +155,12 @@ export type EngineEvent =
   | { type: 'compaction_end'; sessionId: string }
   | { type: 'compact_boundary'; sessionId: string }
   | { type: 'tombstone'; sessionId: string; messageUuid: string }
+  // Manual /compact triggered from the input toolbar. compaction_start fires on
+  // entry so the renderer can show a "Compacting…" toast row; compaction_error
+  // fires on failure (compaction_end already fires on success via the engine's
+  // compact_boundary system message).
+  | { type: 'compaction_start'; sessionId: string }
+  | { type: 'compaction_error'; sessionId: string; error: string }
   | { type: 'file'; sessionId: string; name?: string; url?: string }
   | { type: 'team_created'; sessionId: string; teamName: string }
   | { type: 'mcp_auth_url'; sessionId: string; url?: string; serverName?: string }
@@ -225,6 +231,61 @@ export interface EngineStatus {
   status: 'initializing' | 'ready' | 'error'
   error?: string
 }
+
+/**
+ * Snapshot of a session's context window — the renderer's monitor panel
+ * uses this to draw the token bar + category breakdown. Mirrors a subset
+ * of CC engine's `analyzeContextUsage` ContextData, projected to the fields
+ * the desktop UI actually renders so the IPC payload stays small.
+ */
+export interface ContextStatsItem {
+  readonly name: string
+  readonly tokens: number
+  readonly source?: string
+}
+export interface ContextStatsCategory {
+  readonly name: string
+  readonly tokens: number
+  /** CC theme-color key (e.g. "permission", "warning"). Renderer maps to a CSS color. */
+  readonly color: string
+  readonly isDeferred?: boolean
+}
+export interface ContextStats {
+  readonly model: string
+  readonly tokens: number
+  /** Effective context window (may shrink after auto-compact buffer reservation). */
+  readonly maxTokens: number
+  /** Raw model context window before any reservation. */
+  readonly rawMaxTokens: number
+  readonly percentage: number
+  readonly effectiveWindow: number
+  readonly autoCompactThreshold: number | null
+  readonly isAutoCompactEnabled: boolean
+  /** Same fields as CC's calculateTokenWarningState — drives bar color + warning text. */
+  readonly warning: {
+    percentLeft: number
+    isAboveWarningThreshold: boolean
+    isAboveErrorThreshold: boolean
+    isAboveAutoCompactThreshold: boolean
+    isAtBlockingLimit: boolean
+  }
+  readonly categories: ContextStatsCategory[]
+  readonly memoryFiles: ContextStatsItem[]
+  readonly mcpTools: ContextStatsItem[]
+  readonly agents: ContextStatsItem[]
+  readonly skills: { tokens: number; items: ContextStatsItem[] } | null
+  /** Last API response usage if available (for showing actual cached/fresh tokens). */
+  readonly apiUsage: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens: number
+    cache_read_input_tokens: number
+  } | null
+}
+
+export type CompactSessionResult =
+  | { ok: true; preTokens: number; postTokens: number }
+  | { ok: false; error: string }
 
 export interface McpServerInfo {
   name: string

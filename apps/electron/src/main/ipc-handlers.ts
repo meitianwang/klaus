@@ -54,6 +54,23 @@ export function registerIpcHandlers(
     engine.interrupt(sessionId)
   })
 
+  // --- Context-window introspection (monitor-panel Context section) ---
+  // Renderer only fires this between turns (after `done` / `compact_boundary`),
+  // so it's fine that analyzeContextUsage walks the full message buffer.
+  ipcMain.handle('engine:contextStats', async (_e, { sessionId }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    return await engine.getContextStats(sessionId)
+  })
+
+  // --- Manual /compact (input-toolbar button) ---
+  // Replicates CC's /compact slash command from outside the engine: replaces
+  // the session's messages with a summary + post-compact attachments and pushes
+  // compact_boundary so the renderer collapses pre-boundary DOM.
+  ipcMain.handle('engine:compactSession', async (_e, { sessionId, customInstructions }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { ok: false, error: 'Invalid sessionId' }
+    return await engine.compactSession(sessionId, typeof customInstructions === 'string' ? customInstructions : '')
+  })
+
   // Truncate session transcript at a target user message — host-level splice
   // on top of CC's append-only JSONL (engine has no public "rewind to message"
   // primitive). 'rewind' = conversation cut + file-history rollback (CC's

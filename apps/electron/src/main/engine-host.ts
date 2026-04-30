@@ -5,7 +5,7 @@ import { mkdirSync, unlinkSync, existsSync, rmSync, readFileSync, writeFileSync 
 import type { BrowserWindow } from 'electron'
 import type { SettingsStore } from './settings-store.js'
 import { SessionKeyRegistry } from './session-registry.js'
-import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage, ArtifactOp } from '../shared/types.js'
+import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage, ArtifactOp, ContextStats, CompactSessionResult } from '../shared/types.js'
 
 // Engine imports — from the copied engine source
 import {
@@ -37,7 +37,7 @@ import { loadAllPermissionRulesFromDisk } from '../engine/utils/permissions/perm
 import { applyPermissionRulesToPermissionContext } from '../engine/utils/permissions/permissions.js'
 import { applyPermissionUpdate } from '../engine/utils/permissions/PermissionUpdate.js'
 import { addPermissionRulesToSettings } from '../engine/utils/permissions/permissionsLoader.js'
-import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession, setQuestionPreviewFormat, setMainThreadAgentType } from '../engine/bootstrap/state.js'
+import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession, setQuestionPreviewFormat, setMainThreadAgentType, markPostCompaction } from '../engine/bootstrap/state.js'
 import { getAgentDefinitionsWithOverrides, clearAgentDefinitionsCache } from '../engine/tools/AgentTool/loadAgentsDir.js'
 import { createContentReplacementState, type ContentReplacementState } from '../engine/utils/toolResultStorage.js'
 import { initContextCollapse } from '../engine/services/contextCollapse/index.js'
@@ -76,6 +76,26 @@ import {
   type Task as EngineTask,
 } from '../engine/utils/tasks.js'
 import type { TaskItem } from '../shared/types.js'
+// Context/compact APIs — consumed by getContextStats / compactSession.
+// All of these are public exports of the (unmodified) Klaus engine fork; we
+// just reuse them from main as out-of-turn callers, replicating the glue that
+// CC's `commands/compact/compact.ts` runs in-process.
+import { analyzeContextUsage } from '../engine/utils/analyzeContext.js'
+import {
+  compactConversation,
+  buildPostCompactMessages,
+} from '../engine/services/compact/compact.js'
+import { runPostCompactCleanup } from '../engine/services/compact/postCompactCleanup.js'
+import { suppressCompactWarning } from '../engine/services/compact/compactWarningState.js'
+import { setLastSummarizedMessageId } from '../engine/services/SessionMemory/sessionMemoryUtils.js'
+import { getMessagesAfterCompactBoundary } from '../engine/utils/messages.js'
+import { tokenCountWithEstimation } from '../engine/utils/tokens.js'
+import {
+  calculateTokenWarningState,
+  getEffectiveContextWindowSize,
+  getAutoCompactThreshold,
+  isAutoCompactEnabled,
+} from '../engine/services/compact/autoCompact.js'
 
 const CONFIG_DIR = join(homedir(), '.klaus')
 const SESSIONS_DIR = join(CONFIG_DIR, 'sessions')
@@ -1807,6 +1827,375 @@ export class EngineHost {
     console.log(`[Engine] Interrupt requested for ${sessionId}`)
     // 对齐 CC REPL.tsx:2147：abortController.abort('user-cancel')
     session.abortController.abort('user-cancel')
+  }
+
+  // --- Context window snapshot (for monitor panel) ---
+
+  /**
+   * Snapshot the session's context-window usage by running CC's
+   * `analyzeContextUsage` over the current message buffer. Also computes the
+   * warning-state (until-auto-compact %, blocking-limit, etc.) using
+   * `calculateTokenWarningState` so the renderer can color the bar without a
+   * second round-trip.
+   *
+   * Returns null when the session doesn't exist; never throws (analyze can be
+   * heavy — failures are caught and surfaced as null, the renderer falls back
+   * to "—" cells).
+   *
+   * Cheap when called between turns; **don't** call this on every stream
+   * delta — the renderer throttles to once per `done`/`compact_boundary`.
+   */
+  async getContextStats(sessionId: string): Promise<ContextStats | null> {
+    const session = await this.getOrHydrateSession(sessionId)
+    if (!session) return null
+    try {
+      const runtime = await this.buildOutOfTurnRuntime(session)
+      const data = await runWithCwdOverride(runtime.sessionDir, async () =>
+        analyzeContextUsage(
+          session.messages,
+          runtime.model,
+          async () => runtime.toolPermissionContext,
+          runtime.tools as any,
+          runtime.agentDefinitions,
+          80,
+          undefined,
+          undefined,
+          undefined,
+        ),
+      )
+      const warning = calculateTokenWarningState(data.totalTokens, runtime.model)
+      const acThreshold = getAutoCompactThreshold(runtime.model)
+      const stats: ContextStats = {
+        model: data.model,
+        tokens: data.totalTokens,
+        maxTokens: data.maxTokens,
+        rawMaxTokens: data.rawMaxTokens,
+        percentage: data.percentage,
+        effectiveWindow: getEffectiveContextWindowSize(runtime.model),
+        autoCompactThreshold: Number.isFinite(acThreshold) ? acThreshold : null,
+        isAutoCompactEnabled: isAutoCompactEnabled(),
+        warning: {
+          percentLeft: warning.percentLeft,
+          isAboveWarningThreshold: warning.isAboveWarningThreshold,
+          isAboveErrorThreshold: warning.isAboveErrorThreshold,
+          isAboveAutoCompactThreshold: warning.isAboveAutoCompactThreshold,
+          isAtBlockingLimit: warning.isAtBlockingLimit,
+        },
+        categories: data.categories.map(c => ({
+          name: c.name,
+          tokens: c.tokens,
+          color: String(c.color),
+          isDeferred: c.isDeferred,
+        })),
+        memoryFiles: data.memoryFiles.map(f => ({ name: f.path, tokens: f.tokens })),
+        mcpTools: data.mcpTools.map(t => ({ name: `${t.serverName}:${t.name}`, tokens: t.tokens })),
+        agents: data.agents.map(a => ({ name: a.agentType, tokens: a.tokens, source: String(a.source) })),
+        skills: data.skills
+          ? {
+              tokens: data.skills.tokens,
+              items: data.skills.skillFrontmatter.map(s => ({
+                name: s.name,
+                tokens: s.tokens,
+                source: String(s.source),
+              })),
+            }
+          : null,
+        apiUsage: data.apiUsage,
+      }
+      return stats
+    } catch (err) {
+      console.warn('[Engine] getContextStats failed:', err)
+      return null
+    }
+  }
+
+  // --- Manual /compact (input-toolbar button) ---
+
+  /**
+   * Run the same compact pipeline that CC's `/compact` slash command runs,
+   * but driven from main without going through CC's command dispatcher
+   * (Klaus stubs `processSlashCommand`). Mirrors `commands/compact/compact.ts`:
+   * project messages past the previous boundary, build cache-safe params,
+   * call `compactConversation`, then run the post-compact cleanup chain
+   * (suppress warning, clear lastSummarizedMessageId, runPostCompactCleanup,
+   * markPostCompaction) before swapping in the summary+attachments and
+   * persisting to JSONL.
+   *
+   * Refuses when the session is mid-turn — the in-flight query owns
+   * `session.messages` and a concurrent rewrite would race the stream loop.
+   */
+  async compactSession(sessionId: string, customInstructions: string = ''): Promise<CompactSessionResult> {
+    const session = await this.getOrHydrateSession(sessionId)
+    if (!session) return { ok: false, error: 'Session not found' }
+    if (session.isRunning) return { ok: false, error: 'Session is busy' }
+
+    // Project the messages CC would compact over: post-snip, post-previous-
+    // boundary view. REPL keeps the full scroll for UI but compact must not
+    // re-summarize already-summarized history.
+    const messagesForCompact = getMessagesAfterCompactBoundary(session.messages)
+    if (messagesForCompact.length === 0) {
+      return { ok: false, error: 'No messages to compact' }
+    }
+
+    const abortController = new AbortController()
+    session.abortController = abortController
+    session.isRunning = true
+    this.pushEvent({ type: 'compaction_start', sessionId })
+
+    try {
+      const runtime = await this.buildOutOfTurnRuntime(session)
+
+      const modelRecord = this.store.getDefaultModel()
+      const authMode = (this.store.get('auth_mode') as any) ?? 'subscription'
+      const thinkingConfig = { type: 'disabled' as const }
+
+      // Sync session.appState so getAppState() returns the same view chat() would.
+      // compactConversation reads appState.toolPermissionContext / agentDefinitions
+      // for the summary-stream sub-call.
+      session.appState = {
+        ...session.appState,
+        toolPermissionContext: runtime.toolPermissionContext,
+        agentDefinitions: runtime.agentDefinitions,
+        mcp: {
+          ...session.appState.mcp,
+          clients: this.mcpState.clients,
+          tools: this.mcpState.tools,
+          resources: this.mcpState.resources,
+        },
+      }
+
+      // Minimal toolUseContext that compactConversation requires. Same shape
+      // chat() builds, just with no-op stream-mode hooks (we surface progress
+      // via the dedicated compaction_start/end events instead).
+      const toolUseContext: any = {
+        messages: messagesForCompact,
+        setMessages: (_fn: (prev: Message[]) => Message[]) => {
+          // compactConversation uses setMessages only to update its local view;
+          // we replace session.messages wholesale after the call returns.
+        },
+        onChangeAPIKey: () => {},
+        handleElicitation: async () => ({ action: 'decline' as const }),
+        options: {
+          commands: [],
+          debug: false,
+          mainLoopModel: runtime.model,
+          tools: runtime.tools as any,
+          verbose: false,
+          thinkingConfig,
+          mcpClients: this.mcpState.clients,
+          mcpResources: this.mcpState.resources,
+          ideInstallationStatus: null,
+          isNonInteractiveSession: false,
+          customSystemPrompt: undefined,
+          appendSystemPrompt: undefined,
+          agentDefinitions: runtime.agentDefinitions,
+          theme: 'dark',
+          maxBudgetUsd: undefined,
+          hooksConfig: {},
+        },
+        abortController,
+        readFileState: new Map() as any,
+        nestedMemoryAttachmentTriggers: new Set<string>(),
+        loadedNestedMemoryPaths: new Set<string>(),
+        dynamicSkillDirTriggers: new Set<string>(),
+        discoveredSkillNames: new Set<string>(),
+        setInProgressToolUseIDs: () => {},
+        setResponseLength: () => {},
+        updateFileHistoryState: () => {},
+        updateAttributionState: () => {},
+        setSDKStatus: () => {},
+        setStreamMode: () => {},
+        onCompactProgress: () => {},
+        contentReplacementState: session.contentReplacementState,
+        apiKey: authMode === 'subscription' ? undefined : (modelRecord as any)?.apiKey,
+        baseURL: authMode === 'subscription' ? undefined : ((modelRecord as any)?.baseUrl ?? undefined),
+        getAppState: () => session.appState,
+        setAppState: (fn: (prev: AppState) => AppState) => {
+          session.appState = fn(session.appState)
+        },
+        querySource: 'compact' as any,
+      }
+
+      const cacheSafeParams: any = {
+        systemPrompt: runtime.systemPrompt,
+        userContext: { currentDate: new Date().toISOString().split('T')[0]! },
+        systemContext: {},
+        toolUseContext,
+        forkContextMessages: messagesForCompact,
+      }
+
+      const preTokens = tokenCountWithEstimation(session.messages)
+
+      const result = await runWithCwdOverride(runtime.sessionDir, () =>
+        compactConversation(
+          messagesForCompact,
+          toolUseContext,
+          cacheSafeParams,
+          false,
+          customInstructions || undefined,
+          false,
+        ),
+      )
+
+      // Replace session.messages with [summaryMessage, ...attachments] —
+      // mirrors what CC's processSlashCommand does for type:'compact' results.
+      const postCompactMessages = buildPostCompactMessages(result) as Message[]
+      session.messages = postCompactMessages
+
+      // Persist post-compact messages to JSONL so the next reload sees the
+      // compacted history (recordTranscript dedups by uuid; compactConversation
+      // mints fresh uuids for the summary).
+      if (!session.deleted) {
+        try {
+          for (const msg of postCompactMessages) {
+            const recorded = await recordTranscript([msg as any], undefined, session.lastRecordedUuid as any)
+            session.lastRecordedUuid = (recorded as any) ?? (msg as any).uuid ?? session.lastRecordedUuid
+          }
+        } catch (err) {
+          console.warn('[Engine] recordTranscript(post-compact) failed:', err)
+        }
+      }
+
+      // Cleanup chain — order matches CC's commands/compact/compact.ts.
+      setLastSummarizedMessageId(undefined)
+      suppressCompactWarning()
+      runPostCompactCleanup()
+      markPostCompaction()
+
+      // Tell renderer to draw the boundary divider + collapse pre-boundary DOM,
+      // and then close the "Compacting…" toast.
+      this.pushEvent({ type: 'compact_boundary', sessionId })
+      this.pushEvent({ type: 'compaction_end', sessionId })
+
+      const postTokens = tokenCountWithEstimation(session.messages)
+      return { ok: true, preTokens, postTokens }
+    } catch (err: any) {
+      const error = err?.message ?? String(err)
+      this.pushEvent({ type: 'compaction_error', sessionId, error })
+      return { ok: false, error }
+    } finally {
+      session.isRunning = false
+      if (session.abortController === abortController) session.abortController = null
+    }
+  }
+
+  /**
+   * Resolve a sessionId to an in-memory SessionEntry, lazy-loading from JSONL
+   * if needed — same hydrate logic that `chat()` runs on its first turn after
+   * a cold start (see line ~1331). Without this, opening a historical session
+   * from the sidebar (where `this.sessions` was never seeded because chat()
+   * hasn't run since boot) would make `getContextStats` / `compactSession`
+   * see an empty buffer and report "no data" / "no messages to compact".
+   *
+   * Returns null when:
+   *   - sessionId resolves to no transcript (truly unknown id)
+   *   - no JSONL on disk yet (brand new chat with zero messages)
+   *
+   * Side effect: hydrated entries are inserted into the sessions Map so the
+   * next chat() call reuses them instead of re-reading the JSONL.
+   */
+  private async getOrHydrateSession(sessionId: string): Promise<SessionEntry | null> {
+    const existing = this.sessions.get(sessionId)
+    if (existing) return existing
+    const uuid = this.registry.lookupUuid(sessionId)
+    if (!uuid) return null
+    const projectDir = getProjectDir(CANONICAL_CWD)
+    const transcriptPath = join(projectDir, `${uuid}.jsonl`)
+    if (!existsSync(transcriptPath)) return null
+
+    // ensureSession is private; calling it here mints a fresh entry into the
+    // Map with the right uuid binding, then we replay the chain into its
+    // messages array. Mirrors chat()'s cold-start lazy-load 1:1.
+    const session = this.ensureSession(sessionId)
+    try {
+      const { messages, leafUuids } = await loadTranscriptFile(transcriptPath, { keepAllLeaves: false })
+      const leafUuid = leafUuids.values().next().value as string | undefined
+      const leaf = leafUuid ? messages.get(leafUuid as any) : undefined
+      if (leaf) {
+        const chain = buildConversationChain(messages, leaf)
+        for (const m of chain) {
+          if (m.type !== 'user' && m.type !== 'assistant') continue
+          session.messages.push(m as any)
+        }
+        if (chain.length > 0 && !session.lastRecordedUuid) {
+          session.lastRecordedUuid = (chain[chain.length - 1] as any).uuid
+        }
+      }
+    } catch (err) {
+      console.warn('[Engine] hydrate session failed:', err)
+    }
+    return session
+  }
+
+  /**
+   * Build the per-call runtime parts shared by getContextStats and
+   * compactSession. Doesn't reload prompt records / CLI prefix overrides —
+   * those affect only the live system prompt that the API sees, and using the
+   * default system prompt for analyze/compact is fine (compact's summary fork
+   * also uses the default; CC `commands/compact/compact.ts:getCacheSharingParams`
+   * does the same thing).
+   *
+   * Reuses already-cached `session.appState.agentDefinitions` /
+   * `session.toolPermissionContext` when available (set by the most recent
+   * `chat()`), and rebuilds them otherwise (e.g. user opens monitor panel
+   * before sending the first message).
+   */
+  private async buildOutOfTurnRuntime(session: SessionEntry): Promise<{
+    sessionDir: string
+    tools: Tool[]
+    agentDefinitions: AppState['agentDefinitions']
+    toolPermissionContext: ToolPermissionContext
+    model: string
+    systemPrompt: ReturnType<typeof asSystemPrompt>
+  }> {
+    const sessionDir = sessionDirFor(session.id)
+    mkdirSync(sessionDir, { recursive: true })
+
+    const MCP_RESOURCE_TOOLS = new Set(['ListMcpResourcesTool', 'ReadMcpResourceTool'])
+    const tools = [
+      ...getAllBaseTools().filter((t: any) => t.isEnabled() && !MCP_RESOURCE_TOOLS.has(t.name)),
+      ...this.mcpState.tools,
+    ]
+
+    let agentDefinitions = session.appState.agentDefinitions
+    if (!agentDefinitions || agentDefinitions.activeAgents.length === 0) {
+      agentDefinitions = await runWithCwdOverride(sessionDir, () =>
+        getAgentDefinitionsWithOverrides(sessionDir),
+      )
+      session.appState = { ...session.appState, agentDefinitions }
+    }
+
+    let toolPermissionContext = session.toolPermissionContext
+    if (!toolPermissionContext) {
+      toolPermissionContext = {
+        ...getEmptyToolPermissionContext(),
+        mode: (this.store.get('permission_mode') as any) ?? 'default',
+        isBypassPermissionsModeAvailable: true,
+        shouldAvoidPermissionPrompts: false,
+      }
+      try {
+        const rules = loadAllPermissionRulesFromDisk()
+        if (rules.length > 0) {
+          toolPermissionContext = applyPermissionRulesToPermissionContext(toolPermissionContext, rules)
+        }
+      } catch {}
+      session.toolPermissionContext = toolPermissionContext
+    }
+
+    const model = this.getModel()
+    const systemPromptParts = await runWithCwdOverride(sessionDir, () =>
+      getSystemPrompt(tools as any, model, undefined, this.mcpState.clients),
+    )
+    const systemPrompt = asSystemPrompt(systemPromptParts)
+
+    return {
+      sessionDir,
+      tools,
+      agentDefinitions,
+      toolPermissionContext,
+      model,
+      systemPrompt,
+    }
   }
 
   // --- Permission response from renderer ---

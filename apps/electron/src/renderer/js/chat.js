@@ -703,6 +703,10 @@ async function switchSession(id) {
   // a few ms but rendering from cache first avoids a flash of empty section.
   renderTaskPanel()
   refreshTasksForSession(id)
+  // Context section: render cached snapshot immediately, then trigger a
+  // throttled re-fetch. Same cache-first pattern as tasks.
+  renderContextPanel()
+  refreshContextStatsThrottled(id, 0)
 
   // 恢复目标会话的草稿（没有则清空）
   inputEl.value = sessionDrafts.get(id) || ''
@@ -1879,6 +1883,286 @@ async function refreshTasksForSession(sessionId) {
   if (sessionId === currentSessionId) renderTaskPanel()
 }
 
+// ==================== Context window snapshot (Monitor panel ▸ Context) ====================
+// Pulls CC engine's `analyzeContextUsage` over IPC and renders a token bar +
+// category breakdown. The IPC walks the full message buffer + estimates tokens
+// for every section (system/MCP/agents/skills/memory/messages), so it's not
+// free — only fetch when there's a reason to think the count moved:
+//   • on session switch (initial render)
+//   • after a turn ends (`done` event)
+//   • after a compact boundary (auto or manual)
+//   • on explicit refresh button click
+// All paths funnel into refreshContextStatsThrottled which debounces 250ms so
+// rapid back-to-back triggers (compact_boundary + done arriving together)
+// collapse into one IPC call.
+const ctxPanel = {
+  /** Per-session cache so a session re-open doesn't re-issue the IPC if the
+   *  count hasn't moved. Cleared on `done` / `compact_boundary` for that
+   *  session, then refilled by the throttled fetch. */
+  sessions: new Map(),
+  inflight: new Map(),
+  pending: new Map(),
+  loading: new Set(),
+}
+
+// CC engine tags each category with a TUI theme-color key (cyan/permission/
+// purple/...). Klaus desktop UI is a strict single-accent + grayscale system
+// (see Tasks panel: every state uses --accent only, never a hue), so a 1:1
+// mapping would shotgun rainbow dots across an otherwise monochrome panel.
+// Instead we collapse the whole palette into three semantic roles:
+//   used     → real usage going through the API. Accent (near-black).
+//   reserved → autocompact / compact buffer; held back, not occupied.
+//   inert    → free space / deferred tools; not consuming budget at all.
+// The only differentiator left between used categories is the bar layout
+// (segments stack; size is the message). Hue is intentionally absent.
+const CTX_RESERVED_NAMES = new Set(['Autocompact buffer', 'Compact buffer'])
+const CTX_FREE_SPACE_NAME = 'Free space'
+const CTX_INERT_COLORS = new Set(['promptBorder', 'inactive'])
+
+function ctxRoleFor(category) {
+  if (category.name === CTX_FREE_SPACE_NAME) return 'inert'
+  if (CTX_RESERVED_NAMES.has(category.name)) return 'reserved'
+  if (category.isDeferred) return 'inert'
+  if (CTX_INERT_COLORS.has(category.color)) return 'inert'
+  return 'used'
+}
+
+function formatTokens(n) {
+  if (typeof n !== 'number' || !isFinite(n)) return '0'
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return (n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '') + 'k'
+  return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+}
+
+// Lookup: Klaus-style i18n labels for the engine's English category names.
+// Engine emits hard-coded English strings ("Skills", "Autocompact buffer",
+// "Free space", "MCP tools", ...) regardless of locale, so we localize at
+// the renderer boundary. Anything not in the table renders as-is.
+function ctxLocalizeCategoryName(rawName) {
+  const t = window.tt || ((k) => undefined)
+  const map = {
+    'System prompt': t('context_cat_system_prompt') || 'System prompt',
+    'System tools': t('context_cat_system_tools') || 'System tools',
+    'MCP tools': t('context_cat_mcp_tools') || 'MCP tools',
+    'MCP tools (deferred)': t('context_cat_mcp_tools_deferred') || 'MCP tools (deferred)',
+    'System tools (deferred)': t('context_cat_system_tools_deferred') || 'System tools (deferred)',
+    'Custom agents': t('context_cat_agents') || 'Custom agents',
+    'Memory files': t('context_cat_memory') || 'Memory files',
+    'Skills': t('context_cat_skills') || 'Skills',
+    'Messages': t('context_cat_messages') || 'Messages',
+    'Autocompact buffer': t('context_cat_autocompact_buffer') || 'Autocompact buffer',
+    'Compact buffer': t('context_cat_compact_buffer') || 'Compact buffer',
+    'Free space': t('context_cat_free') || 'Free space',
+  }
+  return map[rawName] || rawName
+}
+
+function renderContextPanel() {
+  const body = document.getElementById('monitor-context-body')
+  const meta = document.getElementById('monitor-context-meta')
+  if (!body) return
+  const stats = ctxPanel.sessions.get(currentSessionId)
+  if (ctxPanel.loading.has(currentSessionId) && !stats) {
+    body.innerHTML = `<div class="ctx-empty">${escapeHtml(tt('context_loading') || 'Loading…')}</div>`
+    if (meta) meta.textContent = ''
+    return
+  }
+  if (!stats) {
+    body.innerHTML = `<div class="ctx-empty">${escapeHtml(tt('context_empty') || 'No data')}</div>`
+    if (meta) meta.textContent = ''
+    return
+  }
+
+  // ── Threshold state (drives accent → warning → danger color shift) ──────
+  const barTotal = stats.rawMaxTokens || 1
+  const usedPct = Math.min(100, Math.max(0, (stats.tokens / barTotal) * 100))
+  let stateClass = 'ok'
+  if (stats.warning?.isAtBlockingLimit) stateClass = 'blocking'
+  else if (stats.warning?.isAboveErrorThreshold) stateClass = 'error'
+  else if (stats.warning?.isAboveWarningThreshold) stateClass = 'warning'
+
+  // ── Tally used vs reserved for the bar; engine emits these mixed in a
+  // flat category list (see analyzeContext.ts L1099-L1157). ────────────────
+  let usedTokens = 0
+  let reservedTokens = 0
+  for (const c of stats.categories) {
+    if (c.name === CTX_FREE_SPACE_NAME) continue
+    const role = ctxRoleFor(c)
+    if (role === 'reserved') reservedTokens += c.tokens || 0
+    else if (role === 'used') usedTokens += c.tokens || 0
+  }
+
+  // ── Hero numbers ────────────────────────────────────────────────────────
+  const usedDisplay = formatTokens(stats.tokens)
+  const totalDisplay = formatTokens(stats.rawMaxTokens)
+  const pctDisplay = usedPct < 0.1 ? '<0.1%' : `${usedPct.toFixed(usedPct < 10 ? 1 : 0)}%`
+
+  // ── Stacked bar widths ──────────────────────────────────────────────────
+  // Tiny usage (<0.4%) gets bumped to a 0.4% minimum width so users see a
+  // sliver instead of a flatlined bar.
+  const usedW = (usedTokens / barTotal) * 100
+  const reservedW = (reservedTokens / barTotal) * 100
+  const usedWClamped = usedTokens > 0 ? Math.max(usedW, 0.4) : 0
+
+  // ── Headline (only when state ≠ ok) ─────────────────────────────────────
+  const percentLeft = stats.warning?.percentLeft ?? 0
+  let headline = ''
+  if (stateClass !== 'ok') {
+    headline = stats.isAutoCompactEnabled
+      ? (tt('context_until_autocompact')?.replace('{percent}', percentLeft) || `${percentLeft}% until auto-compact`)
+      : (tt('context_remaining')?.replace('{percent}', percentLeft) || `Context low (${percentLeft}% remaining)`)
+  }
+
+  // ── Compose ─────────────────────────────────────────────────────────────
+  // Just the hero card. The whole point of the panel is the at-a-glance
+  // "how full is the context window" — per-category lists were noise.
+  body.innerHTML = `
+    <div class="ctx-card ${stateClass}">
+      <div class="ctx-hero">
+        <div class="ctx-hero-numbers">
+          <span class="ctx-hero-used">${escapeHtml(usedDisplay)}</span>
+          <span class="ctx-hero-of">/ ${escapeHtml(totalDisplay)} ${escapeHtml(tt('context_tokens_unit') || 'tokens')}</span>
+        </div>
+        <span class="ctx-hero-pct">${escapeHtml(pctDisplay)}</span>
+      </div>
+      <div class="ctx-stack">
+        <span class="ctx-stack-used" style="width:${usedWClamped}%"></span>
+        ${reservedW > 0 ? `<span class="ctx-stack-reserved" style="width:${reservedW}%"></span>` : ''}
+      </div>
+      ${headline ? `<div class="ctx-card-hint">${escapeHtml(headline)}</div>` : ''}
+    </div>
+  `
+
+  if (meta) meta.textContent = `${formatTokens(stats.tokens)} · ${pctDisplay}`
+}
+
+async function fetchContextStats(sessionId) {
+  if (!sessionId) return
+  if (ctxPanel.inflight.has(sessionId)) return ctxPanel.inflight.get(sessionId)
+  ctxPanel.loading.add(sessionId)
+  if (sessionId === currentSessionId) renderContextPanel()
+  const promise = klausApi.engine.contextStats(sessionId)
+    .then(stats => {
+      if (stats) ctxPanel.sessions.set(sessionId, stats)
+      return stats
+    })
+    .catch(err => { console.warn('[ctx] contextStats failed:', err); return null })
+    .finally(() => {
+      ctxPanel.inflight.delete(sessionId)
+      ctxPanel.loading.delete(sessionId)
+      if (sessionId === currentSessionId) renderContextPanel()
+    })
+  ctxPanel.inflight.set(sessionId, promise)
+  return promise
+}
+
+function refreshContextStatsThrottled(sessionId, delay = 250) {
+  if (!sessionId) return
+  const existing = ctxPanel.pending.get(sessionId)
+  if (existing) clearTimeout(existing)
+  const handle = setTimeout(() => {
+    ctxPanel.pending.delete(sessionId)
+    fetchContextStats(sessionId)
+  }, delay)
+  ctxPanel.pending.set(sessionId, handle)
+}
+
+// ==================== Manual /compact (input-toolbar button) ====================
+// CC's slash-command path is stubbed in Klaus, so the button calls the engine's
+// compactSession API directly. Engine pushes compaction_start when it kicks
+// off; the chat:event handler below renders a toast row in the message list,
+// then removes it on compact_boundary / compaction_error.
+const btnCompact = document.getElementById('compact-btn')
+let compactingToastEl = null
+
+function showCompactingToast() {
+  removeCompactingToast()
+  const group = document.createElement('div')
+  group.className = 'msg-group system compacting-toast'
+  group.id = 'compacting-toast'
+  group.innerHTML = `<div class="compacting-row">
+    <span class="compacting-spinner" aria-hidden="true"></span>
+    <span class="compacting-label">${escapeHtml(tt('compacting_in_progress') || 'Compacting conversation…')}</span>
+  </div>`
+  messagesEl.appendChild(group)
+  compactingToastEl = group
+  scrollToBottom()
+}
+
+function removeCompactingToast() {
+  const existing = compactingToastEl || document.getElementById('compacting-toast')
+  if (existing) existing.remove()
+  compactingToastEl = null
+}
+
+function appendCompactDoneRow(text) {
+  const group = document.createElement('div')
+  group.className = 'msg-group system compact-done-row'
+  group.innerHTML = `<div class="compacting-row done">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 6.5 5 9 9.5 3.5"/></svg>
+    <span class="compacting-label">${escapeHtml(text)}</span>
+  </div>`
+  messagesEl.appendChild(group)
+  scrollToBottom()
+}
+
+async function triggerCompact() {
+  if (!currentSessionId) return
+  if (busy) {
+    if (typeof window.klausDialog?.alert === 'function') {
+      await window.klausDialog.alert(tt('compact_busy_msg') || 'Cannot compact while a response is streaming.')
+    }
+    return
+  }
+  // Confirm — compact is destructive (rewrites history). Skip the prompt
+  // when the message buffer is small (nothing to compact yet anyway, the
+  // engine would refuse with "No messages to compact" but we save the
+  // round-trip).
+  const ok = await window.klausDialog?.confirm({
+    message: tt('compact_confirm_msg') || 'Summarize this conversation now? Older messages will be replaced by a summary.',
+    confirmText: tt('compact_confirm_ok') || 'Compact',
+  })
+  if (!ok) return
+
+  if (btnCompact) btnCompact.disabled = true
+  inputEl.disabled = true
+  showCompactingToast()
+  try {
+    const result = await klausApi.engine.compact(currentSessionId)
+    if (result?.ok) {
+      // compact_boundary event handler removes the toast and renders the
+      // boundary divider; we add a small "compacted" row so the user has
+      // a visible record of the compaction in the transcript.
+      const before = formatTokens(result.preTokens)
+      const after = formatTokens(result.postTokens)
+      const summary = (tt('compact_done_summary') || 'Compacted: {before} → {after} tokens')
+        .replace('{before}', before).replace('{after}', after)
+      appendCompactDoneRow(summary)
+    } else {
+      removeCompactingToast()
+      appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (result?.error || 'unknown error'))
+    }
+  } catch (err) {
+    removeCompactingToast()
+    appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (err?.message || String(err)))
+  } finally {
+    if (btnCompact) btnCompact.disabled = false
+    inputEl.disabled = false
+    inputEl.focus()
+    // Force a context-stats refresh now that messages have been swapped in
+    refreshContextStatsThrottled(currentSessionId, 50)
+  }
+}
+
+if (btnCompact) {
+  btnCompact.addEventListener('click', () => { triggerCompact() })
+}
+
+// Manual refresh button on the Context section header.
+document.getElementById('monitor-context-refresh')?.addEventListener('click', () => {
+  if (currentSessionId) fetchContextStats(currentSessionId)
+})
+
 // ==================== Permission ====================
 
 function showPermissionRequest(req) {
@@ -2515,6 +2799,29 @@ klausApi.on.chatEvent((event) => {
       }
       break
     }
+    case 'compaction_start':
+      // Manual compact path — surface a "compacting…" toast row. The
+      // compactSession IPC also shows it; this is the channel-originated
+      // path (e.g. user triggered compact while looking at another tab).
+      showCompactingToast()
+      break
+    case 'compact_boundary':
+      // Compaction succeeded (manual or auto). Drop the toast and refresh
+      // the context panel — pre-boundary tokens just got summarized away.
+      removeCompactingToast()
+      refreshContextStatsThrottled(event.sessionId, 50)
+      break
+    case 'compaction_end':
+      // Belt-and-suspenders: some flows emit compaction_end without a
+      // preceding compact_boundary system message (engine paths that
+      // bypass the system-message channel). Still want the toast cleared.
+      removeCompactingToast()
+      refreshContextStatsThrottled(event.sessionId, 50)
+      break
+    case 'compaction_error':
+      removeCompactingToast()
+      appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (event.error || 'unknown'))
+      break
     case 'done':
       thinkingUI.finalize(); finalizeStream()
       // 本轮最后一段 assistant 才该带时间+复制按钮(中间段被 tool_use 切开过)。
@@ -2522,6 +2829,10 @@ klausApi.on.chatEvent((event) => {
       // Just-sent user bubbles missed the uuid in appendUserMsg; the host has
       // now flushed their JSONL line, so backfill uuids + delete/rewind buttons.
       refreshLiveUserUuids(event.sessionId)
+      // Refresh the context monitor — the turn that just ended changed the
+      // message buffer; throttled so back-to-back done events (rare but
+      // possible across cron/external channels) collapse into one IPC.
+      refreshContextStatsThrottled(event.sessionId)
       busy = false
       btnSend.classList.remove('busy')
       btnSend.disabled = !inputEl.value.trim()

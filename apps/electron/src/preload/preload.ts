@@ -37,6 +37,17 @@ contextBridge.exposeInMainWorld('klaus', {
     list: (sessionId: string) => ipcRenderer.invoke('tasks:list', { sessionId }),
   },
 
+  // Engine introspection / control surfaces that don't fit chat or session.
+  // - contextStats: snapshot of the session's context window for the monitor panel
+  // - compact:      manual /compact (input-toolbar button) — replicates CC's
+  //                 commands/compact/compact.ts via the unmodified engine APIs
+  engine: {
+    contextStats: (sessionId: string) =>
+      ipcRenderer.invoke('engine:contextStats', { sessionId }),
+    compact: (sessionId: string, customInstructions?: string) =>
+      ipcRenderer.invoke('engine:compactSession', { sessionId, customInstructions: customInstructions ?? '' }),
+  },
+
   // Artifacts (files agent wrote during a session)
   artifacts: {
     list: (sessionId: string) => ipcRenderer.invoke('artifacts:list', { sessionId }),

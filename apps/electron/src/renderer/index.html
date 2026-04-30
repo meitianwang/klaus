@@ -167,6 +167,9 @@
             <button id="attach" data-i18n-title="attach_file" title="Attach file">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 8.5l-5.5 5.5a3.5 3.5 0 01-5-5L9 3.5a2 2 0 013 3L6.5 12a.5.5 0 01-1-1L11 5.5"/></svg>
             </button>
+            <button id="compact-btn" type="button" data-i18n-title="compact_button_title" title="Compact conversation">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M3.5 8h9"/><path d="M5 12h6"/></svg>
+            </button>
             <input type="file" id="file-input" multiple hidden>
             <textarea id="input" rows="1" data-i18n-placeholder="placeholder" placeholder="Send a message..." autocomplete="off"></textarea>
             <button id="send" disabled data-i18n-title="send_stop" title="Send / Stop">
@@ -389,6 +392,21 @@
         </button>
       </div>
       <div class="artifacts-body">
+        <!-- Context window snapshot (CC `analyzeContextUsage` projection).
+             Refreshed once per `done` / `compact_boundary` (debounced). The
+             refresh button forces a recompute on demand. -->
+        <div class="artifacts-section" id="monitor-section-context">
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" data-i18n="context_panel_title">Context</span>
+            <span class="artifacts-section-meta" id="monitor-context-meta"></span>
+            <button id="monitor-context-refresh" class="ctx-refresh-btn" data-i18n-title="context_refresh" title="Refresh context stats">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 5a5.5 5.5 0 1 0 .5 4"/><polyline points="13.5,2 13.5,5 10.5,5"/></svg>
+            </button>
+          </div>
+          <div class="artifacts-section-body" id="monitor-context-body">
+            <div class="ctx-empty" data-i18n="context_loading">Loading…</div>
+          </div>
+        </div>
         <!-- Tasks (CC TaskListV2 equivalent — TaskCreate/TaskUpdate state).
              Hidden when the active session has no tasks. -->
         <div class="artifacts-section" id="monitor-section-tasks" style="display:none">
