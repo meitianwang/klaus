@@ -821,7 +821,20 @@ export class EngineHost {
       // transcripts can have multiple disjoint roots (each new turn after a
       // client restart re-starts with parentUuid=null). Chain-walking returned
       // just one turn and silently dropped the rest.
-      const { messages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
+      const { messages: rawMessages } = await loadTranscriptFile(filePath, { keepAllLeaves: true })
+
+      // Project past the most recent compact boundary, mirroring how CC's
+      // REPL state replaces messages on /compact and how --resume seeds new
+      // turns. Without this, the renderer's transcript shows everything that
+      // ever happened in the file (pre-boundary noise + post-boundary
+      // summary), making manual /compact a visual no-op even though the
+      // engine is feeding the model a clean post-summary context.
+      const allOrdered = Array.from(rawMessages.values())
+      const projected = getMessagesAfterCompactBoundary(allOrdered)
+      // Re-key as a Map so the rest of this method can keep its existing
+      // Map-based traversal (toolResult collection, message-id merging).
+      const messages = new Map<string, typeof projected[number]>()
+      for (const m of projected) messages.set((m as any).uuid, m)
 
       // Sidecar (best-effort)：live 测的 thinking 时长 keyed by message.id。
       const thinkingDurationsByMsgId = this.readThinkingDurations(uuid)
@@ -1937,6 +1950,25 @@ export class EngineHost {
       return { ok: false, error: 'No messages to compact' }
     }
 
+    // pushEvent fans out via this.sessionEmitters[sessionId], which is only
+    // populated for the duration of an active chat() call. compactSession
+    // runs out-of-turn (no chat() wrapping), so without a forwarder our
+    // compaction_start / compact_boundary / compaction_end events would be
+    // dropped on the floor — leaving the renderer's "compacting…" toast
+    // hanging until the IPC promise resolves with the result row, which
+    // produces the "toast and done row appear simultaneously" bug.
+    //
+    // Register a temp forwarder for this call's lifetime, scoped to the
+    // mainWindow (channel sessions don't trigger desktop compact). Restore
+    // any pre-existing forwarder in finally so we don't clobber a chat()
+    // that registered before us (shouldn't happen — isRunning gate prevents
+    // it — but defense in depth).
+    const previousEmitter = this.sessionEmitters.get(sessionId)
+    const tempEmitter = (event: EngineEvent) => {
+      this.mainWindow?.webContents.send('chat:event', event)
+    }
+    this.sessionEmitters.set(sessionId, tempEmitter)
+
     const abortController = new AbortController()
     session.abortController = abortController
     session.isRunning = true
@@ -2076,6 +2108,13 @@ export class EngineHost {
     } finally {
       session.isRunning = false
       if (session.abortController === abortController) session.abortController = null
+      // Restore the prior emitter (or remove ours if none existed). Only
+      // touch the slot if it's still the temp forwarder we installed —
+      // otherwise something else has taken over and we shouldn't clobber it.
+      if (this.sessionEmitters.get(sessionId) === tempEmitter) {
+        if (previousEmitter) this.sessionEmitters.set(sessionId, previousEmitter)
+        else this.sessionEmitters.delete(sessionId)
+      }
     }
   }
 

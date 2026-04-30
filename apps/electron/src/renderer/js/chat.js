@@ -1062,6 +1062,10 @@ async function send() {
   appendUserMsg(displayText)
   resetStreamState()
   thinkingUI.show() // 立即显示"三个点在转"，覆盖 requesting 到 thinking 开始之间的空白期
+  // The user message has been pushed to session.messages on the main side;
+  // refresh the context monitor right away so the bar reflects "your input
+  // landed" instead of staying frozen until the turn fully completes.
+  refreshContextStatsThrottled(currentSessionId, 200)
   await klausApi.chat.send(currentSessionId, finalText, media.length > 0 ? media : undefined)
 }
 
@@ -1905,25 +1909,27 @@ const ctxPanel = {
   loading: new Set(),
 }
 
-// CC engine tags each category with a TUI theme-color key (cyan/permission/
-// purple/...). Klaus desktop UI is a strict single-accent + grayscale system
-// (see Tasks panel: every state uses --accent only, never a hue), so a 1:1
-// mapping would shotgun rainbow dots across an otherwise monochrome panel.
-// Instead we collapse the whole palette into three semantic roles:
-//   used     → real usage going through the API. Accent (near-black).
+// Klaus desktop UI is a strict single-accent + grayscale system (see Tasks
+// panel: every state uses --accent only, never a hue), so we collapse CC's
+// per-category TUI hues into three semantic roles:
+//   used     → real usage going through the API (System prompt, tools,
+//              MCP, agents, memory, skills, messages). Accent fill.
 //   reserved → autocompact / compact buffer; held back, not occupied.
-//   inert    → free space / deferred tools; not consuming budget at all.
-// The only differentiator left between used categories is the bar layout
-// (segments stack; size is the message). Hue is intentionally absent.
+//   inert    → free space (the unused window) and deferred tools (loaded
+//              on demand, not currently consuming budget).
+//
+// IMPORTANT: judge role by name + isDeferred only. CC reuses color keys
+// across roles (e.g. 'promptBorder' tags both System prompt [used] and
+// Free space [inert]; 'inactive' tags System tools [used], Autocompact
+// buffer [reserved], and deferred tools [inert]) — keying off color
+// silently puts huge chunks of real usage into the "inert" bucket.
 const CTX_RESERVED_NAMES = new Set(['Autocompact buffer', 'Compact buffer'])
 const CTX_FREE_SPACE_NAME = 'Free space'
-const CTX_INERT_COLORS = new Set(['promptBorder', 'inactive'])
 
 function ctxRoleFor(category) {
   if (category.name === CTX_FREE_SPACE_NAME) return 'inert'
   if (CTX_RESERVED_NAMES.has(category.name)) return 'reserved'
   if (category.isDeferred) return 'inert'
-  if (CTX_INERT_COLORS.has(category.color)) return 'inert'
   return 'used'
 }
 
@@ -1981,15 +1987,19 @@ function renderContextPanel() {
   else if (stats.warning?.isAboveErrorThreshold) stateClass = 'error'
   else if (stats.warning?.isAboveWarningThreshold) stateClass = 'warning'
 
-  // ── Tally used vs reserved for the bar; engine emits these mixed in a
-  // flat category list (see analyzeContext.ts L1099-L1157). ────────────────
-  let usedTokens = 0
+  // Bar widths must match the hero number's source of truth. The hero shows
+  // stats.tokens, which is whichever of API-reported input_tokens or the
+  // category-sum estimate analyzeContextUsage chose (it prefers the API
+  // total when the last assistant message has usage — see analyzeContext.ts
+  // L1175). Recomputing from categories here would diverge: the API total
+  // includes the full prompt (cache + non-cache, multi-turn), while the
+  // category breakdown is an estimate-by-component. Diverging means a 44%
+  // hero with a ~15% bar fill, which reads as "the bar is broken / grey".
+  const usedTokens = stats.tokens
   let reservedTokens = 0
   for (const c of stats.categories) {
-    if (c.name === CTX_FREE_SPACE_NAME) continue
     const role = ctxRoleFor(c)
     if (role === 'reserved') reservedTokens += c.tokens || 0
-    else if (role === 'used') usedTokens += c.tokens || 0
   }
 
   // ── Hero numbers ────────────────────────────────────────────────────────
@@ -2068,88 +2078,111 @@ function refreshContextStatsThrottled(sessionId, delay = 250) {
 }
 
 // ==================== Manual /compact (input-toolbar button) ====================
-// CC's slash-command path is stubbed in Klaus, so the button calls the engine's
-// compactSession API directly. Engine pushes compaction_start when it kicks
-// off; the chat:event handler below renders a toast row in the message list,
-// then removes it on compact_boundary / compaction_error.
+// Match CC's /compact UX: no confirm dialog, no custom toast — the moment
+// the user clicks, the transcript shows a three-dot streaming indicator
+// (same component the main thinking flow uses, so the visual grammar is
+// consistent), and the send button flips into busy/stop mode. When the
+// summary stream finishes, the indicator goes away and the transcript is
+// reloaded to display the post-compact view (boundary → summary →
+// attachments). CC's REPL achieves the same end state by replacing its
+// messages state when /compact returns.
 const btnCompact = document.getElementById('compact-btn')
-let compactingToastEl = null
 
-function showCompactingToast() {
-  removeCompactingToast()
-  const group = document.createElement('div')
-  group.className = 'msg-group system compacting-toast'
-  group.id = 'compacting-toast'
-  group.innerHTML = `<div class="compacting-row">
-    <span class="compacting-spinner" aria-hidden="true"></span>
-    <span class="compacting-label">${escapeHtml(tt('compacting_in_progress') || 'Compacting conversation…')}</span>
-  </div>`
-  messagesEl.appendChild(group)
-  compactingToastEl = group
-  scrollToBottom()
+// Lightweight progress indicator reusing .thinking-indicator styles. The
+// stock thinkingUI singleton is reserved for actual model-thinking output;
+// keeping a separate compact indicator means a mid-flight chat turn won't
+// race with a compact triggered from the toolbar.
+const compactProgress = {
+  el: null,
+  show() {
+    this.hide()
+    finalizeStream()
+    const el = document.createElement('div')
+    el.className = 'thinking-indicator'
+    el.innerHTML = `<div class="thinking-dots"><span></span><span></span><span></span></div><span class="thinking-label">${escapeHtml(tt('compacting_in_progress') || 'Compacting conversation…')}</span>`
+    messagesEl.appendChild(el)
+    this.el = el
+    scrollToBottom()
+  },
+  hide() {
+    if (this.el) { this.el.remove(); this.el = null }
+  },
 }
 
-function removeCompactingToast() {
-  const existing = compactingToastEl || document.getElementById('compacting-toast')
-  if (existing) existing.remove()
-  compactingToastEl = null
-}
-
-function appendCompactDoneRow(text) {
-  const group = document.createElement('div')
-  group.className = 'msg-group system compact-done-row'
-  group.innerHTML = `<div class="compacting-row done">
-    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 6.5 5 9 9.5 3.5"/></svg>
-    <span class="compacting-label">${escapeHtml(text)}</span>
-  </div>`
-  messagesEl.appendChild(group)
+// After a manual compact, the engine's session.messages has been replaced
+// with [boundary, summary, attachments]. The renderer's DOM is still showing
+// the *pre-compact* messages, which is what made the original implementation
+// look like "nothing happened". CC's REPL handles this by replacing its
+// messages state and letting the framework re-render the transcript. We
+// don't have responsive bindings here, so we explicitly clear the transcript
+// and reload from disk — getHistory now projects past the most recent
+// compact_boundary, so it returns just the summary + attachments.
+async function reloadTranscriptForCurrentSession() {
+  if (!currentSessionId) return
+  const id = currentSessionId
+  // Drop the off-screen DOM cache for this session — those nodes were rendered
+  // from the pre-compact message list and would resurrect on next switchSession.
+  sessionDom.delete(id)
+  messagesEl.innerHTML = ''
+  resetStreamState()
+  let history
+  try {
+    history = await klausApi.session.history(id)
+  } catch (err) {
+    console.warn('[compact] history reload failed:', err)
+    return
+  }
+  if (currentSessionId !== id) return  // user switched away mid-await
+  for (const msg of history) {
+    if (msg.role === 'user') appendUserMsg(msg.text, msg.timestamp, msg.uuid)
+    else if (Array.isArray(msg.contentBlocks)) appendAssistantFromBlocks(msg.contentBlocks, msg.timestamp, msg.thinkingDurationMs)
+    else appendFinalAssistantMsg(msg.text, msg.timestamp)
+  }
+  pruneIntermediateAssistantActions()
+  const hasContent = messagesEl.childNodes.length > 0
+  messagesEl.style.display = hasContent ? 'block' : 'none'
+  welcomeEl.style.display = hasContent ? 'none' : 'flex'
   scrollToBottom()
 }
 
 async function triggerCompact() {
   if (!currentSessionId) return
   if (busy) {
-    if (typeof window.klausDialog?.alert === 'function') {
-      await window.klausDialog.alert(tt('compact_busy_msg') || 'Cannot compact while a response is streaming.')
-    }
+    // A turn is already streaming — bail silently rather than queueing.
+    // CC's /compact path also short-circuits when the loop is busy.
     return
   }
-  // Confirm — compact is destructive (rewrites history). Skip the prompt
-  // when the message buffer is small (nothing to compact yet anyway, the
-  // engine would refuse with "No messages to compact" but we save the
-  // round-trip).
-  const ok = await window.klausDialog?.confirm({
-    message: tt('compact_confirm_msg') || 'Summarize this conversation now? Older messages will be replaced by a summary.',
-    confirmText: tt('compact_confirm_ok') || 'Compact',
-  })
-  if (!ok) return
 
+  // Flip into busy state — same flag as a normal turn, so the send button
+  // changes to its stop affordance and the input keeps disabled-on-empty.
+  busy = true
+  btnSend.classList.add('busy')
+  btnSend.disabled = false  // stop button is always clickable
   if (btnCompact) btnCompact.disabled = true
-  inputEl.disabled = true
-  showCompactingToast()
+  compactProgress.show()
+
   try {
     const result = await klausApi.engine.compact(currentSessionId)
+    compactProgress.hide()
     if (result?.ok) {
-      // compact_boundary event handler removes the toast and renders the
-      // boundary divider; we add a small "compacted" row so the user has
-      // a visible record of the compaction in the transcript.
-      const before = formatTokens(result.preTokens)
-      const after = formatTokens(result.postTokens)
-      const summary = (tt('compact_done_summary') || 'Compacted: {before} → {after} tokens')
-        .replace('{before}', before).replace('{after}', after)
-      appendCompactDoneRow(summary)
+      // compact_boundary event already triggered a reload; do it again
+      // unconditionally to cover the edge case where the event was missed
+      // (e.g. user navigated away mid-compact and the off-screen filter
+      // dropped it). Idempotent — the second reload just re-renders the
+      // same projected history.
+      await reloadTranscriptForCurrentSession()
     } else {
-      removeCompactingToast()
       appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (result?.error || 'unknown error'))
     }
   } catch (err) {
-    removeCompactingToast()
+    compactProgress.hide()
     appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (err?.message || String(err)))
   } finally {
+    busy = false
+    btnSend.classList.remove('busy')
+    btnSend.disabled = !inputEl.value.trim()
     if (btnCompact) btnCompact.disabled = false
-    inputEl.disabled = false
     inputEl.focus()
-    // Force a context-stats refresh now that messages have been swapped in
     refreshContextStatsThrottled(currentSessionId, 50)
   }
 }
@@ -2752,7 +2785,14 @@ klausApi.on.chatEvent((event) => {
     case 'text_delta': appendStreamText(event.text); break
     case 'thinking_delta': thinkingUI.append(event.thinking); break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
-    case 'tool_end': updateToolEnd(event.toolCallId, event.isError, event.content); break
+    case 'tool_end':
+      updateToolEnd(event.toolCallId, event.isError, event.content)
+      // Tool results push messages onto session.messages — refresh the
+      // monitor so the bar climbs as the turn does work, not just at the end.
+      // Heavy throttle (1.5s) so back-to-back parallel tool returns don't
+      // hammer analyzeContextUsage on the main side.
+      refreshContextStatsThrottled(event.sessionId, 1500)
+      break
     case 'artifact': upsertArtifactItem(event); break
     case 'tool_input_delta': updateToolArgs(event.toolCallId, event.delta); break
     case 'progress': appendToolProgress(event.toolCallId, event.content); break
@@ -2800,26 +2840,27 @@ klausApi.on.chatEvent((event) => {
       break
     }
     case 'compaction_start':
-      // Manual compact path — surface a "compacting…" toast row. The
-      // compactSession IPC also shows it; this is the channel-originated
-      // path (e.g. user triggered compact while looking at another tab).
-      showCompactingToast()
+      // Auto-compact path (e.g. token-budget triggered): show the streaming
+      // indicator. Manual compact via the toolbar button has already shown
+      // it locally before the IPC fires; compactProgress.show() is
+      // idempotent so the duplicate is a no-op.
+      compactProgress.show()
       break
     case 'compact_boundary':
-      // Compaction succeeded (manual or auto). Drop the toast and refresh
-      // the context panel — pre-boundary tokens just got summarized away.
-      removeCompactingToast()
+      // Compaction succeeded. Reload the transcript so the user sees the
+      // post-compact view (engine replaced session.messages with
+      // [boundary, summary, attachments]; getHistory projects past the
+      // boundary). Context panel refreshed too.
+      compactProgress.hide()
+      reloadTranscriptForCurrentSession()
       refreshContextStatsThrottled(event.sessionId, 50)
       break
     case 'compaction_end':
-      // Belt-and-suspenders: some flows emit compaction_end without a
-      // preceding compact_boundary system message (engine paths that
-      // bypass the system-message channel). Still want the toast cleared.
-      removeCompactingToast()
+      compactProgress.hide()
       refreshContextStatsThrottled(event.sessionId, 50)
       break
     case 'compaction_error':
-      removeCompactingToast()
+      compactProgress.hide()
       appendError((tt('compact_failed_prefix') || 'Compaction failed: ') + (event.error || 'unknown'))
       break
     case 'done':
