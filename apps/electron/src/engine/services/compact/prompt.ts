@@ -1,22 +1,23 @@
 import type { PartialCompactDirection } from '../../types/message.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 
-// 跟 constants/prompts.ts:getLanguageSection 同源 —— 主对话 systemPrompt
-// 已经按 settings.language 注入了 "Always respond in X"，但 compact 走独立
-// LLM 子调用，user prompt（getCompactPrompt 返回）整段是英文 "Your task
-// is to create a detailed summary..."，模型会顺着 user prompt 的英文语境
-// 生成 summary。systemPrompt 那条 language 段距离太远、力度不够。
+// Compact 的 user prompt 整段是英文 "Your task is to create a detailed
+// summary..."，模型会顺着 user prompt 的英文语境生成 summary。systemPrompt
+// 里 language 段距离太远、力度不够，必须把指令直接拼到 user prompt 末尾。
 //
-// 解法（同 qritor compact prompt）：把语言指令直接拼到 compact 的 user
-// prompt 末尾，并显式说"the entire <analysis> and <summary> output,
-// including section headers and content" 让模型不会把 "1. Primary
-// Request and Intent:" 这类段标题留成英文。
+// Klaus 桌面端的"语言"开关存在 SettingsStore KV 表里（renderer 走
+// klausApi.settings.kv.get('language')），跟 CC 引擎的 settings.json 是
+// 两个 store。getInitialSettings().language 永远拿不到 Klaus 的语言设置。
+// engine-host.prepareAuthEnvironment 把 Klaus KV 的 language 同步到
+// process.env.KLAUS_LANGUAGE 透给 fork 内代码读。优先级：
+//   1. process.env.KLAUS_LANGUAGE  (Klaus 桌面端用户切换的语言)
+//   2. getInitialSettings().language  (CC settings.json 兜底，几乎不存在)
 const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   zh: 'Chinese',
   en: 'English',
 }
 function getCompactLanguageSection(): string | null {
-  const lang = getInitialSettings().language
+  const lang = process.env.KLAUS_LANGUAGE || getInitialSettings().language
   if (!lang) return null
   const displayName = LANGUAGE_DISPLAY_NAMES[lang] ?? lang
   return `# Language\nAlways respond in ${displayName}. Use ${displayName} for the entire <analysis> and <summary> output, including section headers and content.`

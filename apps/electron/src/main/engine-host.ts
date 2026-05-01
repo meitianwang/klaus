@@ -1432,38 +1432,14 @@ export class EngineHost {
       return ''
     }
 
-    // auth_mode 分叉 + 运行时切换
-    // - subscription：清掉 ANTHROPIC_API_KEY/BASE_URL + 解除 SKIP_OAUTH → 引擎走 OAuth
-    // - custom：设 ANTHROPIC_API_KEY/BASE_URL + 打开 SKIP_OAUTH → 引擎无视 keychain 里的 OAuth token，走 API key
-    // 每次 chat 都重新设环境 + 清 OAuth cache，确保用户在设置里切换后立即生效
-    const authMode = (this.store.get('auth_mode') as string) ?? 'subscription'
-    const authMod = await import('../engine/utils/auth.js')
-
-    if (authMode === 'subscription') {
-      delete process.env.ANTHROPIC_API_KEY
-      delete process.env.ANTHROPIC_BASE_URL
-      delete process.env.ANTHROPIC_AUTH_TOKEN
-      delete process.env.CLAUDE_CODE_SKIP_OAUTH
-      authMod.clearOAuthTokenCache() // 让 getClaudeAIOAuthTokens 重新从 keychain 读
-      const token = authMod.getClaudeAIOAuthTokens()
-      if (!token) {
-        this.pushEvent({ type: 'auth_required', sessionId, reason: 'not_logged_in', mode: 'subscription' })
-        this.pushEvent({ type: 'done', sessionId })
-        return ''
-      }
-    } else {
-      const m = this.store.getDefaultModel() as any
-      if (!m || !m.apiKey) {
-        this.pushEvent({ type: 'auth_required', sessionId, reason: 'no_model', mode: 'custom' })
-        this.pushEvent({ type: 'done', sessionId })
-        return ''
-      }
-      process.env.ANTHROPIC_API_KEY = m.apiKey
-      if (m.baseUrl) process.env.ANTHROPIC_BASE_URL = m.baseUrl
-      else delete process.env.ANTHROPIC_BASE_URL
-      process.env.CLAUDE_CODE_SKIP_OAUTH = '1' // 屏蔽已登录的 OAuth token（token 本身保留在 keychain，切回 subscription 立即恢复）
-      authMod.clearOAuthTokenCache() // 让 memoize 下次读时看到 SKIP_OAUTH
+    // auth_mode 分叉 + 运行时切换 — 抽到 prepareAuthEnvironment 共用
+    const authPrep = await this.prepareAuthEnvironment()
+    if (!authPrep.ok) {
+      this.pushEvent({ type: 'auth_required', sessionId, reason: authPrep.reason, mode: authPrep.mode })
+      this.pushEvent({ type: 'done', sessionId })
+      return ''
     }
+    const authMode = authPrep.mode
 
     session.isRunning = true
     session.updatedAt = Date.now()
@@ -2052,10 +2028,18 @@ export class EngineHost {
     this.pushEvent({ type: 'compaction_start', sessionId })
 
     try {
+      // Same auth env prep chat() runs at its entry — without this the
+      // forked-agent LLM call inside compactConversation can hit 401 and
+      // throw "Please run /login" (e.g. SKIP_OAUTH leftover from custom
+      // mode, or a fresh boot where chat() hasn't run yet to clear it).
+      const authPrep = await this.prepareAuthEnvironment()
+      if (!authPrep.ok) {
+        return { ok: false, error: authPrep.reason === 'not_logged_in' ? 'Not logged in · Please run /login' : 'No model configured' }
+      }
+      const authMode = authPrep.mode
       const runtime = await this.buildOutOfTurnRuntime(session)
 
       const modelRecord = this.store.getDefaultModel()
-      const authMode = (this.store.get('auth_mode') as any) ?? 'subscription'
       const thinkingConfig = { type: 'disabled' as const }
 
       // Sync session.appState so getAppState() returns the same view chat() would.
@@ -2299,6 +2283,61 @@ export class EngineHost {
       console.warn('[Engine] hydrate session failed:', err)
     }
     return session
+  }
+
+  /**
+   * Auth environment prep shared by chat() and compactSession(). Runs every
+   * call (not just chat boot) because auth_mode can be flipped from the
+   * settings panel mid-session and stale env vars / OAuth-cache state
+   * would otherwise stick. Behavior:
+   *   - subscription mode: clear ANTHROPIC_API_KEY/BASE_URL/AUTH_TOKEN +
+   *     drop CLAUDE_CODE_SKIP_OAUTH + flush OAuth memoize cache, then
+   *     verify keychain has a token. Returns {ok:false} if missing.
+   *   - custom mode: require a default model with apiKey, set
+   *     ANTHROPIC_API_KEY (+ BASE_URL when configured), turn ON
+   *     SKIP_OAUTH so the engine ignores any keychain token, then flush.
+   *
+   * Without this running before compactSession, the forked-agent LLM call
+   * picks up whatever env state was last set (or nothing, on a fresh boot
+   * where chat() hasn't run yet) and the API returns 401 → engine throws
+   * "Please run /login".
+   */
+  private async prepareAuthEnvironment(): Promise<
+    | { ok: true; mode: 'subscription' | 'custom' }
+    | { ok: false; mode: 'subscription' | 'custom'; reason: string }
+  > {
+    const authMode = ((this.store.get('auth_mode') as string) ?? 'subscription') as 'subscription' | 'custom'
+    const authMod = await import('../engine/utils/auth.js')
+
+    // Sync the desktop UI's language toggle (stored in SettingsStore KV)
+    // into a process env var so engine fork code (e.g. compact prompt.ts's
+    // getCompactLanguageSection) can read it. CC's getInitialSettings()
+    // reads ~/.claude/settings.json, which is a different store than
+    // Klaus's KV — without this bridge engine never sees the user's
+    // language pick and falls back to English.
+    const klausLang = (this.store.get('language') as string) || ''
+    if (klausLang) process.env.KLAUS_LANGUAGE = klausLang
+    else delete process.env.KLAUS_LANGUAGE
+
+    if (authMode === 'subscription') {
+      delete process.env.ANTHROPIC_API_KEY
+      delete process.env.ANTHROPIC_BASE_URL
+      delete process.env.ANTHROPIC_AUTH_TOKEN
+      delete process.env.CLAUDE_CODE_SKIP_OAUTH
+      authMod.clearOAuthTokenCache()
+      const token = authMod.getClaudeAIOAuthTokens()
+      if (!token) return { ok: false, mode: 'subscription', reason: 'not_logged_in' }
+      return { ok: true, mode: 'subscription' }
+    }
+
+    const m = this.store.getDefaultModel() as any
+    if (!m || !m.apiKey) return { ok: false, mode: 'custom', reason: 'no_model' }
+    process.env.ANTHROPIC_API_KEY = m.apiKey
+    if (m.baseUrl) process.env.ANTHROPIC_BASE_URL = m.baseUrl
+    else delete process.env.ANTHROPIC_BASE_URL
+    process.env.CLAUDE_CODE_SKIP_OAUTH = '1'
+    authMod.clearOAuthTokenCache()
+    return { ok: true, mode: 'custom' }
   }
 
   /**
