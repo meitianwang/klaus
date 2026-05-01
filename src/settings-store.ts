@@ -7,6 +7,15 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import type { CronTask } from "./types.js";
+import { ModelsRepo, type ModelRow } from "./db/repos/models.js";
+import { CronRepo, type CronTaskRow } from "./db/repos/cron.js";
+import { ArtifactsRepo, type ArtifactRow } from "./db/repos/artifacts.js";
+import { PromptsRepo, type PromptRow } from "./db/repos/prompts.js";
+import { UserPromptsRepo } from "./db/repos/user-prompts.js";
+import { UserSettingsRepo } from "./db/repos/user-settings.js";
+import { SessionsRepo } from "./db/repos/sessions.js";
+import { CronRunsRepo } from "./db/repos/cron-runs.js";
+import { TokenUsageRepo } from "./db/repos/token-usage.js";
 
 const DEFAULT_DB_PATH = join(CONFIG_DIR, "settings.db");
 
@@ -69,6 +78,18 @@ export interface ArtifactRecord {
 
 export class SettingsStore {
   private readonly db: Database;
+  private readonly models: ModelsRepo;
+  private readonly cron: CronRepo;
+  private readonly artifacts: ArtifactsRepo;
+  private readonly prompts: PromptsRepo;
+  // Phase 0 additions — exposed via accessor methods for future code to use.
+  // Existing legacy code paths (e.g. getUserLanguage reading from KV settings)
+  // are kept intact; new features should use these repos directly.
+  readonly userPrompts: UserPromptsRepo;
+  readonly userSettings: UserSettingsRepo;
+  readonly sessions: SessionsRepo;
+  readonly cronRuns: CronRunsRepo;
+  readonly tokenUsage: TokenUsageRepo;
 
   constructor(dbPath?: string) {
     const path = dbPath ?? DEFAULT_DB_PATH;
@@ -78,6 +99,17 @@ export class SettingsStore {
     this.db.exec("PRAGMA foreign_keys = ON");
     this.createTables();
     this.migrate();
+    // Repos must be constructed AFTER createTables + migrate so prepared
+    // statements see the final column list.
+    this.models = new ModelsRepo(this.db);
+    this.cron = new CronRepo(this.db);
+    this.artifacts = new ArtifactsRepo(this.db);
+    this.prompts = new PromptsRepo(this.db);
+    this.userPrompts = new UserPromptsRepo(this.db);
+    this.userSettings = new UserSettingsRepo(this.db);
+    this.sessions = new SessionsRepo(this.db);
+    this.cronRuns = new CronRunsRepo(this.db);
+    this.tokenUsage = new TokenUsageRepo(this.db);
   }
 
   private createTables(): void {
@@ -145,6 +177,69 @@ export class SettingsStore {
         updated_at        INTEGER NOT NULL
       );
 
+      -- Phase 0: cron run history (per-execution audit trail)
+      CREATE TABLE IF NOT EXISTS cron_runs (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id      TEXT NOT NULL,
+        user_id      TEXT,
+        started_at   INTEGER NOT NULL,
+        finished_at  INTEGER,
+        status       TEXT NOT NULL,
+        error        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_cron_runs_user ON cron_runs(user_id);
+
+      -- Phase 0: per-call token usage (decision #1: platform-shared key + quota)
+      CREATE TABLE IF NOT EXISTS token_usage (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id         TEXT NOT NULL,
+        session_id      TEXT,
+        model_id        TEXT NOT NULL,
+        input_tokens    INTEGER NOT NULL DEFAULT 0,
+        output_tokens   INTEGER NOT NULL DEFAULT 0,
+        cache_read      INTEGER NOT NULL DEFAULT 0,
+        cache_write     INTEGER NOT NULL DEFAULT 0,
+        cost_usd        REAL NOT NULL DEFAULT 0,
+        occurred_at     INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_user_time ON token_usage(user_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_model ON token_usage(model_id, occurred_at);
+
+      -- Phase 0: explicit session index table (Klaus-side metadata only;
+      -- transcript content stays in CC engine's local JSONL files per decision #5)
+      CREATE TABLE IF NOT EXISTS sessions (
+        id               TEXT PRIMARY KEY,
+        user_id          TEXT NOT NULL,
+        title            TEXT,
+        cwd              TEXT,
+        transcript_path  TEXT,
+        created_at       INTEGER NOT NULL,
+        last_active_at   INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, last_active_at DESC);
+
+      -- Phase 0: per-user custom prompts (admin-managed prompts stay in the prompts table)
+      CREATE TABLE IF NOT EXISTS user_prompts (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        is_default  INTEGER NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_prompts_user ON user_prompts(user_id);
+
+      -- Phase 0: per-user typed key-value preferences (replaces "user.<id>.<key>" in settings KV).
+      -- Existing per-user data in the settings KV table stays put for now; new code reads from here.
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id     TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        value       TEXT NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (user_id, key)
+      );
     `);
   }
 
@@ -226,11 +321,19 @@ export class SettingsStore {
     if (!colNames.has("role")) {
       this.db.exec(`ALTER TABLE models ADD COLUMN role TEXT`);
     }
-  }
-
-  /** Number of rows changed by the last INSERT/UPDATE/DELETE. */
-  private lastChanges(): number {
-    return (this.db.prepare("SELECT changes() as c").get() as any)?.c ?? 0;
+    // Phase 0: add user_id to session_artifacts for future RLS-friendly queries.
+    // Existing rows get NULL (no owner info available retroactively); new rows
+    // are expected to populate user_id via upsertWithUser().
+    const artifactCols = this.db
+      .prepare("PRAGMA table_info(session_artifacts)")
+      .all() as { name: string }[];
+    const artifactColNames = new Set(artifactCols.map((c) => c.name));
+    if (!artifactColNames.has("user_id")) {
+      this.db.exec(`ALTER TABLE session_artifacts ADD COLUMN user_id TEXT`);
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_session_artifacts_user ON session_artifacts(user_id)`,
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -353,89 +456,60 @@ export class SettingsStore {
   // -----------------------------------------------------------------------
 
   listModels(): ModelRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM models ORDER BY is_default DESC, name ASC")
-      .all() as RawModelRow[];
-    return rows.map(toModelRecord);
+    return this.models.list().map(toModelRecord);
   }
 
   getModel(id: string): ModelRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM models WHERE id = ?")
-      .get(id) as RawModelRow | undefined;
+    const row = this.models.findById(id);
     return row ? toModelRecord(row) : undefined;
   }
 
   getDefaultModel(): ModelRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM models WHERE is_default = 1 LIMIT 1")
-      .get() as RawModelRow | undefined;
-    if (row) return toModelRecord(row);
-    // Fallback: first model
-    const first = this.db
-      .prepare("SELECT * FROM models LIMIT 1")
-      .get() as RawModelRow | undefined;
-    return first ? toModelRecord(first) : undefined;
+    const row = this.models.findDefault() ?? this.models.findFirst();
+    return row ? toModelRecord(row) : undefined;
   }
 
   upsertModel(m: ModelRecord): void {
     const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO models (id, name, provider, model, api_key, base_url, max_context_tokens, thinking, is_default, role, cost_input, cost_output, cost_cache_read, cost_cache_write, auth_type, refresh_token, token_expires_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name, provider = excluded.provider, model = excluded.model,
-           api_key = excluded.api_key, base_url = excluded.base_url,
-           max_context_tokens = excluded.max_context_tokens, thinking = excluded.thinking,
-           is_default = excluded.is_default, role = excluded.role,
-           cost_input = excluded.cost_input, cost_output = excluded.cost_output,
-           cost_cache_read = excluded.cost_cache_read, cost_cache_write = excluded.cost_cache_write,
-           auth_type = excluded.auth_type, refresh_token = excluded.refresh_token,
-           token_expires_at = excluded.token_expires_at,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        m.id, m.name, m.provider, m.model,
-        m.apiKey ?? null, m.baseUrl ?? null,
-        m.maxContextTokens, m.thinking,
-        m.isDefault ? 1 : 0, m.role ?? null,
-        m.cost?.input ?? null, m.cost?.output ?? null,
-        m.cost?.cacheRead ?? null, m.cost?.cacheWrite ?? null,
-        m.authType ?? "api_key", m.refreshToken ?? null, m.tokenExpiresAt ?? null,
-        m.createdAt ?? now, now,
-      );
+    this.models.upsert({
+      id: m.id,
+      name: m.name,
+      provider: m.provider,
+      model: m.model,
+      apiKey: m.apiKey ?? null,
+      baseUrl: m.baseUrl ?? null,
+      maxContextTokens: m.maxContextTokens,
+      thinking: m.thinking,
+      isDefault: m.isDefault ? 1 : 0,
+      role: m.role ?? null,
+      costInput: m.cost?.input ?? null,
+      costOutput: m.cost?.output ?? null,
+      costCacheRead: m.cost?.cacheRead ?? null,
+      costCacheWrite: m.cost?.cacheWrite ?? null,
+      authType: m.authType ?? "api_key",
+      refreshToken: m.refreshToken ?? null,
+      tokenExpiresAt: m.tokenExpiresAt ?? null,
+      createdAt: m.createdAt ?? now,
+      updatedAt: now,
+    });
   }
 
   deleteModel(id: string): boolean {
-    this.db.prepare("DELETE FROM models WHERE id = ?").run(id);
-    return this.lastChanges() > 0;
+    return this.models.delete(id);
   }
 
   setDefaultModel(id: string): void {
-    this.db.transaction(() => {
-      this.db.prepare("UPDATE models SET is_default = 0").run();
-      this.db.prepare("UPDATE models SET is_default = 1 WHERE id = ?").run(id);
-    })();
+    this.models.setDefault(id);
   }
 
   /** Assign a role to a model. Clears the role from any other model first. */
   setModelRole(id: string, role: ModelRole | null): void {
-    this.db.transaction(() => {
-      if (role) {
-        // Clear this role from all models
-        this.db.prepare("UPDATE models SET role = NULL WHERE role = ?").run(role);
-      }
-      // Set the role on the target model (or clear it if role is null)
-      this.db.prepare("UPDATE models SET role = ? WHERE id = ?").run(role, id);
-    })();
+    this.models.setRole(id, role);
   }
 
   /** Get the model assigned to a specific role, or undefined. */
   getModelByRole(role: ModelRole): ModelRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM models WHERE role = ? LIMIT 1")
-      .get(role) as RawModelRow | undefined;
+    const row = this.models.findByRole(role);
     return row ? toModelRecord(row) : undefined;
   }
 
@@ -444,53 +518,37 @@ export class SettingsStore {
   // -----------------------------------------------------------------------
 
   listPrompts(): PromptRecord[] {
-    const rows = this.db
-      .prepare("SELECT * FROM prompts ORDER BY is_default DESC, name ASC")
-      .all() as RawPromptRow[];
-    return rows.map(toPromptRecord);
+    return this.prompts.list().map(toPromptRecord);
   }
 
   getPrompt(id: string): PromptRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompts WHERE id = ?")
-      .get(id) as RawPromptRow | undefined;
+    const row = this.prompts.findById(id);
     return row ? toPromptRecord(row) : undefined;
   }
 
   getDefaultPrompt(): PromptRecord | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM prompts WHERE is_default = 1 LIMIT 1")
-      .get() as RawPromptRow | undefined;
-    if (row) return toPromptRecord(row);
-    const first = this.db
-      .prepare("SELECT * FROM prompts LIMIT 1")
-      .get() as RawPromptRow | undefined;
-    return first ? toPromptRecord(first) : undefined;
+    const row = this.prompts.findDefault() ?? this.prompts.findFirst();
+    return row ? toPromptRecord(row) : undefined;
   }
 
   upsertPrompt(p: PromptRecord): void {
     const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO prompts (id, name, content, is_default, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name, content = excluded.content,
-           is_default = excluded.is_default, updated_at = excluded.updated_at`,
-      )
-      .run(p.id, p.name, p.content, p.isDefault ? 1 : 0, p.createdAt ?? now, now);
+    this.prompts.upsert({
+      id: p.id,
+      name: p.name,
+      content: p.content,
+      isDefault: p.isDefault ? 1 : 0,
+      createdAt: p.createdAt ?? now,
+      updatedAt: now,
+    });
   }
 
   deletePrompt(id: string): boolean {
-    this.db.prepare("DELETE FROM prompts WHERE id = ?").run(id);
-    return this.lastChanges() > 0;
+    return this.prompts.delete(id);
   }
 
   setDefaultPrompt(id: string): void {
-    this.db.transaction(() => {
-      this.db.prepare("UPDATE prompts SET is_default = 0").run();
-      this.db.prepare("UPDATE prompts SET is_default = 1 WHERE id = ?").run(id);
-    })();
+    this.prompts.setDefault(id);
   }
 
   // -----------------------------------------------------------------------
@@ -502,42 +560,39 @@ export class SettingsStore {
    * file just updates last_op + last_modified_at.
    * Returns the resulting record (with first_seen_at preserved on update).
    */
+  /**
+   * Phase 0: prefer `upsertArtifactForUser` (records user_id for RLS-friendly queries).
+   * This overload is kept for legacy callers; new code should pass userId.
+   */
   upsertArtifact(sessionKey: string, filePath: string, op: ArtifactOp): ArtifactRecord {
     const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO session_artifacts (session_key, file_path, last_op, first_seen_at, last_modified_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(session_key, file_path) DO UPDATE SET
-           last_op = excluded.last_op,
-           last_modified_at = excluded.last_modified_at`,
-      )
-      .run(sessionKey, filePath, op, now, now);
+    this.artifacts.upsert(sessionKey, filePath, op, now);
+    return this.getArtifact(sessionKey, filePath)!;
+  }
+
+  upsertArtifactForUser(
+    sessionKey: string,
+    userId: string,
+    filePath: string,
+    op: ArtifactOp,
+  ): ArtifactRecord {
+    const now = Date.now();
+    this.artifacts.upsertWithUser(sessionKey, userId, filePath, op, now);
     return this.getArtifact(sessionKey, filePath)!;
   }
 
   getArtifact(sessionKey: string, filePath: string): ArtifactRecord | undefined {
-    const row = this.db
-      .prepare(
-        "SELECT session_key, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_key = ? AND file_path = ?",
-      )
-      .get(sessionKey, filePath) as RawArtifactRow | undefined;
+    const row = this.artifacts.findBySessionAndPath(sessionKey, filePath);
     return row ? toArtifactRecord(row) : undefined;
   }
 
   listArtifacts(sessionKey: string): ArtifactRecord[] {
-    const rows = this.db
-      .prepare(
-        "SELECT session_key, file_path, last_op, first_seen_at, last_modified_at FROM session_artifacts WHERE session_key = ? ORDER BY last_modified_at DESC",
-      )
-      .all(sessionKey) as RawArtifactRow[];
-    return rows.map(toArtifactRecord);
+    return this.artifacts.listBySession(sessionKey).map(toArtifactRecord);
   }
 
   /** Cascade-delete all artifact rows for a session. Returns the row count. */
   deleteArtifactsBySession(sessionKey: string): number {
-    this.db.prepare("DELETE FROM session_artifacts WHERE session_key = ?").run(sessionKey);
-    return this.lastChanges();
+    return this.artifacts.deleteBySession(sessionKey);
   }
 
   // -----------------------------------------------------------------------
@@ -545,71 +600,50 @@ export class SettingsStore {
   // -----------------------------------------------------------------------
 
   listTasks(): CronTask[] {
-    const rows = this.db
-      .prepare("SELECT * FROM cron_tasks ORDER BY created_at ASC")
-      .all() as RawCronRow[];
-    return rows.map(toCronTask);
+    return this.cron.list().map(toCronTask);
   }
 
   getTask(id: string): CronTask | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM cron_tasks WHERE id = ?")
-      .get(id) as RawCronRow | undefined;
+    const row = this.cron.findById(id);
     return row ? toCronTask(row) : undefined;
   }
 
   upsertTask(task: CronTask): void {
     const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO cron_tasks (id, user_id, name, description, schedule, prompt, enabled, thinking, light_context, timeout_seconds, delete_after_run, deliver, webhook_url, webhook_token, failure_alert, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           user_id = excluded.user_id,
-           name = excluded.name, description = excluded.description,
-           schedule = excluded.schedule, prompt = excluded.prompt,
-           enabled = excluded.enabled, thinking = excluded.thinking,
-           light_context = excluded.light_context, timeout_seconds = excluded.timeout_seconds,
-           delete_after_run = excluded.delete_after_run, deliver = excluded.deliver,
-           webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token,
-           failure_alert = excluded.failure_alert, updated_at = excluded.updated_at`,
-      )
-      .run(
-        task.id,
-        task.userId ?? null,
-        task.name ?? null,
-        task.description ?? null,
-        typeof task.schedule === "string" ? task.schedule : JSON.stringify(task.schedule),
-        task.prompt,
-        task.enabled !== false ? 1 : 0,
-        task.thinking ?? null,
-        task.lightContext ? 1 : 0,
-        task.timeoutSeconds ?? null,
-        task.deleteAfterRun ? 1 : 0,
-        task.deliver ? JSON.stringify(task.deliver) : null,
-        task.webhookUrl ?? null,
-        task.webhookToken ?? null,
-        task.failureAlert != null ? JSON.stringify(task.failureAlert) : null,
-        task.createdAt ?? now,
-        now,
-      );
+    this.cron.upsert({
+      id: task.id,
+      userId: task.userId ?? null,
+      name: task.name ?? null,
+      description: task.description ?? null,
+      schedule:
+        typeof task.schedule === "string"
+          ? task.schedule
+          : JSON.stringify(task.schedule),
+      prompt: task.prompt,
+      enabled: task.enabled !== false ? 1 : 0,
+      thinking: task.thinking ?? null,
+      lightContext: task.lightContext ? 1 : 0,
+      timeoutSeconds: task.timeoutSeconds ?? null,
+      deleteAfterRun: task.deleteAfterRun ? 1 : 0,
+      deliver: task.deliver ? JSON.stringify(task.deliver) : null,
+      webhookUrl: task.webhookUrl ?? null,
+      webhookToken: task.webhookToken ?? null,
+      failureAlert: task.failureAlert != null ? JSON.stringify(task.failureAlert) : null,
+      createdAt: task.createdAt ?? now,
+      updatedAt: now,
+    });
   }
 
   deleteTask(id: string): boolean {
-    this.db.prepare("DELETE FROM cron_tasks WHERE id = ?").run(id);
-    return this.lastChanges() > 0;
+    return this.cron.delete(id);
   }
 
   listUserTasks(userId: string): CronTask[] {
-    const rows = this.db
-      .prepare("SELECT * FROM cron_tasks WHERE user_id = ? ORDER BY created_at ASC")
-      .all(userId) as RawCronRow[];
-    return rows.map(toCronTask);
+    return this.cron.listByUser(userId).map(toCronTask);
   }
 
   deleteUserTask(userId: string, taskId: string): boolean {
-    this.db.prepare("DELETE FROM cron_tasks WHERE id = ? AND user_id = ?").run(taskId, userId);
-    return this.lastChanges() > 0;
+    return this.cron.deleteUserTask(userId, taskId);
   }
 
   // MCP config moved to engine's .mcp.json system (engine/services/mcp/config.ts)
@@ -633,10 +667,17 @@ export class SettingsStore {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function safeJsonParse(raw: string): unknown {
+/** Parse JSON; on failure return undefined and log so corrupt rows surface in ops. */
+function safeJsonParse(raw: string, context?: string): unknown {
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[SettingsStore] JSON parse failed${context ? ` (${context})` : ""}:`,
+      err,
+      "raw:",
+      raw.slice(0, 200),
+    );
     return undefined;
   }
 }
@@ -645,29 +686,7 @@ function safeJsonParse(raw: string): unknown {
 // Raw row types + converters
 // ---------------------------------------------------------------------------
 
-interface RawModelRow {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  api_key: string | null;
-  base_url: string | null;
-  max_context_tokens: number;
-  thinking: string;
-  is_default: number;
-  cost_input: number | null;
-  cost_output: number | null;
-  cost_cache_read: number | null;
-  cost_cache_write: number | null;
-  auth_type: string | null;
-  refresh_token: string | null;
-  token_expires_at: number | null;
-  role: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-function toModelRecord(r: RawModelRow): ModelRecord {
+function toModelRecord(r: ModelRow): ModelRecord {
   const cost: ModelCostRecord | undefined =
     r.cost_input != null && r.cost_output != null
       ? {
@@ -697,16 +716,7 @@ function toModelRecord(r: RawModelRow): ModelRecord {
   };
 }
 
-interface RawPromptRow {
-  id: string;
-  name: string;
-  content: string;
-  is_default: number;
-  created_at: number;
-  updated_at: number;
-}
-
-function toPromptRecord(r: RawPromptRow): PromptRecord {
+function toPromptRecord(r: PromptRow): PromptRecord {
   return {
     id: r.id,
     name: r.name,
@@ -717,15 +727,7 @@ function toPromptRecord(r: RawPromptRow): PromptRecord {
   };
 }
 
-interface RawArtifactRow {
-  session_key: string;
-  file_path: string;
-  last_op: string;
-  first_seen_at: number;
-  last_modified_at: number;
-}
-
-function toArtifactRecord(r: RawArtifactRow): ArtifactRecord {
+function toArtifactRecord(r: ArtifactRow): ArtifactRecord {
   return {
     sessionKey: r.session_key,
     filePath: r.file_path,
@@ -735,27 +737,7 @@ function toArtifactRecord(r: RawArtifactRow): ArtifactRecord {
   };
 }
 
-interface RawCronRow {
-  id: string;
-  user_id: string | null;
-  name: string | null;
-  description: string | null;
-  schedule: string;
-  prompt: string;
-  enabled: number;
-  thinking: string | null;
-  light_context: number;
-  timeout_seconds: number | null;
-  delete_after_run: number;
-  deliver: string | null;
-  webhook_url: string | null;
-  webhook_token: string | null;
-  failure_alert: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-function toCronTask(r: RawCronRow): CronTask {
+function toCronTask(r: CronTaskRow): CronTask {
   return {
     id: r.id,
     ...(r.user_id ? { userId: r.user_id } : {}),
@@ -768,10 +750,22 @@ function toCronTask(r: RawCronRow): CronTask {
     ...(r.light_context ? { lightContext: true } : {}),
     ...(r.timeout_seconds != null ? { timeoutSeconds: r.timeout_seconds } : {}),
     ...(r.delete_after_run ? { deleteAfterRun: true } : {}),
-    ...(r.deliver ? { deliver: safeJsonParse(r.deliver) as CronTask["deliver"] } : {}),
+    // Defensive: if a row has corrupt JSON we drop the field rather than
+    // shipping `undefined` typed as the real shape (which would crash callers).
+    ...(r.deliver
+      ? (() => {
+          const parsed = safeJsonParse(r.deliver, `cron_tasks.deliver id=${r.id}`);
+          return parsed !== undefined ? { deliver: parsed as CronTask["deliver"] } : {};
+        })()
+      : {}),
     ...(r.webhook_url ? { webhookUrl: r.webhook_url } : {}),
     ...(r.webhook_token ? { webhookToken: r.webhook_token } : {}),
-    ...(r.failure_alert ? { failureAlert: safeJsonParse(r.failure_alert) as CronTask["failureAlert"] } : {}),
+    ...(r.failure_alert
+      ? (() => {
+          const parsed = safeJsonParse(r.failure_alert, `cron_tasks.failure_alert id=${r.id}`);
+          return parsed !== undefined ? { failureAlert: parsed as CronTask["failureAlert"] } : {};
+        })()
+      : {}),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

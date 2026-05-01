@@ -4,6 +4,10 @@
  *
  * Admin creates invite codes via the admin panel; each invite code acts as
  * a scoped token — users with an invite code can only see their own sessions.
+ *
+ * Layering: SQL is delegated to InvitesRepo (src/db/repos/invites.ts).
+ * This file owns business policy (random code generation, label sanitization,
+ * "consume = mark used" semantics, schema migrations).
  */
 
 import { Database } from "bun:sqlite";
@@ -11,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
+import { InvitesRepo, type InviteRow } from "./db/repos/invites.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,16 +56,7 @@ const MIGRATE_SQL = `
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-interface DbRow {
-  code: string;
-  label: string;
-  created_at: number;
-  is_active: number;
-  used_by: string | null;
-  used_at: number | null;
-}
-
-function rowToInviteCode(row: DbRow): InviteCode {
+function rowToInviteCode(row: InviteRow): InviteCode {
   return {
     code: row.code,
     label: row.label,
@@ -77,14 +73,7 @@ function rowToInviteCode(row: DbRow): InviteCode {
 
 export class InviteStore {
   private readonly db: Database;
-
-  // Pre-compiled statements
-  private readonly stmtList: ReturnType<Database["prepare"]>;
-  private readonly stmtGet: ReturnType<Database["prepare"]>;
-  private readonly stmtInsert: ReturnType<Database["prepare"]>;
-  private readonly stmtDelete: ReturnType<Database["prepare"]>;
-  private readonly stmtConsume: ReturnType<Database["prepare"]>;
-  private readonly stmtIsValid: ReturnType<Database["prepare"]>;
+  private readonly invites: InvitesRepo;
 
   constructor(dbPath?: string) {
     const resolvedPath = dbPath ?? join(CONFIG_DIR, "invites.db");
@@ -94,7 +83,7 @@ export class InviteStore {
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(INIT_SQL);
 
-    // Migrate: add used_by/used_at columns if missing
+    // Migrate: add used_by/used_at columns if missing (must run before repo prepares stmts)
     const cols = this.db.prepare("PRAGMA table_info(invite_codes)").all() as {
       name: string;
     }[];
@@ -107,50 +96,30 @@ export class InviteStore {
       }
     }
 
-    const SELECT_COLS = "code, label, created_at, is_active, used_by, used_at";
-
-    // Pre-compile statements
-    this.stmtList = this.db.prepare(
-      `SELECT ${SELECT_COLS} FROM invite_codes ORDER BY created_at DESC`,
-    );
-    this.stmtGet = this.db.prepare(
-      `SELECT ${SELECT_COLS} FROM invite_codes WHERE code = ?`,
-    );
-    this.stmtInsert = this.db.prepare(
-      "INSERT INTO invite_codes (code, label, created_at, is_active) VALUES (@code, @label, @createdAt, @isActive)",
-    );
-    this.stmtDelete = this.db.prepare(
-      "DELETE FROM invite_codes WHERE code = ?",
-    );
-    this.stmtConsume = this.db.prepare(
-      "UPDATE invite_codes SET is_active = 0, used_by = @usedBy, used_at = @usedAt WHERE code = @code AND is_active = 1",
-    );
-    this.stmtIsValid = this.db.prepare(
-      "SELECT 1 FROM invite_codes WHERE code = ? AND is_active = 1",
-    );
+    this.invites = new InvitesRepo(this.db);
   }
 
   /** List all invite codes (newest first). */
   list(): readonly InviteCode[] {
-    return (this.stmtList.all() as DbRow[]).map(rowToInviteCode);
+    return this.invites.list().map(rowToInviteCode);
   }
 
   /** Get a single invite code by code string. */
   get(code: string): InviteCode | undefined {
-    const row = this.stmtGet.get(code) as DbRow | undefined;
+    const row = this.invites.get(code);
     return row ? rowToInviteCode(row) : undefined;
   }
 
   /** Check if a code is a valid (existing + active) invite code. */
   isValid(code: string): boolean {
-    return this.stmtIsValid.get(code) !== undefined;
+    return this.invites.isValid(code);
   }
 
   /** Create a new invite code. Returns the created InviteCode. */
   create(label: string = ""): InviteCode {
     const code = randomBytes(16).toString("hex"); // 32 hex chars
     const createdAt = Date.now();
-    this.stmtInsert.run({ "@code": code, "@label": label, "@createdAt": createdAt, "@isActive": 1 });
+    this.invites.insert({ code, label, createdAt, isActive: 1 });
     return {
       code,
       label,
@@ -161,21 +130,14 @@ export class InviteStore {
     };
   }
 
-  /** Number of rows changed by the last INSERT/UPDATE/DELETE. */
-  private lastChanges(): number {
-    return (this.db.prepare("SELECT changes() as c").get() as any)?.c ?? 0;
-  }
-
   /** Mark an invite code as consumed. Records who used it and when. */
   consume(code: string, usedBy: string): boolean {
-    this.stmtConsume.run({ "@code": code, "@usedBy": usedBy, "@usedAt": Date.now() });
-    return this.lastChanges() > 0;
+    return this.invites.consume(code, usedBy, Date.now());
   }
 
   /** Delete an invite code permanently. Returns true if deleted. */
   delete(code: string): boolean {
-    this.stmtDelete.run(code);
-    return this.lastChanges() > 0;
+    return this.invites.delete(code);
   }
 
   /** Close the database connection. */

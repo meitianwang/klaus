@@ -824,7 +824,7 @@ export class AgentSessionManager {
                   const rel = relativeWithinWorkspace(workspaceDir, found.filePath);
                   if (!rel) continue;
                   try {
-                    const rec = this.store.upsertArtifact(sessionKey, rel, found.op);
+                    const rec = this.store.upsertArtifactForUser(sessionKey, userId, rel, found.op);
                     if (parsed && sendEvent) {
                       sendEvent(parsed.userId, {
                         type: "artifact",

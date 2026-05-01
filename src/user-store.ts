@@ -6,6 +6,12 @@
  * - Session token based auth (HttpOnly cookie)
  * - First registered user automatically becomes admin
  * - Invite code required for registration
+ *
+ * Layering: SQL for the `users` table is delegated to `UsersRepo`
+ * (src/db/repos/users.ts). This file remains the service layer for
+ * password hashing, brute-force lockout policy, email normalization,
+ * invite-code rules, plus the auth_sessions / desktop_* tables (those
+ * still own their SQL inline pending follow-up repo extraction).
  */
 
 import { Database } from "bun:sqlite";
@@ -18,6 +24,9 @@ import {
 import { mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR } from "./config.js";
+import { UsersRepo, type UserRow } from "./db/repos/users.js";
+import { AuthSessionsRepo } from "./db/repos/auth-sessions.js";
+import { DesktopAuthRepo } from "./db/repos/desktop-auth.js";
 
 function scryptAsync(
   password: string,
@@ -160,20 +169,6 @@ const INIT_SQL = `
 // Row types
 // ---------------------------------------------------------------------------
 
-interface UserRow {
-  id: string;
-  email: string;
-  password_hash: string;
-  display_name: string;
-  role: string;
-  avatar_url: string | null;
-  google_id: string | null;
-  invite_code: string;
-  created_at: number;
-  last_login_at: number;
-  is_active: number;
-}
-
 interface SessionRow {
   token: string;
   user_id: string;
@@ -221,29 +216,9 @@ const DEFAULT_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export class UserStore {
   private readonly db: Database;
-
-  // Pre-compiled statements
-  private readonly stmtGetUserById: ReturnType<Database["prepare"]>;
-  private readonly stmtGetUserByEmail: ReturnType<Database["prepare"]>;
-  private readonly stmtGetUserByGoogleId: ReturnType<Database["prepare"]>;
-  private readonly stmtInsertUser: ReturnType<Database["prepare"]>;
-  private readonly stmtUpdateLastLogin: ReturnType<Database["prepare"]>;
-  private readonly stmtSetActive: ReturnType<Database["prepare"]>;
-  private readonly stmtSetRole: ReturnType<Database["prepare"]>;
-  private readonly stmtSetDisplayName: ReturnType<Database["prepare"]>;
-  private readonly stmtSetAvatarUrl: ReturnType<Database["prepare"]>;
-  private readonly stmtLinkGoogle: ReturnType<Database["prepare"]>;
-  private readonly stmtListUsers: ReturnType<Database["prepare"]>;
-  private readonly stmtCountUsers: ReturnType<Database["prepare"]>;
-
-  private readonly stmtInsertSession: ReturnType<Database["prepare"]>;
-  private readonly stmtGetSession: ReturnType<Database["prepare"]>;
-  private readonly stmtDeleteSession: ReturnType<Database["prepare"]>;
-  private readonly stmtDeleteUserSessions: ReturnType<Database["prepare"]>;
-  private readonly stmtPruneSessions: ReturnType<Database["prepare"]>;
-  private readonly stmtIncrFailedAttempts: ReturnType<Database["prepare"]>;
-  private readonly stmtLockUser: ReturnType<Database["prepare"]>;
-  private readonly stmtResetFailedAttempts: ReturnType<Database["prepare"]>;
+  private readonly users: UsersRepo;
+  private readonly authSessions: AuthSessionsRepo;
+  private readonly desktopAuth: DesktopAuthRepo;
 
   private readonly sessionMaxAgeMs: number;
 
@@ -258,7 +233,8 @@ export class UserStore {
 
     this.sessionMaxAgeMs = sessionMaxAgeMs ?? DEFAULT_SESSION_MAX_AGE_MS;
 
-    // Run migrations BEFORE preparing statements (columns must exist first)
+    // Run migrations BEFORE constructing the repo (its prepared statements
+    // reference these columns, and prepare-time validation fails if missing).
     try {
       this.db.exec(
         "ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0",
@@ -279,71 +255,9 @@ export class UserStore {
       /* column already exists */
     }
 
-    // User statements
-    this.stmtGetUserById = this.db.prepare("SELECT * FROM users WHERE id = ?");
-    this.stmtGetUserByEmail = this.db.prepare(
-      "SELECT * FROM users WHERE email = ?",
-    );
-    this.stmtGetUserByGoogleId = this.db.prepare(
-      "SELECT * FROM users WHERE google_id = ?",
-    );
-    this.stmtInsertUser = this.db.prepare(`
-      INSERT INTO users (id, email, password_hash, display_name, role, google_id, invite_code, created_at, last_login_at, is_active)
-      VALUES (@id, @email, @passwordHash, @displayName, @role, @googleId, @inviteCode, @createdAt, @lastLoginAt, @isActive)
-    `);
-    this.stmtUpdateLastLogin = this.db.prepare(
-      "UPDATE users SET last_login_at = ? WHERE id = ?",
-    );
-    this.stmtSetActive = this.db.prepare(
-      "UPDATE users SET is_active = ? WHERE id = ?",
-    );
-    this.stmtSetRole = this.db.prepare(
-      "UPDATE users SET role = ? WHERE id = ?",
-    );
-    this.stmtSetDisplayName = this.db.prepare(
-      "UPDATE users SET display_name = ? WHERE id = ?",
-    );
-    this.stmtSetAvatarUrl = this.db.prepare(
-      "UPDATE users SET avatar_url = ? WHERE id = ?",
-    );
-    this.stmtLinkGoogle = this.db.prepare(
-      "UPDATE users SET google_id = ? WHERE id = ?",
-    );
-    this.stmtListUsers = this.db.prepare(
-      "SELECT * FROM users ORDER BY created_at DESC",
-    );
-    this.stmtCountUsers = this.db.prepare(
-      "SELECT COUNT(*) as count FROM users",
-    );
-
-    // Session statements
-    this.stmtInsertSession = this.db.prepare(`
-      INSERT INTO auth_sessions (token, user_id, created_at, expires_at, ip, user_agent)
-      VALUES (@token, @userId, @createdAt, @expiresAt, @ip, @userAgent)
-    `);
-    this.stmtGetSession = this.db.prepare(
-      "SELECT * FROM auth_sessions WHERE token = ?",
-    );
-    this.stmtDeleteSession = this.db.prepare(
-      "DELETE FROM auth_sessions WHERE token = ?",
-    );
-    this.stmtDeleteUserSessions = this.db.prepare(
-      "DELETE FROM auth_sessions WHERE user_id = ?",
-    );
-    this.stmtPruneSessions = this.db.prepare(
-      "DELETE FROM auth_sessions WHERE expires_at < ?",
-    );
-
-    // Brute-force protection statements
-    this.stmtIncrFailedAttempts = this.db.prepare(
-      "UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?",
-    );
-    this.stmtLockUser = this.db.prepare(
-      "UPDATE users SET locked_until = ? WHERE id = ?",
-    );
-    this.stmtResetFailedAttempts = this.db.prepare(
-      "UPDATE users SET failed_attempts = 0, locked_until = 0 WHERE id = ?",
-    );
+    this.users = new UsersRepo(this.db);
+    this.authSessions = new AuthSessionsRepo(this.db);
+    this.desktopAuth = new DesktopAuthRepo(this.db);
 
     // Best-effort file permissions
     try {
@@ -353,17 +267,11 @@ export class UserStore {
     }
   }
 
-  /** Number of rows changed by the last INSERT/UPDATE/DELETE. */
-  private lastChanges(): number {
-    return (this.db.prepare("SELECT changes() as c").get() as any)?.c ?? 0;
-  }
-
   // -- User registration ----------------------------------------------------
 
   /** Returns true if no users exist yet (first user becomes admin). */
   isFirstUser(): boolean {
-    const row = this.stmtCountUsers.get() as { count: number };
-    return row.count === 0;
+    return this.users.count() === 0;
   }
 
   /** Register a new user. Returns the created user. */
@@ -378,26 +286,25 @@ export class UserStore {
     const id = randomBytes(16).toString("hex");
 
     // Transaction to prevent TOCTOU race on isFirstUser check
-    const insertUser = this.db.transaction(() => {
-      const isFirst = this.isFirstUser();
+    this.db.transaction(() => {
+      const isFirst = this.users.count() === 0;
       // Re-check invite code inside transaction to prevent race condition
       if (!isFirst && !inviteCode) {
         throw new Error("invite_code_required");
       }
-      this.stmtInsertUser.run({
-        "@id": id,
-        "@email": email.toLowerCase().trim(),
-        "@passwordHash": passwordHash,
-        "@displayName": displayName.trim(),
-        "@role": isFirst ? "admin" : "user",
-        "@googleId": null,
-        "@inviteCode": inviteCode,
-        "@createdAt": now,
-        "@lastLoginAt": now,
-        "@isActive": 1,
+      this.users.insert({
+        id,
+        email: email.toLowerCase().trim(),
+        passwordHash,
+        displayName: displayName.trim(),
+        role: isFirst ? "admin" : "user",
+        googleId: null,
+        inviteCode,
+        createdAt: now,
+        lastLoginAt: now,
+        isActive: 1,
       });
-    });
-    insertUser();
+    })();
 
     return this.getUserById(id)!;
   }
@@ -410,36 +317,34 @@ export class UserStore {
     inviteCode?: string,
   ): Promise<{ user: User; isNew: boolean }> {
     // Check if user exists by googleId
-    const byGoogle = this.stmtGetUserByGoogleId.get(googleId) as
-      | UserRow
-      | undefined;
+    const byGoogle = this.users.findByGoogleId(googleId);
     if (byGoogle) {
-      this.stmtUpdateLastLogin.run(Date.now(), byGoogle.id);
+      const now = Date.now();
+      this.users.updateLastLogin(byGoogle.id, now);
       return {
-        user: rowToUser({ ...byGoogle, last_login_at: Date.now() }),
+        user: rowToUser({ ...byGoogle, last_login_at: now }),
         isNew: false,
       };
     }
 
     // Check if user exists by email (link Google account)
-    const byEmail = this.stmtGetUserByEmail.get(email.toLowerCase().trim()) as
-      | UserRow
-      | undefined;
+    const byEmail = this.users.findByEmail(email.toLowerCase().trim());
     if (byEmail) {
-      this.stmtLinkGoogle.run(googleId, byEmail.id);
-      this.stmtUpdateLastLogin.run(Date.now(), byEmail.id);
+      const now = Date.now();
+      this.users.linkGoogle(byEmail.id, googleId);
+      this.users.updateLastLogin(byEmail.id, now);
       return {
         user: rowToUser({
           ...byEmail,
           google_id: googleId,
-          last_login_at: Date.now(),
+          last_login_at: now,
         }),
         isNew: false,
       };
     }
 
     // New user — requires invite code (unless first user)
-    const isFirst = this.isFirstUser();
+    const isFirst = this.users.count() === 0;
     if (!isFirst && !inviteCode) {
       throw new Error("invite_code_required");
     }
@@ -448,26 +353,25 @@ export class UserStore {
     const id = randomBytes(16).toString("hex");
 
     // Transaction to prevent TOCTOU race on isFirstUser check
-    const insertUser = this.db.transaction(() => {
-      const isFirst = this.isFirstUser();
+    this.db.transaction(() => {
+      const isFirstInTx = this.users.count() === 0;
       // Re-check invite code inside transaction to prevent race condition
-      if (!isFirst && !inviteCode) {
+      if (!isFirstInTx && !inviteCode) {
         throw new Error("invite_code_required");
       }
-      this.stmtInsertUser.run({
-        "@id": id,
-        "@email": email.toLowerCase().trim(),
-        "@passwordHash": "", // No password for Google-only users
-        "@displayName": displayName.trim(),
-        "@role": isFirst ? "admin" : "user",
-        "@googleId": googleId,
-        "@inviteCode": inviteCode ?? "",
-        "@createdAt": now,
-        "@lastLoginAt": now,
-        "@isActive": 1,
+      this.users.insert({
+        id,
+        email: email.toLowerCase().trim(),
+        passwordHash: "", // No password for Google-only users
+        displayName: displayName.trim(),
+        role: isFirstInTx ? "admin" : "user",
+        googleId,
+        inviteCode: inviteCode ?? "",
+        createdAt: now,
+        lastLoginAt: now,
+        isActive: 1,
       });
-    });
-    insertUser();
+    })();
 
     return { user: this.getUserById(id)!, isNew: true };
   }
@@ -476,9 +380,7 @@ export class UserStore {
 
   /** Verify email + password. Returns user if valid, null otherwise. */
   async verifyLogin(email: string, password: string): Promise<User | null> {
-    const row = this.stmtGetUserByEmail.get(email.toLowerCase().trim()) as
-      | (UserRow & { failed_attempts: number; locked_until: number })
-      | undefined;
+    const row = this.users.findByEmail(email.toLowerCase().trim());
     if (!row) return null;
     if (!row.is_active) return null;
     if (!row.password_hash) return null; // Google-only user
@@ -489,57 +391,51 @@ export class UserStore {
 
     const valid = await verifyPassword(password, row.password_hash);
     if (!valid) {
-      this.stmtIncrFailedAttempts.run(row.id);
+      this.users.incrFailedAttempts(row.id);
       if ((row.failed_attempts ?? 0) + 1 >= MAX_FAILED_ATTEMPTS) {
-        this.stmtLockUser.run(now + LOCKOUT_DURATION_MS, row.id);
+        this.users.lockUser(row.id, now + LOCKOUT_DURATION_MS);
       }
       return null;
     }
 
     // Successful login — reset counters
-    this.stmtResetFailedAttempts.run(row.id);
-    this.stmtUpdateLastLogin.run(now, row.id);
+    this.users.resetFailedAttempts(row.id);
+    this.users.updateLastLogin(row.id, now);
     return rowToUser({ ...row, last_login_at: now });
   }
 
   // -- User queries ---------------------------------------------------------
 
   getUserById(id: string): User | undefined {
-    const row = this.stmtGetUserById.get(id) as UserRow | undefined;
+    const row = this.users.findById(id);
     return row ? rowToUser(row) : undefined;
   }
 
   getUserByEmail(email: string): User | undefined {
-    const row = this.stmtGetUserByEmail.get(email.toLowerCase().trim()) as
-      | UserRow
-      | undefined;
+    const row = this.users.findByEmail(email.toLowerCase().trim());
     return row ? rowToUser(row) : undefined;
   }
 
   listUsers(): readonly User[] {
-    return (this.stmtListUsers.all() as UserRow[]).map(rowToUser);
+    return this.users.list().map(rowToUser);
   }
 
   // -- User management (admin) ----------------------------------------------
 
   setActive(userId: string, active: boolean): boolean {
-    this.stmtSetActive.run(active ? 1 : 0, userId);
-    return this.lastChanges() > 0;
+    return this.users.setActive(userId, active);
   }
 
   setRole(userId: string, role: "admin" | "user"): boolean {
-    this.stmtSetRole.run(role, userId);
-    return this.lastChanges() > 0;
+    return this.users.setRole(userId, role);
   }
 
   setDisplayName(userId: string, displayName: string): boolean {
-    this.stmtSetDisplayName.run(displayName, userId);
-    return this.lastChanges() > 0;
+    return this.users.setDisplayName(userId, displayName);
   }
 
   setAvatarUrl(userId: string, avatarUrl: string | null): boolean {
-    this.stmtSetAvatarUrl.run(avatarUrl, userId);
-    return this.lastChanges() > 0;
+    return this.users.setAvatarUrl(userId, avatarUrl);
   }
 
   // -- Auth sessions --------------------------------------------------------
@@ -549,14 +445,15 @@ export class UserStore {
     const token = randomBytes(32).toString("hex"); // 64 hex chars
     const now = Date.now();
     const expiresAt = now + this.sessionMaxAgeMs;
+    const truncatedUa = userAgent.slice(0, 500);
 
-    this.stmtInsertSession.run({
-      "@token": token,
-      "@userId": userId,
-      "@createdAt": now,
-      "@expiresAt": expiresAt,
-      "@ip": ip,
-      "@userAgent": userAgent.slice(0, 500),
+    this.authSessions.insert({
+      token,
+      userId,
+      createdAt: now,
+      expiresAt,
+      ip,
+      userAgent: truncatedUa,
     });
 
     return { token, userId, createdAt: now, expiresAt, ip, userAgent };
@@ -566,17 +463,17 @@ export class UserStore {
   validateSession(token: string): { user: User; session: AuthSession } | null {
     if (!token) return null;
 
-    const row = this.stmtGetSession.get(token) as SessionRow | undefined;
+    const row = this.authSessions.findByToken(token);
     if (!row) return null;
     if (row.expires_at < Date.now()) {
-      this.stmtDeleteSession.run(token);
+      this.authSessions.delete(token);
       return null;
     }
 
     const session = rowToSession(row);
     const user = this.getUserById(session.userId);
     if (!user || !user.isActive) {
-      this.stmtDeleteSession.run(token);
+      this.authSessions.delete(token);
       return null;
     }
 
@@ -585,20 +482,17 @@ export class UserStore {
 
   /** Revoke a single session. */
   revokeSession(token: string): boolean {
-    this.stmtDeleteSession.run(token);
-    return this.lastChanges() > 0;
+    return this.authSessions.delete(token);
   }
 
   /** Revoke all sessions for a user. */
   revokeAllSessions(userId: string): number {
-    this.stmtDeleteUserSessions.run(userId);
-    return this.lastChanges();
+    return this.authSessions.deleteByUser(userId);
   }
 
   /** Remove expired sessions. */
   pruneExpiredSessions(): number {
-    this.stmtPruneSessions.run(Date.now());
-    return this.lastChanges();
+    return this.authSessions.pruneExpired(Date.now());
   }
 
   // -- Desktop auth: authorization codes ------------------------------------
@@ -615,12 +509,14 @@ export class UserStore {
   ): string {
     const code = randomBytes(32).toString("hex");
     const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO desktop_auth_codes (code, user_id, state, code_challenge, created_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(code, userId, state, codeChallenge, now, now + 5 * 60 * 1000);
+    this.desktopAuth.insertCode({
+      code,
+      userId,
+      state,
+      codeChallenge,
+      createdAt: now,
+      expiresAt: now + 5 * 60 * 1000,
+    });
     return code;
   }
 
@@ -634,21 +530,7 @@ export class UserStore {
     codeVerifier: string,
     deviceInfo: string,
   ): { token: string; user: User } | null {
-    const row = this.db
-      .prepare(
-        `SELECT * FROM desktop_auth_codes WHERE code = ?`,
-      )
-      .get(code) as
-      | {
-          code: string;
-          user_id: string;
-          state: string;
-          code_challenge: string;
-          created_at: number;
-          expires_at: number;
-          used_at: number;
-        }
-      | undefined;
+    const row = this.desktopAuth.findCode(code);
     if (!row) return null;
     if (row.used_at > 0) return null;
     if (row.expires_at < Date.now()) return null;
@@ -669,18 +551,17 @@ export class UserStore {
     // Consume the code (prevents replay) and issue token atomically
     const token = randomBytes(32).toString("hex");
     const now = Date.now();
-    const txn = this.db.transaction(() => {
-      this.db
-        .prepare(`UPDATE desktop_auth_codes SET used_at = ? WHERE code = ?`)
-        .run(now, code);
-      this.db
-        .prepare(
-          `INSERT INTO desktop_tokens (token, user_id, created_at, last_used_at, device_info)
-           VALUES (?, ?, ?, ?, ?)`,
-        )
-        .run(token, row.user_id, now, now, deviceInfo.slice(0, 500));
-    });
-    txn();
+    const truncatedDevice = deviceInfo.slice(0, 500);
+    this.db.transaction(() => {
+      this.desktopAuth.markCodeUsed(code, now);
+      this.desktopAuth.insertToken({
+        token,
+        userId: row.user_id,
+        createdAt: now,
+        lastUsedAt: now,
+        deviceInfo: truncatedDevice,
+      });
+    })();
 
     return { token, user };
   }
@@ -688,34 +569,24 @@ export class UserStore {
   /** Resolve a desktop bearer token to its user. Touches last_used_at. */
   validateDesktopToken(token: string): User | null {
     if (!token) return null;
-    const row = this.db
-      .prepare(`SELECT user_id FROM desktop_tokens WHERE token = ?`)
-      .get(token) as { user_id: string } | undefined;
-    if (!row) return null;
-    const user = this.getUserById(row.user_id);
+    const userId = this.desktopAuth.findTokenUserId(token);
+    if (!userId) return null;
+    const user = this.getUserById(userId);
     if (!user || !user.isActive) {
-      this.db.prepare(`DELETE FROM desktop_tokens WHERE token = ?`).run(token);
+      this.desktopAuth.deleteToken(token);
       return null;
     }
-    this.db
-      .prepare(`UPDATE desktop_tokens SET last_used_at = ? WHERE token = ?`)
-      .run(Date.now(), token);
+    this.desktopAuth.touchTokenLastUsed(token, Date.now());
     return user;
   }
 
   revokeDesktopToken(token: string): boolean {
-    this.db.prepare(`DELETE FROM desktop_tokens WHERE token = ?`).run(token);
-    return this.lastChanges() > 0;
+    return this.desktopAuth.deleteToken(token);
   }
 
   /** Best-effort cleanup for expired/used codes. Called periodically or on startup. */
   pruneExpiredDesktopCodes(): number {
-    this.db
-      .prepare(
-        `DELETE FROM desktop_auth_codes WHERE expires_at < ? OR used_at > 0`,
-      )
-      .run(Date.now());
-    return this.lastChanges();
+    return this.desktopAuth.pruneCodes(Date.now());
   }
 
   // -- Lifecycle ------------------------------------------------------------
