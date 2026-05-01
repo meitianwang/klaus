@@ -67,6 +67,18 @@ const I18N = {
     // Models
     models: 'Models', add_model: '+ Add Model', no_models: 'No models configured',
     set_default: 'Set Default', delete_model: 'Delete this model?',
+    // Agents settings — exposes the 3 CC engine feature gates
+    agents_settings: 'Agents',
+    agents_settings_title: 'Agent collaboration',
+    agents_settings_hint: 'These switches mirror the feature gates that already exist in the Claude Code engine. The main agent decides at runtime whether to actually use an authorised route. Calling sub-agents and parallel dispatch are baseline capabilities (no gate) and not shown here.',
+    agent_route_background_label: 'Background tasks',
+    agent_route_background_desc: 'Allow sub-agents to run asynchronously (run_in_background) and report back through the next message attachment.',
+    agent_route_swarm_label: 'Swarm / teammates',
+    agent_route_swarm_desc: 'Enable Team / SendMessage so multiple sub-agents can coordinate horizontally (CC isAgentSwarmsEnabled).',
+    agent_route_fork_label: 'Fork (clone main agent)',
+    agent_route_fork_desc: 'Allow the main agent to clone itself with full context inherited — set CLAUDE_CODE_FEATURES=FORK_SUBAGENT (CC feature gate).',
+    agent_route_needs_restart: 'Restart Klaus to apply',
+    agent_route_saved_restart: 'Saved · restart Klaus to apply',
     // Channels
     channels: 'Channels', ch_hint: 'Connect messaging platforms to Klaus.',
     ch_hint_desc: 'Connect messaging platforms so users can chat with Klaus directly from their IM apps.',
@@ -367,6 +379,22 @@ const I18N = {
     agent_count_one: ' agent', agent_count_many: ' agents',
     agent_tool_call_one: ' tool call', agent_tool_call_many: ' tool calls',
     agent_running_with_tools: 'running · ',
+    // Status pill text — TaskStatus enum (pending / running / completed /
+    // failed / killed / cancelled). Aligned with CC's pillLabel.
+    agent_status_pending: 'queued',
+    agent_status_running: 'running',
+    agent_status_completed: 'done',
+    agent_status_failed: 'failed',
+    agent_status_killed: 'killed',
+    agent_status_cancelled: 'cancelled',
+    agent_unread_badge: 'unread',
+    // Toggle button + sub-agent banner
+    agents_toggle_title: 'Show agents',
+    back_to_main_chat: 'Back',
+    subagent_view_loading: 'Loading…',
+    subagent_view_empty: 'No transcript recorded',
+    subagent_view_status_running: 'running',
+    subagent_view_status_done: 'finished',
     // Task panel (CC TaskListV2 mirror)
     tasks_panel_title: 'Tasks',
     tasks_count_pending: 'pending',
@@ -559,6 +587,18 @@ const I18N = {
     // Models
     models: '模型', add_model: '+ 添加模型', no_models: '暂无模型配置',
     set_default: '设为默认', delete_model: '删除此模型？',
+    // Agents 设置 — 暴露 CC 引擎本身的 3 个 feature gate
+    agents_settings: '智能体',
+    agents_settings_title: '智能体协作',
+    agents_settings_hint: '这些开关对应 Claude Code 引擎本身已有的 feature gate。开启代表"授权使用"，主智能体会根据当前任务自行决定是否真的使用。派活和同轮并行是基础能力（CC 中无 gate），因此不在这里出现。',
+    agent_route_background_label: '后台任务',
+    agent_route_background_desc: '允许子智能体后台异步运行（run_in_background），完成后通过下一轮消息附件汇报结果。',
+    agent_route_swarm_label: '群组协作（teammate）',
+    agent_route_swarm_desc: '启用 Team / SendMessage 工具，让多个子智能体在一个团队里横向沟通（对应 CC 的 isAgentSwarmsEnabled）。',
+    agent_route_fork_label: '克隆（fork 主智能体）',
+    agent_route_fork_desc: '允许主智能体克隆自己（继承完整对话上下文），等价于设置 CLAUDE_CODE_FEATURES=FORK_SUBAGENT（CC feature gate）。',
+    agent_route_needs_restart: '重启 Klaus 后生效',
+    agent_route_saved_restart: '已保存 · 重启 Klaus 后生效',
     // Channels
     channels: '频道', ch_hint: '连接即时通讯平台到 Klaus。',
     ch_hint_desc: '连接即时通讯平台，让用户可以直接在 IM 应用里与 Klaus 对话。',
@@ -859,6 +899,22 @@ const I18N = {
     agent_count_one: ' 个智能体', agent_count_many: ' 个智能体',
     agent_tool_call_one: ' 次工具调用', agent_tool_call_many: ' 次工具调用',
     agent_running_with_tools: '运行中 · ',
+    // Status pill text — TaskStatus enum (pending / running / completed /
+    // failed / killed / cancelled). Aligned with CC's pillLabel.
+    agent_status_pending: '排队中',
+    agent_status_running: '运行中',
+    agent_status_completed: '已完成',
+    agent_status_failed: '失败',
+    agent_status_killed: '已终止',
+    agent_status_cancelled: '已取消',
+    agent_unread_badge: '未读',
+    // Toggle button + sub-agent banner
+    agents_toggle_title: '查看智能体',
+    back_to_main_chat: '返回',
+    subagent_view_loading: '加载中…',
+    subagent_view_empty: '尚无对话记录',
+    subagent_view_status_running: '运行中',
+    subagent_view_status_done: '已完成',
     // Task panel (对齐 CC TaskListV2)
     tasks_panel_title: '任务',
     tasks_count_pending: '待办',

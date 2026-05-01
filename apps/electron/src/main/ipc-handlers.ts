@@ -117,6 +117,49 @@ export function registerIpcHandlers(
     }
   })
 
+  // --- Agent / teammate task snapshot (CC BackgroundTasksDialog data feed) ---
+  // Renderer calls this on session switch / cold start so the panel hydrates
+  // immediately. Live updates ride the `tasks_changed` engine event.
+  ipcMain.handle('agents:snapshot', async (_e, { sessionId }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { tasks: {} }
+    try {
+      return { tasks: engine.getAgentTasksSnapshot(sessionId) }
+    } catch (err) {
+      console.warn('[agents:snapshot] failed:', err)
+      return { tasks: {} }
+    }
+  })
+
+  // Sub-agent transcript loader. Renderer switches the main chat surface to
+  // a sub-agent's internal conversation when the user clicks an agent row
+  // (CC's enterTeammateView). agentId is LocalAgentTaskState.agentId, sourced
+  // from the panel snapshot — the engine stores sub-agent JSONL under
+  // <projectDir>/<sessionId>/subagents/agent-<agentId>.jsonl.
+  ipcMain.handle('agents:history', async (_e, { sessionId, agentId }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { messages: [] }
+    if (typeof agentId !== 'string' || !agentId) return { messages: [] }
+    try {
+      return { messages: await engine.getSubAgentHistory(sessionId, agentId) }
+    } catch (err) {
+      console.warn('[agents:history] failed:', err)
+      return { messages: [] }
+    }
+  })
+
+  // Agent feature toggles (5 routes — dispatch / parallel / background / swarm / fork).
+  // Settings 页改了 KV 后调一次，把新值同步到 process.env，让引擎下一次 chat()
+  // 立刻读到。background route 受 isBackgroundTasksDisabled 模块级常量约束，
+  // 改了之后该路由要等 Klaus 重启才真生效（其他 4 个路由动态生效）。
+  ipcMain.handle('agents:apply-features', async () => {
+    try {
+      engine.applyAgentFeatures()
+      return { ok: true }
+    } catch (err) {
+      console.warn('[agents:apply-features] failed:', err)
+      return { ok: false, error: String(err) }
+    }
+  })
+
   // --- Artifacts (files agent wrote during a session) ---
   ipcMain.handle('artifacts:list', async (_e, { sessionId }) => {
     const records = store.listArtifacts(sessionId)

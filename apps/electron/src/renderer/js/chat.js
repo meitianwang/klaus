@@ -84,7 +84,37 @@ function setReasoningExpanded(open) {
 
 let slashSkillsCache = null
 let slashActiveIdx = -1
-let agentPanel = { team: null, agents: new Map() }
+// Agent / teammate panel data feed. Mirrors CC's BackgroundTasksDialog:
+// the engine's session.appState.tasks Record is the single source of truth,
+// and the renderer maintains a per-session cache fed by the `tasks_changed`
+// event (full snapshot) plus a one-shot `agents.snapshot` IPC pull on session
+// switch. The panel is a pure projection of tasksBySession[currentSessionId]
+// — incremental events (teammate_spawned/agent_progress/agent_done) are
+// advisory and no longer mutate UI state directly, so a missed event can't
+// leave the panel stuck (the next snapshot overwrites everything).
+let tasksBySession = new Map()  // sessionId → Record<taskId, AgentTaskSnapshot>
+let currentTeam = null  // { name } when team_created has fired
+// 1Hz tick that re-runs renderAgentPanel — drives the CC-style evictAfter
+// fadeout client-side. Without this, a terminal agent whose evictAfter is in
+// the future at render time stays visible forever (no event re-fires until
+// the next setAppState, which doesn't happen out-of-turn).
+let agentEvictionTimer = null
+function ensureAgentEvictionTimer() {
+  if (agentEvictionTimer) return
+  agentEvictionTimer = setInterval(() => {
+    // No-op when no terminal-with-evictAfter task is in the current session.
+    const tasks = tasksBySession.get(currentSessionId)
+    if (!tasks) return
+    const now = Date.now()
+    let dueSoon = false
+    for (const id of Object.keys(tasks)) {
+      const t = tasks[id]
+      if (!t) continue
+      if (typeof t.evictAfter === 'number' && t.evictAfter <= now + 1500) { dueSoon = true; break }
+    }
+    if (dueSoon) renderAgentPanel()
+  }, 1000)
+}
 
 // Task list state (mirrors CC's TasksV2Store). Per-session cache keyed by
 // sessionId; currentSessionId's entry drives rendering inside the right
@@ -707,6 +737,9 @@ async function switchSession(id) {
     }
   }
 
+  // Always drop out of sub-agent view when switching sessions — viewing a
+  // teammate from a different session would mismatch the panel snapshot.
+  if (viewingAgentTaskId) exitTeammateView()
   currentSessionId = id
   // Entering a cron-run session clears its "unread" mark — the next
   // renderSessionList reflects that (dot removed from the run row, and
@@ -722,6 +755,11 @@ async function switchSession(id) {
   // a few ms but rendering from cache first avoids a flash of empty section.
   renderTaskPanel()
   refreshTasksForSession(id)
+  // Same cache-first pattern for the agent panel: paint the session's last
+  // known snapshot, then re-pull from main-process appState. Subsequent live
+  // updates ride the `tasks_changed` engine event.
+  renderAgentPanel()
+  refreshAgentsForSession(id)
   // Context section: render cached snapshot immediately, then trigger a
   // throttled re-fetch. Same cache-first pattern as tasks.
   renderContextPanel()
@@ -853,7 +891,10 @@ async function deleteSession(id) {
 function resetStreamState() {
   streamBuffer = ''; currentMsgGroup = null
   thinkingUI.reset() // 丢弃上一轮未完成的 indicator（含 DOM）
-  agentPanel = { team: null, agents: new Map() }
+  // Don't clear tasksBySession — it's keyed per session, leaving other
+  // sessions' agents intact. Just hide the panel here; renderAgentPanel
+  // will turn it back on if the new session has agents.
+  currentTeam = null
   if (agentPanelEl) agentPanelEl.style.display = 'none'
 }
 
@@ -1916,36 +1957,150 @@ function appendFileCard(name, url) {
 
 // ==================== Agent panel ====================
 
-function renderAgentPanel() {
-  if (!agentPanelEl) return
+// Pure projection from tasksBySession[currentSessionId]. Re-renders against
+// the latest snapshot every time something nudges the panel (new tasks_changed
+// event, session switch, team_created flip). Mirrors CC's
+// BackgroundTasksDialog rendering: name uses task.description (LocalAgent) /
+// task.agentName (InProcessTeammate), not a non-existent task.name field.
+// CC's TaskStatus → status pill text. Mirrors pillLabel.ts (running stays
+// inline because we already render "running · N tool calls" instead of a
+// bare "running" word).
+function agentStatusText(task) {
+  switch (task.status) {
+    case 'pending': return tt('agent_status_pending')
+    case 'completed': return tt('agent_status_completed')
+    case 'failed': return tt('agent_status_failed')
+    case 'killed': return tt('agent_status_killed')
+    case 'cancelled': return tt('agent_status_cancelled')
+    default: return task.status
+  }
+}
+
+function isAgentTaskTerminal(task) {
+  return task.status === 'completed' || task.status === 'failed' || task.status === 'killed' || task.status === 'cancelled'
+}
+
+// CC eviction rule (framework.ts:138): a terminal task disappears once
+// notified===true and (no retain OR evictAfter has passed). The renderer
+// applies the same rule client-side so the panel collapses 30s after the
+// agent finished even if the next setAppState (which triggers main-side
+// GC) hasn't fired yet — e.g. user hasn't typed the next message.
+function isAgentTaskEvicted(task, now) {
+  if (!isAgentTaskTerminal(task)) return false
+  if (task.retain) return false
+  if (typeof task.evictAfter === 'number' && task.evictAfter <= now) return true
+  return false
+}
+
+// Compute the visible (non-evicted) tasks for the current session.
+function visibleAgentTasks() {
+  const allTasks = tasksBySession.get(currentSessionId) || {}
+  const now = Date.now()
+  const out = []
+  for (const id of Object.keys(allTasks)) {
+    const t = allTasks[id]
+    if (!t) continue
+    if (isAgentTaskEvicted(t, now)) continue
+    out.push([id, t])
+  }
+  return out
+}
+
+// Surfaces the agent toggle button + its running-count badge. Hides the
+// button entirely when there are no agents — same gating CC's pillLabel
+// uses to avoid an empty BackgroundTasksIndicator.
+function updateAgentToggle() {
+  const toggle = document.getElementById('agent-toggle')
+  const badge = document.getElementById('agent-toggle-badge')
+  if (!toggle) return
+  const visible = visibleAgentTasks()
+  if (!currentTeam && visible.length === 0) {
+    toggle.hidden = true
+    setAgentPanelOpen(false)
+    return
+  }
+  toggle.hidden = false
   let runningCount = 0
-  agentPanel.agents.forEach(a => { if (a.status === 'running') runningCount++ })
-  if (!agentPanel.team && agentPanel.agents.size === 0) { agentPanelEl.style.display = 'none'; return }
-  agentPanelEl.style.display = ''
+  for (const [, t] of visible) {
+    if (t.status === 'running' || t.status === 'pending') runningCount++
+  }
+  if (badge) {
+    if (runningCount > 0) {
+      badge.hidden = false
+      badge.textContent = String(runningCount)
+    } else {
+      badge.hidden = true
+    }
+  }
+}
+
+function renderAgentPanel() {
+  updateAgentToggle()
+  if (!agentPanelEl) return
+  // Dialog only re-renders its inner content when open. Closed dialog: the
+  // toggle button (+ badge) is the only surface that needs updating.
+  if (!isAgentPanelOpen()) return
+  const visible = visibleAgentTasks()
   const title = agentPanelEl.querySelector('#agent-panel-title')
   const count = agentPanelEl.querySelector('#agent-panel-count')
   const body = agentPanelEl.querySelector('#agent-panel-body')
-  if (title) title.textContent = agentPanel.team ? agentPanel.team.name : tt('agents')
+  if (title) title.textContent = currentTeam ? currentTeam.name : tt('agents')
+  let runningCount = 0
+  for (const [, t] of visible) {
+    if (t.status === 'running' || t.status === 'pending') runningCount++
+  }
   if (count) {
     if (runningCount > 0) {
       count.textContent = runningCount + ' ' + tt('agent_running')
     } else {
-      const size = agentPanel.agents.size
+      const size = visible.length
       count.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
     }
   }
   if (!body) return
   body.innerHTML = ''
-  agentPanel.agents.forEach((agent, id) => {
+  for (const [id, task] of visible) {
     const row = document.createElement('div')
-    row.className = 'agent-row'
-    const color = AGENT_COLOR_MAP[agent.color] || AGENT_COLOR_MAP.blue
-    const statusText = agent.status === 'running'
-      ? tt('agent_running_with_tools') + agent.toolUseCount + (agent.toolUseCount === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many'))
-      : agent.status
-    row.innerHTML = `<span class="agent-dot${agent.status === 'running' ? ' running' : ''}" style="background:${color};border-color:${color}"></span><span class="agent-name">${escapeHtml(agent.name)}</span><span class="agent-status">${escapeHtml(statusText)}</span>`
+    row.className = 'agent-row status-' + task.status
+    row.setAttribute('data-task-id', id)
+    const color = AGENT_COLOR_MAP[task.color] || AGENT_COLOR_MAP.blue
+    // CC uses description for LocalAgent, identity.agentName for InProcessTeammate.
+    // Snapshot maps both into description / agentName fields. Final fallback to id.
+    const displayName = task.description || task.agentName || id
+    const isRunning = task.status === 'running'
+    let statusText
+    if (isRunning) {
+      const tc = task.toolUseCount ?? 0
+      statusText = tt('agent_running_with_tools') + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many'))
+    } else {
+      statusText = agentStatusText(task)
+    }
+    const unreadHtml = (task.status === 'completed' && !task.notified)
+      ? `<span class="agent-unread">${escapeHtml(tt('agent_unread_badge'))}</span>`
+      : ''
+    row.innerHTML = `<span class="agent-dot${isRunning ? ' running' : ''}" style="background:${color};border-color:${color}"></span><span class="agent-name">${escapeHtml(displayName)}</span><span class="agent-status">${escapeHtml(statusText)}</span>${unreadHtml}`
     body.appendChild(row)
-  })
+  }
+}
+
+/**
+ * One-shot pull of session.appState.tasks snapshot from the main process.
+ * Called on switchSession to seed the panel before any event arrives — the
+ * subsequent `tasks_changed` events keep it in sync. Mirrors taskPanel's
+ * refreshTasksForSession pattern.
+ */
+async function refreshAgentsForSession(sessionId) {
+  if (!sessionId) return
+  try {
+    const res = await klausApi.agents.snapshot(sessionId)
+    const tasks = (res && res.tasks && typeof res.tasks === 'object') ? res.tasks : {}
+    tasksBySession.set(sessionId, tasks)
+  } catch (err) {
+    console.warn('[agents] snapshot failed:', err)
+    tasksBySession.set(sessionId, {})
+  }
+  ensureAgentEvictionTimer()
+  if (sessionId === currentSessionId) renderAgentPanel()
 }
 
 // ==================== Task list (Monitor panel ▸ Tasks section) ====================
@@ -3044,11 +3199,23 @@ klausApi.on.chatEvent((event) => {
     case 'api_error': appendError(event.error); break
     case 'api_retry': appendError(`${tt('retrying_prefix')}${event.attempt}/${event.maxRetries})...`); break
     case 'auth_required': appendAuthRequired(event.reason, event.mode); break
-    // Agent events
-    case 'team_created': agentPanel.team = { name: event.teamName }; renderAgentPanel(); break
-    case 'teammate_spawned': agentPanel.agents.set(event.agentId, { name: event.name, color: event.color || 'blue', status: 'idle', toolUseCount: 0 }); renderAgentPanel(); break
-    case 'agent_progress': { const ag = agentPanel.agents.get(event.agentId); if (ag) { ag.status = 'running'; ag.toolUseCount = event.toolUseCount }; renderAgentPanel(); break }
-    case 'agent_done': { const ag2 = agentPanel.agents.get(event.agentId); if (ag2) ag2.status = event.status || 'completed'; renderAgentPanel(); setTimeout(() => { agentPanel.agents.delete(event.agentId); renderAgentPanel() }, 5000); break }
+    // Agent / teammate panel events. tasks_changed is authoritative — it
+    // carries the full sanitized appState.tasks snapshot. The legacy
+    // incremental events (teammate_spawned/agent_progress/agent_done) are
+    // still pushed by the engine for any consumer outside this renderer,
+    // but the panel ignores them to avoid double-bookkeeping.
+    case 'team_created': currentTeam = { name: event.teamName }; renderAgentPanel(); break
+    case 'tasks_changed': {
+      tasksBySession.set(event.sessionId, event.tasks || {})
+      ensureAgentEvictionTimer()
+      if (event.sessionId === currentSessionId) renderAgentPanel()
+      break
+    }
+    case 'teammate_spawned':
+    case 'agent_progress':
+    case 'agent_done':
+      // Advisory only — no-op for the panel (tasks_changed drives the UI).
+      break
     // File
     case 'file': if (event.name && event.url) appendFileCard(event.name, event.url); break
     // MCP OAuth
@@ -3453,9 +3620,181 @@ document.querySelectorAll('.settings-nav-item').forEach(btn => {
   })
 })
 
-// Agent panel toggle
-document.getElementById('agent-panel-header')?.addEventListener('click', () => agentPanelEl?.classList.toggle('collapsed'))
-document.getElementById('agent-panel-close')?.addEventListener('click', (e) => { e.stopPropagation(); if (agentPanelEl) agentPanelEl.style.display = 'none' })
+// Agent dialog (CC BackgroundTasksDialog mirror). The toggle button in the
+// input row opens/closes the popup; click-outside also closes it. Close
+// button is a per-card teardown (hides + remembers explicit dismiss until
+// next tasks_changed). enterTeammateView is wired via event delegation on
+// the panel body so newly-rendered rows pick it up automatically.
+function setAgentPanelOpen(open) {
+  if (!agentPanelEl) return
+  if (open) {
+    // Only meaningful when the current session has agents to show. If
+    // there's nothing to display the toggle button is hidden anyway, but
+    // double-guard keeps stray keyboard shortcuts from opening an empty
+    // popup.
+    const tasks = tasksBySession.get(currentSessionId) || {}
+    if (Object.keys(tasks).length === 0 && !currentTeam) return
+    agentPanelEl.style.display = ''
+    agentPanelEl.dataset.open = '1'
+  } else {
+    agentPanelEl.style.display = 'none'
+    delete agentPanelEl.dataset.open
+  }
+}
+function isAgentPanelOpen() {
+  return !!(agentPanelEl && agentPanelEl.dataset.open === '1')
+}
+document.getElementById('agent-toggle')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  setAgentPanelOpen(!isAgentPanelOpen())
+})
+document.getElementById('agent-panel-close')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  setAgentPanelOpen(false)
+})
+// Click-outside: anywhere outside the panel and toggle button closes it.
+document.addEventListener('click', (e) => {
+  if (!isAgentPanelOpen()) return
+  const t = e.target
+  if (!(t instanceof Node)) return
+  if (agentPanelEl?.contains(t)) return
+  if (document.getElementById('agent-toggle')?.contains(t)) return
+  setAgentPanelOpen(false)
+})
+// Agent row click → enterTeammateView. Body delegation since rows are
+// re-rendered on every tasks_changed.
+document.getElementById('agent-panel-body')?.addEventListener('click', (e) => {
+  const t = e.target
+  if (!(t instanceof Element)) return
+  const row = t.closest('.agent-row')
+  if (!row) return
+  const taskId = row.getAttribute('data-task-id')
+  if (!taskId) return
+  enterTeammateView(taskId)
+  setAgentPanelOpen(false)
+})
+document.getElementById('subagent-back')?.addEventListener('click', () => {
+  exitTeammateView()
+})
+
+// ==================== Sub-agent (teammate) transcript view ====================
+//
+// CC's enterTeammateView equivalent: swap the visible transcript surface from
+// the main chat (#messages, still wired to the live engine stream) to a
+// dedicated read-only #subagent-messages container that shows the chosen
+// sub-agent's recorded JSONL. The main #messages keeps receiving streaming
+// updates in the background — exiting the view brings the user back to the
+// up-to-date main transcript without any data loss.
+let viewingAgentTaskId = null
+
+function setSubAgentViewVisible(on, task) {
+  const banner = document.getElementById('subagent-banner')
+  const subEl = document.getElementById('subagent-messages')
+  if (on) {
+    if (banner) {
+      banner.hidden = false
+      const titleEl = document.getElementById('subagent-banner-title')
+      const statusEl = document.getElementById('subagent-banner-status')
+      const backLabel = document.getElementById('subagent-back-label')
+      if (titleEl) titleEl.textContent = (task?.description || task?.agentName || task?.id || '').toString()
+      if (statusEl) {
+        if (!task) statusEl.textContent = ''
+        else if (task.status === 'running') statusEl.textContent = tt('subagent_view_status_running')
+        else if (task.status === 'completed') statusEl.textContent = tt('subagent_view_status_done')
+        else statusEl.textContent = agentStatusText(task)
+      }
+      if (backLabel) backLabel.textContent = tt('back_to_main_chat')
+    }
+    if (subEl) {
+      subEl.hidden = false
+      subEl.style.display = ''
+    }
+    // Hide main messages (its scroll position is preserved on its own).
+    messagesEl.style.display = 'none'
+    // Welcome (empty-state) must not coexist with the sub-agent surface.
+    if (welcomeEl) welcomeEl.style.display = 'none'
+  } else {
+    if (banner) banner.hidden = true
+    if (subEl) {
+      subEl.innerHTML = ''
+      subEl.hidden = true
+    }
+    // Restore main visibility based on whether it has content.
+    const hasContent = messagesEl.childNodes.length > 0
+    messagesEl.style.display = hasContent ? 'block' : 'none'
+    if (welcomeEl) welcomeEl.style.display = hasContent ? 'none' : 'flex'
+  }
+}
+
+// Render an array of ChatMessage into a target container. Reuses the same
+// renderHistoryMessage pipeline (so thinking folds / tool cards look
+// identical to the main view), but transplants the resulting DOM nodes
+// out of #messages into the target afterwards. We deliberately avoid
+// mutating the live #messages buffer mid-stream.
+function renderHistoryInto(targetEl, msgs) {
+  // Snapshot whatever is in #messages right now so live nodes survive.
+  const savedFrag = document.createDocumentFragment()
+  while (messagesEl.firstChild) savedFrag.appendChild(messagesEl.firstChild)
+  try {
+    for (const m of msgs) renderHistoryMessage(m)
+    // Transplant freshly-rendered nodes into the target.
+    while (messagesEl.firstChild) targetEl.appendChild(messagesEl.firstChild)
+  } finally {
+    // Restore the live transcript no matter what.
+    while (savedFrag.firstChild) messagesEl.appendChild(savedFrag.firstChild)
+  }
+}
+
+async function enterTeammateView(taskId) {
+  const tasks = tasksBySession.get(currentSessionId) || {}
+  const task = tasks[taskId]
+  if (!task) return
+  // Snapshot's agentId is the LocalAgentTaskState.agentId field (NOT the
+  // task.id with 'a' prefix). Without it the engine can't resolve the
+  // sub-agent JSONL path, so just bail.
+  if (!task.agentId) {
+    console.warn('[enterTeammateView] task missing agentId:', taskId)
+    return
+  }
+  viewingAgentTaskId = taskId
+  setSubAgentViewVisible(true, task)
+
+  const subEl = document.getElementById('subagent-messages')
+  if (!subEl) return
+  subEl.innerHTML = ''
+  const loading = document.createElement('div')
+  loading.className = 'subagent-loading'
+  loading.textContent = tt('subagent_view_loading')
+  subEl.appendChild(loading)
+
+  let res
+  try {
+    res = await klausApi.agents.history(currentSessionId, task.agentId)
+  } catch (err) {
+    console.warn('[agents:history] failed:', err)
+    res = { messages: [] }
+  }
+  // User exited / switched sessions / opened a different agent while the
+  // history was loading — abort the in-flight render to avoid clobbering.
+  if (viewingAgentTaskId !== taskId) return
+  subEl.innerHTML = ''
+  const msgs = (res && Array.isArray(res.messages)) ? res.messages : []
+  if (msgs.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'subagent-empty'
+    empty.textContent = tt('subagent_view_empty')
+    subEl.appendChild(empty)
+    return
+  }
+  renderHistoryInto(subEl, msgs)
+  subEl.scrollTop = subEl.scrollHeight
+}
+
+function exitTeammateView() {
+  if (!viewingAgentTaskId) return
+  viewingAgentTaskId = null
+  setSubAgentViewVisible(false, null)
+}
 
 // File attach
 btnAttach.addEventListener('click', () => fileInput.click())
