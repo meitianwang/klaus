@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "lsof -ti:3000 -ti:3456 | xargs kill -9 2>/dev/null; bun --preload ./src/engine/shims/register-bun-bundle.ts src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src/db/repos/"
   },
   "private": true,
   "dependencies": {
