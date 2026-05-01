@@ -534,6 +534,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 
 /* Sub-agent transcript surface — mirrors #messages layout so .msg-group /
    tool-card styles render identically. Activated by enterTeammateView. */
+#subagent-messages[hidden] { display: none !important; }
 #subagent-messages {
   flex: 1;
   overflow-y: auto;
@@ -3394,6 +3395,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 
 /* Sub-agent transcript banner — appears above #messages when the main
    chat surface has been swapped to a sub-agent's internal conversation. */
+.subagent-banner[hidden] { display: none !important; }
 .subagent-banner {
   display: flex;
   align-items: center;

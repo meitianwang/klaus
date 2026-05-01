@@ -86,7 +86,7 @@ kill_by_pattern() {
   local pids
   pids=$(pgrep -f "$pattern" 2>/dev/null || true)
   [[ -z "$pids" ]] && return 0
-  warn "清理 $label：$(echo "$pids" | tr '\n' ' ')"
+  warn "清理 ${label}：$(echo "$pids" | tr '\n' ' ')"
   while IFS= read -r pid; do
     [[ -z "$pid" ]] && continue
     kill -TERM "$pid" 2>/dev/null || true

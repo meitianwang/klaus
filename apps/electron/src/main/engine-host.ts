@@ -602,6 +602,9 @@ export class EngineHost {
     else set.delete('FORK_SUBAGENT')
     if (set.size > 0) process.env.CLAUDE_CODE_FEATURES = Array.from(set).join(',')
     else delete process.env.CLAUDE_CODE_FEATURES
+
+    console.log('[AgentFeatures] background=%s swarm=%s fork=%s FEATURES=%s',
+      background, swarm, fork, process.env.CLAUDE_CODE_FEATURES ?? '(none)')
   }
 
   // --- MCP ---
