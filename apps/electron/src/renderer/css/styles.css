@@ -3354,13 +3354,31 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 #agent-panel-close:hover { color: var(--fg); }
 #agent-panel-body { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; overflow-y: auto; }
 
-/* Agent toggle button — sits in the input row next to compact-btn. The
-   badge floats over its top-right corner with the running agent count. */
-.agent-toggle { position: relative; }
+/* Agent toggle button — sits in the input row next to compact-btn.
+   Same circular treatment as #attach / #compact-btn for visual consistency.
+   Badge floats over the top-right corner with running agent count. */
+#agent-toggle {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+#agent-toggle:hover { color: var(--fg); background: var(--bg-hover); }
+#agent-toggle svg { width: 16px; height: 16px; }
+#agent-toggle[hidden] { display: none; }
 .agent-toggle-badge {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: 2px;
+  right: 2px;
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
