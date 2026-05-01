@@ -166,20 +166,20 @@
            Visible only while #subagent-banner is shown. -->
       <div id="subagent-messages" hidden></div>
 
-      <!-- Agent dialog (CC BackgroundTasksDialog mirror). Default hidden;
-           toggled by #agent-toggle in the input row. Floats above the input
-           wrapper so it doesn't push the message area around. -->
-      <div id="agent-panel" class="agent-panel-popup" style="display:none">
-        <div id="agent-panel-header">
-          <span id="agent-panel-title"></span>
-          <span id="agent-panel-count"></span>
-          <button id="agent-panel-close" data-i18n-title="close_btn" title="Close">&times;</button>
-        </div>
-        <div id="agent-panel-body"></div>
-      </div>
-
       <!-- Input -->
       <div id="input-wrapper">
+        <!-- Agent dialog (CC BackgroundTasksDialog mirror). Default hidden;
+             toggled by #agent-toggle in the input row below. Lives INSIDE
+             #input-wrapper so its position:absolute / bottom:100% anchors
+             correctly to the input area. -->
+        <div id="agent-panel" class="agent-panel-popup" style="display:none">
+          <div id="agent-panel-header">
+            <span id="agent-panel-title"></span>
+            <span id="agent-panel-count"></span>
+            <button id="agent-panel-close" data-i18n-title="close_btn" title="Close">&times;</button>
+          </div>
+          <div id="agent-panel-body"></div>
+        </div>
         <div id="slash-menu" class="slash-menu hidden"></div>
         <div id="input-area">
           <div id="previews"></div>
