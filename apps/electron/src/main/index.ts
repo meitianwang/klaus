@@ -1,6 +1,12 @@
+// MUST be first — sets process.env (CLAUDE_CONFIG_DIR / CLAUDE_CODE_FEATURES /
+// CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) + global MACRO before the engine module
+// chain evaluates. ESM is depth-first, so deferring these to top-level code
+// would land them AFTER engine modules have already cached gate decisions
+// (e.g. stopHooks.ts:43 lazy-requires extractMemories based on feature()).
+import './env-bootstrap.js'
+
 import { app, nativeImage } from 'electron'
 import { join } from 'path'
-import { homedir } from 'os'
 import { SettingsStore } from './settings-store.js'
 import { EngineHost } from './engine-host.js'
 import { SkillsManager } from './skills-manager.js'
@@ -21,26 +27,7 @@ if (!gotLock) {
   app.on('second-instance', () => showMainWindow())
 }
 
-// Ensure we run as Electron app, not Node.js (Claude Code sets ELECTRON_RUN_AS_NODE=1)
-delete process.env.ELECTRON_RUN_AS_NODE
-
-// 把 CC 引擎的 home 重定向到 ~/.klaus — skills / MCP / settings / permissions / user memory 全局共享到这里
-// 必须在任何 engine 模块加载前设置，getClaudeConfigHomeDir() 会读这个 env
-process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.klaus')
-process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
-
-// CC 引擎的 MACRO 全局 — bundle 里只有 `MACRO.VERSION` 之类的运行时引用，没有编译期替换
-// Web 端通过 src/engine/shims/register-bun-bundle.ts 设置，Electron 端没走那条路，这里显式设
-;(globalThis as any).MACRO = {
-  VERSION: '2.1.88',
-  BUILD_TIME: new Date().toISOString(),
-  PACKAGE_URL: '@anthropic-ai/claude-code',
-  NATIVE_PACKAGE_URL: '',
-  FEEDBACK_CHANNEL: 'https://github.com/anthropics/claude-code/issues',
-  ISSUES_EXPLAINER: 'report the issue at https://github.com/anthropics/claude-code/issues',
-  VERSION_CHANGELOG: '',
-  IS_CI: false,
-}
+// env / MACRO 设置全部在 ./env-bootstrap.js 完成（必须先于 engine 模块链 evaluate）
 
 // Prevent EPIPE crashes when stdout/stderr pipe breaks
 process.stdout?.on?.('error', () => {})
@@ -53,23 +40,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err: any) => {
   console.error('[Klaus] Unhandled rejection (non-fatal):', err?.message || err)
 })
-
-// --- Feature flags (same as Web端) ---
-if (!process.env.CLAUDE_CODE_FEATURES) {
-  process.env.CLAUDE_CODE_FEATURES = [
-    'EXTRACT_MEMORIES',
-    'CONTEXT_COLLAPSE',
-    'BUILTIN_EXPLORE_PLAN_AGENTS',
-    'TRANSCRIPT_CLASSIFIER',
-    'BASH_CLASSIFIER',
-  ].join(',')
-} else {
-  const existing = new Set(process.env.CLAUDE_CODE_FEATURES.split(','))
-  for (const f of ['EXTRACT_MEMORIES', 'CONTEXT_COLLAPSE', 'BUILTIN_EXPLORE_PLAN_AGENTS', 'TRANSCRIPT_CLASSIFIER', 'BASH_CLASSIFIER']) {
-    existing.add(f)
-  }
-  process.env.CLAUDE_CODE_FEATURES = [...existing].filter(Boolean).join(',')
-}
 
 // --- App lifecycle ---
 

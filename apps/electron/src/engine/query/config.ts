@@ -30,9 +30,10 @@ export function buildQueryConfig(): QueryConfig {
   return {
     sessionId: getSessionId(),
     gates: {
-      streamingToolExecution: checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
-        'tengu_streaming_tool_execution2',
-      ),
+      // Klaus always enables streaming tool execution — matches CC's behavior
+      // where tools start as their tool_use blocks arrive during streaming,
+      // enabling true parallel agent execution without waiting for full response.
+      streamingToolExecution: true,
       emitToolUseSummaries: isEnvTruthy(
         process.env.CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES,
       ),

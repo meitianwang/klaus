@@ -177,6 +177,13 @@ export type EngineEvent =
   | { type: 'teammate_spawned'; sessionId: string; agentId: string; name?: string; color?: string }
   | { type: 'agent_progress'; sessionId: string; agentId: string; toolUseCount: number }
   | { type: 'agent_done'; sessionId: string; agentId: string; status: string }
+  // Authoritative snapshot of session.appState.tasks. Renderer uses this as
+  // the single source of truth for the agent panel. Replaces the event-driven
+  // pattern (teammate_spawned/agent_progress/agent_done) where missed events
+  // could leave the panel stuck in stale state. Pushed whenever the tasks
+  // Record actually changes (sanitized, only serializable fields), and once
+  // on session emitter registration so the panel hydrates immediately.
+  | { type: 'tasks_changed'; sessionId: string; tasks: Record<string, AgentTaskSnapshot> }
   | { type: 'interrupted'; sessionId: string }
   | { type: 'requesting'; sessionId: string }
   | { type: 'compaction_end'; sessionId: string }
@@ -217,6 +224,43 @@ export interface TaskItem {
   blockedBy: string[]
   /** Internal tasks (created by orchestrator helpers) are filtered out. */
   internal?: boolean
+}
+
+/**
+ * Sanitized, serializable view of a session's appState.tasks[id] entry.
+ * Mirrors CC's BackgroundTask data feed: the renderer uses this snapshot as
+ * its single source of truth for the agent / teammate panel, so missed
+ * incremental events (teammate_spawned / agent_progress / agent_done) can
+ * never leave the UI stuck. Field set is the union of LocalAgentTaskState
+ * and InProcessTeammateTaskState public bits — non-serializable members
+ * (abortController, callbacks, full Message[] history) are intentionally
+ * omitted; the messages list goes through getHistory's sub-agent projection
+ * (阶段 D) when the user opens the teammate transcript view.
+ */
+export interface AgentTaskSnapshot {
+  id: string
+  /** TaskType (local_agent / in_process_teammate / local_bash / …) */
+  type: string
+  /** TaskStatus (pending / running / completed / failed / killed / cancelled) */
+  status: string
+  description: string
+  startTime: number
+  endTime?: number
+  notified: boolean
+  // CC lifecycle fields — see Task.ts / LocalAgentTask.ts
+  evictAfter?: number
+  retain?: boolean
+  // local_agent-specific
+  agentType?: string
+  agentId?: string
+  isBackgrounded?: boolean
+  toolUseCount?: number
+  error?: string
+  resultText?: string
+  // in_process_teammate-specific (identity is the team-scoped name)
+  agentName?: string
+  teamName?: string
+  color?: string
 }
 
 export type ArtifactOp = 'write' | 'edit' | 'notebook_edit'

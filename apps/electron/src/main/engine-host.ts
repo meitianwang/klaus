@@ -5,7 +5,8 @@ import { mkdirSync, unlinkSync, existsSync, rmSync, readFileSync, writeFileSync 
 import type { BrowserWindow } from 'electron'
 import type { SettingsStore } from './settings-store.js'
 import { SessionKeyRegistry } from './session-registry.js'
-import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage, ArtifactOp, ContextStats, CompactSessionResult } from '../shared/types.js'
+import type { EngineEvent, PermissionRequest, PermissionResponse, SessionInfo, ChatMessage, ArtifactOp, ContextStats, CompactSessionResult, AgentTaskSnapshot } from '../shared/types.js'
+import { isTerminalTaskStatus } from '../engine/Task.js'
 
 // Engine imports — from the copied engine source
 import {
@@ -61,6 +62,7 @@ import {
   clearSessionMetadata,
   removeTranscriptMessage,
   adoptResumedSessionFile,
+  getAgentTranscript,
 } from '../engine/utils/sessionStorage.js'
 import {
   fileHistoryRewind,
@@ -503,6 +505,12 @@ export class EngineHost {
   }
 
   private async _doInit(): Promise<void> {
+    // 把用户在「Agents」设置页里勾的五个 feature 同步到 process.env，让 CC 引擎
+    // 的 feature() / isAgentSwarmsEnabled() / isBackgroundTasksDisabled 这套
+    // gate 函数能读到当前用户的偏好。必须在引擎其他模块开始 import / 缓存 env
+    // 前完成（isBackgroundTasksDisabled 是模块级常量，需要重启才能再次生效）。
+    this.applyAgentFeatures()
+
     // Fallback cwd — 实际每次 chat() 会通过 runWithCwdOverride 切到 session 自己的目录
     const defaultSessionDir = join(SESSIONS_DIR, '__default__')
     mkdirSync(defaultSessionDir, { recursive: true })
@@ -548,6 +556,55 @@ export class EngineHost {
         console.warn(`[Engine] Failed to seed section "${sec.id}":`, err)
       }
     }
+  }
+
+  /**
+   * 把用户在「Agents」设置页里勾的 3 个 feature 同步到 process.env，让 CC 引擎
+   * 自带的 gate 函数读到当前用户的偏好。**只覆盖 CC 引擎本身就有 gate 的套路**：
+   *
+   * | KV key                       | 默认 | CC 引擎里的 gate                                                                     |
+   * |------------------------------|------|--------------------------------------------------------------------------------------|
+   * | feature.agent.background     | on   | env `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` → `isBackgroundTasksDisabled` (模块常量) |
+   * | feature.agent.swarm          | off  | env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` → `isAgentSwarmsEnabled()` (动态读)       |
+   * | feature.agent.fork           | off  | env `CLAUDE_CODE_FEATURES` 含 `FORK_SUBAGENT` → `feature('FORK_SUBAGENT')` (动态读) |
+   *
+   * 派活（套路 1）和同轮并行（套路 2）在 CC 引擎里是**始终开启的基础能力**，
+   * 没有 gate，因此不出现在这里 —— UI 层也不应该做开关，关掉它们等于禁用整个
+   * sub-agent 体系，是 anti-feature。
+   *
+   * 注意：background 的 gate 是 [`AgentTool.ts:65`](../engine/tools/AgentTool/AgentTool.ts#L65)
+   * 的模块级常量 `isBackgroundTasksDisabled`，**改了之后必须重启 Klaus 才能再次生效**；
+   * swarm / fork 的 gate 函数每次调用都重读 env，下一次 chat() 立刻生效。
+   *
+   * 此方法在 _doInit() 启动时调一次，IPC `agents:apply-features` 在用户切
+   * 换设置后再次调用。
+   */
+  applyAgentFeatures(): void {
+    const get = (key: string, defaultOn: boolean) => {
+      const v = this.store.get(key)
+      if (v === 'on') return true
+      if (v === 'off') return false
+      return defaultOn
+    }
+    const background = get('feature.agent.background', true)
+    const swarm = get('feature.agent.swarm', false)
+    const fork = get('feature.agent.fork', false)
+
+    if (background) delete process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS
+    else process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1'
+
+    if (swarm) process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+    else delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+
+    const current = (process.env.CLAUDE_CODE_FEATURES ?? '').split(',').filter(Boolean)
+    const set = new Set(current)
+    if (fork) set.add('FORK_SUBAGENT')
+    else set.delete('FORK_SUBAGENT')
+    if (set.size > 0) process.env.CLAUDE_CODE_FEATURES = Array.from(set).join(',')
+    else delete process.env.CLAUDE_CODE_FEATURES
+
+    console.log('[AgentFeatures] background=%s swarm=%s fork=%s FEATURES=%s',
+      background, swarm, fork, process.env.CLAUDE_CODE_FEATURES ?? '(none)')
   }
 
   // --- MCP ---
@@ -1013,6 +1070,118 @@ export class EngineHost {
   }
 
   /**
+   * Sub-agent transcript projection — used by enterTeammateView in the
+   * renderer. Routes through the engine's getAgentTranscript() (CC-side
+   * sidechain loader), then runs the same Message → ChatMessage shaping the
+   * main getHistory() does, minus the special cases that don't apply to
+   * sub-agents (no compact_boundary, no slash-command breadcrumbs, no
+   * sidechain skip — sub-agent's whole purpose is to surface sidechain).
+   *
+   * agentId is the LocalAgentTaskState.agentId field (NOT the task id with
+   * the 'a' prefix). The renderer sources it from the panel's task snapshot.
+   */
+  async getSubAgentHistory(sessionId: string, agentId: string): Promise<ChatMessage[]> {
+    if (!sessionId || !agentId) return []
+    const uuid = this.registry.lookupUuid(sessionId)
+    if (!uuid) return []
+    // getAgentTranscriptPath() reads ambient sessionId/projectDir, so we
+    // have to swap the engine's session context first. Same dance chat()
+    // does on its first turn (line ~1411). Restoring after the read isn't
+    // necessary — the next chat()/getHistory() will overwrite anyway.
+    try {
+      switchSession(uuid as any, getProjectDir(CANONICAL_CWD))
+    } catch (err) {
+      console.warn('[Engine] getSubAgentHistory: switchSession failed:', err)
+    }
+
+    let sub
+    try {
+      sub = await getAgentTranscript(agentId as any)
+    } catch (err) {
+      console.warn('[Engine] getAgentTranscript failed:', err)
+      return []
+    }
+    if (!sub || sub.messages.length === 0) return []
+
+    const toolResultById = new Map<string, string>()
+    for (const m of sub.messages) {
+      if (m.type !== 'user') continue
+      const c = (m as any).message?.content
+      if (!Array.isArray(c)) continue
+      for (const b of c) {
+        if (!b || b.type !== 'tool_result') continue
+        const id = b.tool_use_id
+        if (typeof id !== 'string') continue
+        let text = ''
+        if (typeof b.content === 'string') text = b.content
+        else if (Array.isArray(b.content)) {
+          text = b.content
+            .filter((x: any) => x && x.type === 'text' && typeof x.text === 'string')
+            .map((x: any) => x.text)
+            .join('\n')
+        }
+        text = text.replace(SYSTEM_REMINDER_RE, '').trimEnd()
+        if (text) toolResultById.set(id, text)
+      }
+    }
+
+    const out: ChatMessage[] = []
+    let i = 0
+    let lastAssistantMsgId: string | undefined
+    for (const m of sub.messages) {
+      if (m.type !== 'user' && m.type !== 'assistant') continue
+      const content = (m as any).message?.content
+      let blocks = Array.isArray(content) ? content : undefined
+      if (m.type === 'user' && blocks && blocks.length > 0
+          && blocks.every((b: any) => b?.type === 'tool_result')) {
+        continue
+      }
+      if (m.type === 'assistant' && blocks) {
+        blocks = blocks.map((b: any) => {
+          if (b?.type !== 'tool_use' || typeof b.id !== 'string') return b
+          const r = toolResultById.get(b.id)
+          if (!r) return b
+          if (b.name === 'AskUserQuestion') {
+            const res = parseAskUserQuestionResult(r)
+            return { ...b, input: { ...b.input, __resolution: res } }
+          }
+          return { ...b, __result: r }
+        })
+      }
+      const text = typeof content === 'string'
+        ? content
+        : blocks
+          ? blocks.filter((b: any) => b && b.type === 'text').map((b: any) => b.text || '').join('')
+          : ''
+      if (m.type === 'user' && !text.trim() && !blocks?.length) continue
+
+      const msgId = m.type === 'assistant'
+        ? ((m as any).message?.id as string | undefined)
+        : undefined
+
+      if (m.type === 'assistant' && msgId && msgId === lastAssistantMsgId && out.length > 0) {
+        const prev = out[out.length - 1]!
+        if (blocks && blocks.length > 0) {
+          prev.contentBlocks = [...(prev.contentBlocks || []), ...blocks]
+        }
+        if (text) prev.text = (prev.text || '') + text
+        continue
+      }
+
+      out.push({
+        id: `${agentId}-${i++}`,
+        uuid: typeof (m as any).uuid === 'string' ? (m as any).uuid : undefined,
+        role: (m as any).message?.role ?? m.type,
+        text,
+        contentBlocks: blocks,
+        timestamp: Date.parse((m as any).timestamp || '') || 0,
+      })
+      lastAssistantMsgId = m.type === 'assistant' ? msgId : undefined
+    }
+    return out
+  }
+
+  /**
    * Sidecar JSON next to the JSONL: { [messageId]: durationMs }. Live measurement
    * happens in processStreamEvent; getHistory reads to restore "Thought for Xs"
    * on rebuild. Best-effort — corrupted/missing file just yields an empty map.
@@ -1348,7 +1517,20 @@ export class EngineHost {
   ): Promise<string> {
     // Register per-session forwarders. Only the caller that provided onEvent
     // receives stream events — aligns with Web 端 gateway.createAgentEventForwarder pattern.
-    if (options?.onEvent) this.sessionEmitters.set(sessionId, options.onEvent)
+    if (options?.onEvent) {
+      this.sessionEmitters.set(sessionId, options.onEvent)
+      // Hydrate the renderer's agent panel with the current tasks Record the
+      // moment the emitter is in place. Without this, a session that already
+      // has running agents (e.g. a backgrounded teammate) wouldn't surface
+      // until the next setAppState write — which can be several seconds away
+      // if the agent is mid-API call.
+      try {
+        const snap = this.getAgentTasksSnapshot(sessionId)
+        if (Object.keys(snap).length > 0) {
+          options.onEvent({ type: 'tasks_changed', sessionId, tasks: snap })
+        }
+      } catch {}
+    }
     if (options?.onPermissionRequest) this.sessionPermissionEmitters.set(sessionId, options.onPermissionRequest)
 
     // Mirror channel context from channelKey → engine uuid gets set up below,
@@ -1770,24 +1952,8 @@ export class EngineHost {
           setAppState: (fn: (prev: AppState) => AppState) => {
             const prev = session.appState
             const next = fn(prev)
-            // Detect new tasks (agents spawned) — CC 里 tasks 是 Record，按 key 枚举
-            for (const id of Object.keys(next.tasks ?? {})) {
-              if (!(id in (prev.tasks ?? {}))) {
-                const task = (next.tasks as any)[id]
-                this.pushEvent({ type: 'teammate_spawned', sessionId, agentId: id, name: task?.name ?? id, color: task?.color })
-              }
-              const prevTask = (prev.tasks as any)?.[id]
-              const nextTask = (next.tasks as any)[id]
-              if (prevTask && nextTask) {
-                if (prevTask.toolUseCount !== nextTask.toolUseCount) {
-                  this.pushEvent({ type: 'agent_progress', sessionId, agentId: id, toolUseCount: nextTask.toolUseCount ?? 0 })
-                }
-                if (prevTask.status !== nextTask.status && (nextTask.status === 'completed' || nextTask.status === 'failed')) {
-                  this.pushEvent({ type: 'agent_done', sessionId, agentId: id, status: nextTask.status })
-                }
-              }
-            }
             session.appState = next
+            this.dispatchTaskChanges(sessionId, prev.tasks, next.tasks)
           },
         } as any,
         querySource: 'repl_main_thread' as any,
@@ -2104,7 +2270,10 @@ export class EngineHost {
         baseURL: authMode === 'subscription' ? undefined : ((modelRecord as any)?.baseUrl ?? undefined),
         getAppState: () => session.appState,
         setAppState: (fn: (prev: AppState) => AppState) => {
-          session.appState = fn(session.appState)
+          const prev = session.appState
+          const next = fn(prev)
+          session.appState = next
+          this.dispatchTaskChanges(sessionId, prev.tasks, next.tasks)
         },
         querySource: 'compact' as any,
       }
@@ -2711,6 +2880,117 @@ export class EngineHost {
     const sessionId = (event as any).sessionId
     const emit = sessionId ? this.sessionEmitters.get(sessionId) : undefined
     if (emit) emit(event)
+  }
+
+  /**
+   * Project a single AppState.tasks[id] entry into the wire snapshot.
+   * Returns null for entries we don't expose (e.g. local_bash spawned by
+   * other tools, which already have their own UI). Strips non-serializable
+   * fields (abortController, callbacks, full Message[] history); the
+   * teammate transcript view will load messages separately via getHistory.
+   */
+  private sanitizeTaskSnapshot(task: any): AgentTaskSnapshot | null {
+    if (!task || typeof task !== 'object' || typeof task.id !== 'string') return null
+    const type = task.type
+    // Only surface task types CC's BackgroundTasksDialog renders. local_bash
+    // / monitor_mcp etc. would create noise in the agent panel.
+    if (type !== 'local_agent' && type !== 'in_process_teammate') return null
+    const snap: AgentTaskSnapshot = {
+      id: task.id,
+      type,
+      status: task.status,
+      description: task.description ?? '',
+      startTime: task.startTime ?? 0,
+      endTime: task.endTime,
+      notified: !!task.notified,
+      evictAfter: task.evictAfter,
+      retain: task.retain,
+    }
+    if (type === 'local_agent') {
+      snap.agentType = task.agentType
+      snap.agentId = task.agentId
+      snap.isBackgrounded = task.isBackgrounded
+      // toolUseCount lives in task.progress — see LocalAgentTask.AgentProgress
+      const tu = task.progress?.toolUseCount
+      if (typeof tu === 'number') snap.toolUseCount = tu
+      if (typeof task.error === 'string') snap.error = task.error
+      // Result body for completed-but-unread badges. CC's
+      // AgentToolResult.text carries the final agent response.
+      if (task.result?.text && typeof task.result.text === 'string') {
+        snap.resultText = task.result.text.length > 500
+          ? task.result.text.slice(0, 500) + '…'
+          : task.result.text
+      }
+    } else if (type === 'in_process_teammate') {
+      snap.agentName = task.identity?.agentName
+      snap.teamName = task.identity?.teamName
+      snap.color = task.identity?.color
+    }
+    return snap
+  }
+
+  /** Build the full snapshot Record for a session's tasks. */
+  private buildTasksSnapshot(tasks: any): Record<string, AgentTaskSnapshot> {
+    const out: Record<string, AgentTaskSnapshot> = {}
+    for (const id of Object.keys(tasks ?? {})) {
+      const snap = this.sanitizeTaskSnapshot((tasks as any)[id])
+      if (snap) out[id] = snap
+    }
+    return out
+  }
+
+  /**
+   * Compute deltas between two tasks Records and emit:
+   *   1. Per-task incremental events (teammate_spawned / agent_progress /
+   *      agent_done) for backwards-compat with any consumer still listening
+   *      to those — they're now derived strictly from the snapshot diff so
+   *      "agent_done never fires" is no longer possible (any terminal
+   *      transition triggers it, including killed / cancelled).
+   *   2. A single tasks_changed event carrying the full sanitized snapshot.
+   *      The agent panel reads only this; incremental events are advisory.
+   * No-op when nothing visible changed (avoids IPC spam during high-rate
+   * setAppState writes that don't touch agent task state).
+   */
+  private dispatchTaskChanges(sessionId: string, prevTasks: any, nextTasks: any): void {
+    const prev = prevTasks ?? {}
+    const next = nextTasks ?? {}
+    const prevSnap = this.buildTasksSnapshot(prev)
+    const nextSnap = this.buildTasksSnapshot(next)
+
+    // Per-id incremental events (legacy consumers).
+    for (const id of Object.keys(nextSnap)) {
+      const p = prevSnap[id]
+      const n = nextSnap[id]
+      if (!p) {
+        const displayName = n.description || n.agentName || id
+        this.pushEvent({ type: 'teammate_spawned', sessionId, agentId: id, name: displayName, color: n.color })
+      } else {
+        if ((p.toolUseCount ?? 0) !== (n.toolUseCount ?? 0)) {
+          this.pushEvent({ type: 'agent_progress', sessionId, agentId: id, toolUseCount: n.toolUseCount ?? 0 })
+        }
+        if (p.status !== n.status && isTerminalTaskStatus(n.status as any)) {
+          this.pushEvent({ type: 'agent_done', sessionId, agentId: id, status: n.status })
+        }
+      }
+    }
+
+    // Full snapshot. Skip when both shapes are deep-equal (cheap stringify
+    // is fine: tasks Record is small — at most a handful of agents per
+    // session; CC same).
+    if (JSON.stringify(prevSnap) === JSON.stringify(nextSnap)) return
+    this.pushEvent({ type: 'tasks_changed', sessionId, tasks: nextSnap })
+  }
+
+  /**
+   * Public read of the current tasks snapshot for a session. Used by the
+   * IPC `agents:snapshot` handler so the renderer can hydrate the panel
+   * on session switch without waiting for a chat() call to fire events.
+   * Returns an empty Record when the session is unknown or has no tasks.
+   */
+  getAgentTasksSnapshot(sessionId: string): Record<string, AgentTaskSnapshot> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return {}
+    return this.buildTasksSnapshot(session.appState?.tasks)
   }
 
   private pushPermissionRequest(sessionId: string, req: PermissionRequest): void {

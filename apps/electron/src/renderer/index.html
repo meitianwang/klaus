@@ -144,22 +144,42 @@
            forwarded somewhere they might not have open. -->
       <div id="cron-channel-banner" class="cron-channel-banner" hidden></div>
 
+      <!-- Sub-agent (teammate) transcript banner. Visible whenever the
+           main chat surface has been swapped to a sub-agent's internal
+           conversation via enterTeammateView. The "← back" button calls
+           exitTeammateView to restore the parent transcript. -->
+      <div id="subagent-banner" class="subagent-banner" hidden>
+        <button id="subagent-back" type="button" data-i18n-title="back_to_main_chat" title="Back to main chat">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4 6 8l4 4"/></svg>
+          <span id="subagent-back-label"></span>
+        </button>
+        <span id="subagent-banner-title"></span>
+        <span id="subagent-banner-status"></span>
+      </div>
+
       <!-- Messages -->
       <div id="messages" style="display:none"></div>
 
-      <!-- Agent panel -->
-      <div id="agent-panel" style="display:none">
-        <div id="agent-panel-header">
-          <span id="agent-panel-toggle">&#9660;</span>
-          <span id="agent-panel-title"></span>
-          <span id="agent-panel-count"></span>
-          <button id="agent-panel-close" data-i18n-title="close_btn" title="Close">&times;</button>
-        </div>
-        <div id="agent-panel-body"></div>
-      </div>
+      <!-- Sub-agent (teammate) transcript surface. Independent container so
+           the main #messages keeps receiving live stream events from chat()
+           uninterrupted while the user inspects a sub-agent's history.
+           Visible only while #subagent-banner is shown. -->
+      <div id="subagent-messages" hidden></div>
 
       <!-- Input -->
       <div id="input-wrapper">
+        <!-- Agent dialog (CC BackgroundTasksDialog mirror). Default hidden;
+             toggled by #agent-toggle in the input row below. Lives INSIDE
+             #input-wrapper so its position:absolute / bottom:100% anchors
+             correctly to the input area. -->
+        <div id="agent-panel" class="agent-panel-popup" style="display:none">
+          <div id="agent-panel-header">
+            <span id="agent-panel-title"></span>
+            <span id="agent-panel-count"></span>
+            <button id="agent-panel-close" data-i18n-title="close_btn" title="Close">&times;</button>
+          </div>
+          <div id="agent-panel-body"></div>
+        </div>
         <div id="slash-menu" class="slash-menu hidden"></div>
         <div id="input-area">
           <div id="previews"></div>
@@ -169,6 +189,10 @@
             </button>
             <button id="compact-btn" type="button" data-i18n-title="compact_button_title" title="Compact conversation">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M3.5 8h9"/><path d="M5 12h6"/></svg>
+            </button>
+            <button id="agent-toggle" type="button" class="agent-toggle" data-i18n-title="agents_toggle_title" title="Show agents" hidden>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.2"/><circle cx="11" cy="6" r="2.2"/><path d="M2 13c.5-2 2-3 3-3"/><path d="M14 13c-.5-2-2-3-3-3"/></svg>
+              <span id="agent-toggle-badge" class="agent-toggle-badge" hidden>0</span>
             </button>
             <input type="file" id="file-input" multiple hidden>
             <textarea id="input" rows="1" data-i18n-placeholder="placeholder" placeholder="Send a message..." autocomplete="off"></textarea>
@@ -464,6 +488,10 @@
           <button class="settings-nav-item" data-stab="models">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 7h6M5 10h4"/></svg>
             <span data-i18n="models">Models</span>
+          </button>
+          <button class="settings-nav-item" data-stab="agents">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.2"/><circle cx="11" cy="6" r="2.2"/><path d="M2 13c.5-2 2-3 3-3"/><path d="M14 13c-.5-2-2-3-3-3"/></svg>
+            <span data-i18n="agents_settings">Agents</span>
           </button>
 
           <div class="settings-sidebar-group" data-i18n="settings_group_integrations">Extensions &amp; Integrations</div>

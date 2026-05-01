@@ -532,6 +532,24 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   padding: 0 16px 16px;
 }
 
+/* Sub-agent transcript surface — mirrors #messages layout so .msg-group /
+   tool-card styles render identically. Activated by enterTeammateView. */
+#subagent-messages[hidden] { display: none !important; }
+#subagent-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+.subagent-loading,
+.subagent-empty {
+  max-width: 720px;
+  margin: 16px auto;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--fg-quaternary);
+  font-size: 13px;
+}
+
 .msg-group {
   max-width: 720px;
   margin: 0 auto;
@@ -1316,6 +1334,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   margin: 0 auto;
   padding: 0 16px 20px;
   width: 100%;
+  /* Anchor for the absolute-positioned #agent-panel.agent-panel-popup. */
+  position: relative;
 }
 
 #input-area {
@@ -3298,39 +3318,252 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 .file-card-dl:hover { background: var(--accent-hover); }
 
-/* ===== Agent panel ===== */
-#agent-panel {
-  max-width: 720px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 0 16px 4px;
+/* ===== Agent panel (CC BackgroundTasksDialog mirror) =====
+   Pop-up dialog floating above the input wrapper. Toggled by #agent-toggle
+   in the input row; default hidden. Click an agent row to drop into that
+   sub-agent's transcript via enterTeammateView. */
+#agent-panel.agent-panel-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px));
+  margin: 0 0 8px;
+  padding: 0;
+  z-index: 30;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
+  max-height: 50vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 #agent-panel-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
-  cursor: pointer;
   user-select: none;
 }
-#agent-panel-toggle { font-size: 10px; color: var(--fg-quaternary); transition: transform .15s; }
 #agent-panel-title { font-weight: 600; color: var(--fg); }
 #agent-panel-count { color: var(--fg-quaternary); flex: 1; }
 #agent-panel-close { background: none; border: none; cursor: pointer; color: var(--fg-quaternary); font-size: 16px; padding: 0 2px; line-height: 1; }
 #agent-panel-close:hover { color: var(--fg); }
-#agent-panel-body { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 0; }
-#agent-panel.collapsed #agent-panel-body { display: none; }
-#agent-panel.collapsed #agent-panel-toggle { transform: rotate(-90deg); }
+#agent-panel-body { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; overflow-y: auto; }
+
+/* Agent toggle button — sits in the input row next to compact-btn.
+   Same circular treatment as #attach / #compact-btn for visual consistency.
+   Badge floats over the top-right corner with running agent count. */
+#agent-toggle {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+#agent-toggle:hover { color: var(--fg); background: var(--bg-hover); }
+#agent-toggle svg { width: 16px; height: 16px; }
+#agent-toggle[hidden] { display: none; }
+.agent-toggle-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 10px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Sub-agent transcript banner — appears above #messages when the main
+   chat surface has been swapped to a sub-agent's internal conversation. */
+.subagent-banner[hidden] { display: none !important; }
+.subagent-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.subagent-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 12px;
+}
+.subagent-banner button:hover { background: var(--bg-hover, var(--bg)); }
+.subagent-banner #subagent-banner-title { font-weight: 600; color: var(--fg); }
+.subagent-banner #subagent-banner-status { color: var(--fg-quaternary); flex: 1; }
 
 .agent-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px; border-left: 2px solid var(--border); }
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .agent-dot.running { animation: blink 1s infinite; }
 .agent-name { font-weight: 500; color: var(--fg); }
 .agent-status { color: var(--fg-quaternary); flex: 1; }
+/* Per-status accents — mirrors CC pillLabel.ts coloring. running stays
+   the default (animated dot already conveys it). Failed/killed/cancelled
+   share a danger tone; completed gets a subtle muted treatment. */
+.agent-row.status-failed .agent-status,
+.agent-row.status-killed .agent-status,
+.agent-row.status-cancelled .agent-status { color: var(--danger, #dc2626); }
+.agent-row.status-completed .agent-status { color: var(--fg-tertiary, var(--fg-quaternary)); }
+/* Unread badge on completed-but-not-yet-attached agents (CC ", unread" suffix). */
+.agent-unread {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+/* ===== Fork message (套路 5) =====
+   Collapses the long <fork-boilerplate> protocol block so the user only sees
+   the directive line, with a toggle to peek at the boilerplate.
+   Mirrors CC UserForkBoilerplateMessage. */
+.msg-group.fork-message .fork-bubble {
+  border: 1px dashed var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.msg-group.fork-message .fork-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  margin-bottom: 6px;
+}
+.msg-group.fork-message .fork-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.msg-group.fork-message .fork-label { font-weight: 600; color: var(--fg); }
+.msg-group.fork-message .fork-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+}
+.msg-group.fork-message .fork-toggle:hover { color: var(--fg); background: var(--bg-hover, var(--bg)); }
+.msg-group.fork-message .fork-directive {
+  font-size: 14px;
+  color: var(--fg);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.msg-group.fork-message .fork-boilerplate {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.msg-group.fork-message .fork-boilerplate.hidden { display: none; }
+
+/* ===== Teammate message (套路 4) =====
+   Inline rendering of <teammate-message> XML blocks injected by useInboxPoller.
+   Plain text → bubble with colored dot + sender name + summary header.
+   Structured JSON (plan_approval / shutdown / task_completed) → variant cards
+   with semantic border colors aligned to CC PlanApprovalMessage / ShutdownMessage. */
+.msg-group.teammate {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 4px 0;
+}
+.msg-group.teammate .teammate-bubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teammate-color, var(--accent, #3b82f6));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.teammate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.teammate-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+.teammate-name { font-weight: 600; color: var(--fg); }
+.teammate-summary { color: var(--fg-tertiary); font-size: 12px; flex: 1; }
+.teammate-content { font-size: 14px; color: var(--fg); line-height: 1.6; }
+.teammate-content :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+/* Structured cards (plan/shutdown/task_completed) — same layout as
+   teammate-bubble but with status-coded border colors. */
+.teammate-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teammate-color, var(--accent, #3b82f6));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin: 6px 0;
+}
+.teammate-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.teammate-card-title { font-weight: 600; color: var(--fg); margin-left: auto; }
+.teammate-card-body { font-size: 13px; color: var(--fg); line-height: 1.6; }
+.teammate-card-feedback { color: var(--fg-tertiary); font-size: 13px; }
+.teammate-card-meta { color: var(--fg-quaternary); font-size: 11px; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.teammate-card-markdown { font-size: 13px; line-height: 1.6; }
+.teammate-card-markdown :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+/* Variant border colors — aligned with CC's PlanApprovalMessage borderStyle/color. */
+.teammate-card.variant-plan-request { border-color: var(--accent, #3b82f6); }
+.teammate-card.variant-plan-approved { border-color: var(--success, #16a34a); }
+.teammate-card.variant-plan-rejected { border-color: var(--danger, #dc2626); }
+.teammate-card.variant-shutdown-request { border-color: var(--warning, #d97706); }
+.teammate-card.variant-shutdown-rejected { border-color: var(--border); }
+.teammate-card.variant-task-completed { border-color: var(--success, #16a34a); }
 
 /* ===== Tasks (rendered inside the Monitor panel's Tasks section) =====
    Layout matches CC TaskListV2 row anatomy: status mark + numeric id +
@@ -4762,6 +4995,19 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .pref-row-text { flex: 1; min-width: 0; }
 .pref-row-label { font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 2px; }
 .pref-row-desc { font-size: 12px; color: var(--fg-tertiary); line-height: 1.5; }
+
+/* Agents settings page — section hint above the toggle list, and the
+   "needs restart" footnote on routes that require a relaunch to take effect. */
+.settings-section-hint {
+  font-size: 12px;
+  color: var(--fg-quaternary);
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.agent-route-restart {
+  color: var(--warning, #d97706);
+  font-style: italic;
+}
 
 .pref-switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
 .pref-switch input { opacity: 0; width: 0; height: 0; }

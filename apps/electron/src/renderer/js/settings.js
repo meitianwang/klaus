@@ -25,6 +25,7 @@ function loadSettingsTab(tab) {
     case 'profile': loadProfileTab(content); break
     case 'preferences': loadPreferencesTab(content); break
     case 'models': loadModelsTab(content); break
+    case 'agents': loadAgentsTab(content); break
     case 'channels': loadChannelsTab(content); break
     case 'connectors': loadConnectorsTab(content); break
     case 'skills': loadSkillsTab(content); break
@@ -286,6 +287,72 @@ async function loadPreferencesTab(container) {
   container.querySelector('#pref-notify-sound')?.addEventListener('change', async (e) => {
     await settingsApi.kv.set('notification.sound', e.target.checked ? 'on' : 'off')
     showToast(tt('settings_saved'))
+  })
+}
+
+// ==================== Agents (CC 引擎的 3 个 feature gate) ====================
+//
+// 仅暴露 CC 引擎本身就有 feature gate 的协调套路 —— 派活（subagent dispatch）
+// 和同轮并行是基础能力没有 gate，开关只是噪音不暴露。前一个默认开（CC 也是默认
+// 开），后两个默认关（CC 也是默认关）。开关代表"授权使用"，主 agent 在被授权的
+// 套路里自由组合，不强制。
+//
+// 生效路径：
+//   background  →  必须重启 Klaus（isBackgroundTasksDisabled 是模块级常量）
+//   swarm       →  下一次 chat() 立即生效（isAgentSwarmsEnabled() 动态读 env）
+//   fork        →  下一次 chat() 立即生效（feature('FORK_SUBAGENT') 动态读 env）
+const AGENT_ROUTES = [
+  { key: 'feature.agent.background', default: 'on',  i18n: 'agent_route_background', needsRestart: true  },
+  { key: 'feature.agent.swarm',      default: 'off', i18n: 'agent_route_swarm',      needsRestart: false },
+  { key: 'feature.agent.fork',       default: 'off', i18n: 'agent_route_fork',       needsRestart: false },
+]
+
+async function loadAgentsTab(container) {
+  const values = await Promise.all(
+    AGENT_ROUTES.map(async r => {
+      const stored = await settingsApi.kv.get(r.key)
+      return stored === 'on' || stored === 'off' ? stored : r.default
+    }),
+  )
+  const row = (route, value) => `
+    <div class="pref-row" data-route-key="${route.key}">
+      <div class="pref-row-text">
+        <div class="pref-row-label">${tt(route.i18n + '_label')}</div>
+        <div class="pref-row-desc">${tt(route.i18n + '_desc')}${route.needsRestart ? ` <span class="agent-route-restart">· ${tt('agent_route_needs_restart')}</span>` : ''}</div>
+      </div>
+      <label class="pref-switch">
+        <input type="checkbox" ${value === 'on' ? 'checked' : ''}>
+        <span class="pref-switch-track"></span>
+      </label>
+    </div>
+  `
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="settings-section-header" style="margin-bottom:8px"><h3>${tt('agents_settings_title')}</h3></div>
+    <p class="settings-section-hint">${tt('agents_settings_hint')}</p>
+    <div class="pref-card">
+      ${AGENT_ROUTES.map((r, i) => row(r, values[i])).join('')}
+    </div>
+  </div>`
+
+  container.querySelectorAll('.pref-row[data-route-key]').forEach(rowEl => {
+    const key = rowEl.dataset.routeKey
+    const route = AGENT_ROUTES.find(r => r.key === key)
+    const input = rowEl.querySelector('input[type="checkbox"]')
+    if (!input || !route) return
+    input.addEventListener('change', async () => {
+      const next = input.checked ? 'on' : 'off'
+      try {
+        await settingsApi.kv.set(key, next)
+        await window.klaus.agents.applyFeatures()
+      } catch (err) {
+        // 写失败时把开关弹回去 — 避免 UI 显示和实际状态不一致
+        input.checked = !input.checked
+        showToast(String(err && err.message || err))
+        return
+      }
+      showToast(route.needsRestart ? tt('agent_route_saved_restart') : tt('settings_saved'))
+    })
   })
 }
 

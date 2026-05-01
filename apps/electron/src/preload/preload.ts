@@ -37,6 +37,17 @@ contextBridge.exposeInMainWorld('klaus', {
     list: (sessionId: string) => ipcRenderer.invoke('tasks:list', { sessionId }),
   },
 
+  // Agent / teammate task snapshot (CC BackgroundTasksDialog data feed).
+  // Renderer calls this on session switch so the agent panel hydrates from
+  // the authoritative appState.tasks Record without waiting on chat events.
+  agents: {
+    snapshot: (sessionId: string) => ipcRenderer.invoke('agents:snapshot', { sessionId }),
+    // Sub-agent transcript projection (CC enterTeammateView data source).
+    history: (sessionId: string, agentId: string) => ipcRenderer.invoke('agents:history', { sessionId, agentId }),
+    // Re-apply the 5 agent route toggles after the user flips a switch.
+    applyFeatures: () => ipcRenderer.invoke('agents:apply-features'),
+  },
+
   // Engine introspection / control surfaces that don't fit chat or session.
   // - contextStats: snapshot of the session's context window for the monitor panel
   // - compact:      manual /compact (input-toolbar button) — replicates CC's
