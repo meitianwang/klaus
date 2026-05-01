@@ -3425,6 +3425,126 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   flex-shrink: 0;
 }
 
+/* ===== Fork message (套路 5) =====
+   Collapses the long <fork-boilerplate> protocol block so the user only sees
+   the directive line, with a toggle to peek at the boilerplate.
+   Mirrors CC UserForkBoilerplateMessage. */
+.msg-group.fork-message .fork-bubble {
+  border: 1px dashed var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.msg-group.fork-message .fork-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-tertiary);
+  margin-bottom: 6px;
+}
+.msg-group.fork-message .fork-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.msg-group.fork-message .fork-label { font-weight: 600; color: var(--fg); }
+.msg-group.fork-message .fork-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--fg-tertiary);
+  font-size: 11px;
+}
+.msg-group.fork-message .fork-toggle:hover { color: var(--fg); background: var(--bg-hover, var(--bg)); }
+.msg-group.fork-message .fork-directive {
+  font-size: 14px;
+  color: var(--fg);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.msg-group.fork-message .fork-boilerplate {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg-tertiary);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.msg-group.fork-message .fork-boilerplate.hidden { display: none; }
+
+/* ===== Teammate message (套路 4) =====
+   Inline rendering of <teammate-message> XML blocks injected by useInboxPoller.
+   Plain text → bubble with colored dot + sender name + summary header.
+   Structured JSON (plan_approval / shutdown / task_completed) → variant cards
+   with semantic border colors aligned to CC PlanApprovalMessage / ShutdownMessage. */
+.msg-group.teammate {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 4px 0;
+}
+.msg-group.teammate .teammate-bubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teammate-color, var(--accent, #3b82f6));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.teammate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.teammate-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+.teammate-name { font-weight: 600; color: var(--fg); }
+.teammate-summary { color: var(--fg-tertiary); font-size: 12px; flex: 1; }
+.teammate-content { font-size: 14px; color: var(--fg); line-height: 1.6; }
+.teammate-content :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+/* Structured cards (plan/shutdown/task_completed) — same layout as
+   teammate-bubble but with status-coded border colors. */
+.teammate-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--teammate-color, var(--accent, #3b82f6));
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin: 6px 0;
+}
+.teammate-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.teammate-card-title { font-weight: 600; color: var(--fg); margin-left: auto; }
+.teammate-card-body { font-size: 13px; color: var(--fg); line-height: 1.6; }
+.teammate-card-feedback { color: var(--fg-tertiary); font-size: 13px; }
+.teammate-card-meta { color: var(--fg-quaternary); font-size: 11px; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.teammate-card-markdown { font-size: 13px; line-height: 1.6; }
+.teammate-card-markdown :is(p, ul, ol, pre):last-child { margin-bottom: 0; }
+
+/* Variant border colors — aligned with CC's PlanApprovalMessage borderStyle/color. */
+.teammate-card.variant-plan-request { border-color: var(--accent, #3b82f6); }
+.teammate-card.variant-plan-approved { border-color: var(--success, #16a34a); }
+.teammate-card.variant-plan-rejected { border-color: var(--danger, #dc2626); }
+.teammate-card.variant-shutdown-request { border-color: var(--warning, #d97706); }
+.teammate-card.variant-shutdown-rejected { border-color: var(--border); }
+.teammate-card.variant-task-completed { border-color: var(--success, #16a34a); }
+
 /* ===== Tasks (rendered inside the Monitor panel's Tasks section) =====
    Layout matches CC TaskListV2 row anatomy: status mark + numeric id +
    subject (or activeForm while in_progress) + optional owner pill. */

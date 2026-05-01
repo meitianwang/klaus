@@ -79,6 +79,18 @@ const I18N = {
     agent_route_fork_desc: 'Allow the main agent to clone itself with full context inherited — set CLAUDE_CODE_FEATURES=FORK_SUBAGENT (CC feature gate).',
     agent_route_needs_restart: 'Restart Klaus to apply',
     agent_route_saved_restart: 'Saved · restart Klaus to apply',
+    // Fork (套路 5) — 折叠 fork-boilerplate 协议文本，只突出 directive
+    fork_label: 'Forked agent',
+    fork_directive_empty: '(no directive)',
+    fork_show_protocol: 'Show fork protocol',
+    fork_hide_protocol: 'Hide fork protocol',
+    // Teammate (套路 4) — 多 agent 协作的结构化消息
+    teammate_plan_request_title: 'Plan approval requested',
+    teammate_plan_approved_title: 'Plan approved',
+    teammate_plan_rejected_title: 'Plan rejected',
+    teammate_shutdown_request_title: 'Shutdown requested',
+    teammate_shutdown_rejected_title: 'Shutdown rejected',
+    teammate_task_completed_title: 'Task completed',
     // Channels
     channels: 'Channels', ch_hint: 'Connect messaging platforms to Klaus.',
     ch_hint_desc: 'Connect messaging platforms so users can chat with Klaus directly from their IM apps.',
@@ -599,6 +611,18 @@ const I18N = {
     agent_route_fork_desc: '允许主智能体克隆自己（继承完整对话上下文），等价于设置 CLAUDE_CODE_FEATURES=FORK_SUBAGENT（CC feature gate）。',
     agent_route_needs_restart: '重启 Klaus 后生效',
     agent_route_saved_restart: '已保存 · 重启 Klaus 后生效',
+    // Fork（套路 5）— 折叠 fork-boilerplate 协议文本，只突出 directive
+    fork_label: '克隆智能体',
+    fork_directive_empty: '（无具体指令）',
+    fork_show_protocol: '展开 fork 协议',
+    fork_hide_protocol: '收起 fork 协议',
+    // Teammate（套路 4）— 多智能体协作的结构化消息
+    teammate_plan_request_title: '请求批准计划',
+    teammate_plan_approved_title: '计划已批准',
+    teammate_plan_rejected_title: '计划被驳回',
+    teammate_shutdown_request_title: '请求关闭',
+    teammate_shutdown_rejected_title: '关闭被拒',
+    teammate_task_completed_title: '任务已完成',
     // Channels
     channels: '频道', ch_hint: '连接即时通讯平台到 Klaus。',
     ch_hint_desc: '连接即时通讯平台，让用户可以直接在 IM 应用里与 Klaus 对话。',

@@ -1208,7 +1208,20 @@ function navigateSlashMenu(dir) {
 const fileSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>'
 const imgSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
 
+// 套路 4 (swarm/teammate) + 套路 5 (fork) 的特殊 user message 渲染分流。
+// 这两类 message 的 raw text 由引擎注入（fork: forkSubagent.buildForkedMessages
+// 写入 <fork-boilerplate>；teammate: useInboxPoller 把 SendMessage 内容包装成
+// <teammate-message ... summary="..." color="...">），主对话普通 user 输入不会
+// 触发这些分支。命中后走专属渲染，否则 fall through 到下面的常规渲染。
 function appendUserMsg(text, ts, uuid) {
+  if (typeof text === 'string') {
+    if (text.includes('<fork-boilerplate>')) {
+      return appendForkBoilerplate(text, ts, uuid)
+    }
+    if (text.includes('<teammate-message')) {
+      return appendTeammateMessages(text, ts, uuid)
+    }
+  }
   const group = document.createElement('div')
   group.className = 'msg-group user'
   if (uuid) group.dataset.uuid = uuid
@@ -1234,6 +1247,188 @@ function appendUserMsg(text, ts, uuid) {
   if (uuid) attachUserMessageActions(group, uuid, text)
   messagesEl.appendChild(group)
   scrollToBottom()
+}
+
+// ==================== 套路 5: fork boilerplate 折叠 ====================
+//
+// fork 出来的 sub-agent 第一条 user message 由 forkSubagent.buildForkedMessages
+// 写入，结构：
+//   <fork-boilerplate>
+//   STOP. READ THIS FIRST. ... [一大段 fork 协议规则文本]
+//   </fork-boilerplate>
+//
+//   Your directive: <用户实际指令>
+//
+// 直接展示会刷屏几百行 fork 协议文本。这里折叠成单行 pill，只突出 directive；
+// 点 pill 展开看完整 boilerplate。对齐 CC UserForkBoilerplateMessage 行为。
+const FORK_BOILERPLATE_RE = /<fork-boilerplate>([\s\S]*?)<\/fork-boilerplate>\s*([\s\S]*)/
+
+function appendForkBoilerplate(text, ts, uuid) {
+  const m = FORK_BOILERPLATE_RE.exec(text)
+  const boilerplate = (m && m[1] || '').trim()
+  const tail = (m && m[2] || '').trim()
+  // tail 通常是 "Your directive: <指令>"，CC 用 FORK_DIRECTIVE_PREFIX 常量，
+  // 这里宽松匹配 — 用户语种或前缀变化时降级展示完整 tail。
+  const directiveMatch = /^Your directive:\s*([\s\S]*)$/i.exec(tail)
+  const directive = directiveMatch ? directiveMatch[1].trim() : tail
+
+  const group = document.createElement('div')
+  group.className = 'msg-group user fork-message'
+  if (uuid) group.dataset.uuid = uuid
+  group.innerHTML = `
+    <div class="msg user fork-bubble">
+      <div class="fork-header">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="fork-icon"><circle cx="5" cy="3" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="8" r="1.5"/><path d="M5 4.5v7"/><path d="M5 8 Q5 8 11 8"/></svg>
+        <span class="fork-label">${escapeHtml(tt('fork_label'))}</span>
+        <button class="fork-toggle" type="button">${escapeHtml(tt('fork_show_protocol'))}</button>
+      </div>
+      <div class="fork-directive">${escapeHtml(directive || tt('fork_directive_empty'))}</div>
+      <pre class="fork-boilerplate hidden">${escapeHtml(boilerplate)}</pre>
+    </div>
+  `
+  const toggleBtn = group.querySelector('.fork-toggle')
+  const boilerplateEl = group.querySelector('.fork-boilerplate')
+  toggleBtn?.addEventListener('click', () => {
+    const willShow = boilerplateEl.classList.contains('hidden')
+    boilerplateEl.classList.toggle('hidden', !willShow)
+    toggleBtn.textContent = willShow ? tt('fork_hide_protocol') : tt('fork_show_protocol')
+  })
+  const bar = ensureMsgActions(group)
+  appendTimeLabel(bar, ts ?? Date.now())
+  bar.appendChild(makeCopyButton(() => text))
+  if (uuid) attachUserMessageActions(group, uuid, text)
+  messagesEl.appendChild(group)
+  scrollToBottom()
+}
+
+// ==================== 套路 4: teammate 消息渲染 ====================
+//
+// CC useInboxPoller 把每条 SendMessage 包装成 <teammate-message ...>...</teammate-message>
+// XML 块注入主对话 user message 流。一条 user message 可能含多个 teammate-message
+// 块（同 poll 周期内多 sender 合并）。这里逐块解析 + 渲染。
+//
+// teammate 内容如果是 JSON 且 type 命中 plan_approval / shutdown 等结构化消息，
+// 走特化卡片样式（边框颜色按 CC PlanApprovalMessage / ShutdownMessage 的语义）。
+// 普通文本则走 markdown 渲染。
+const TEAMMATE_MSG_RE = /<teammate-message\s+([^>]*?)>([\s\S]*?)<\/teammate-message>/g
+
+function parseTeammateAttrs(attrStr) {
+  const attrs = {}
+  const re = /(\w+)="([^"]*)"/g
+  let m
+  while ((m = re.exec(attrStr)) !== null) attrs[m[1]] = m[2]
+  return attrs
+}
+
+// 内容分类：JSON 结构化消息走特化样式，非 JSON 走普通 markdown。
+// 与 CC isPlanApprovalRequest / isShutdownRequest 等 helper 等价。
+function classifyTeammateContent(rawContent) {
+  const text = rawContent.trim()
+  if (!text.startsWith('{')) return { kind: 'text', text }
+  let obj
+  try { obj = JSON.parse(text) } catch { return { kind: 'text', text } }
+  const type = obj?.type
+  // 这几类 CC 也是隐藏不渲染（idle / 终结通知 / 同意被合并到上下文里）
+  if (type === 'shutdown_approved' || type === 'idle_notification' || type === 'teammate_terminated') {
+    return { kind: 'hidden' }
+  }
+  if (type === 'plan_approval_request') return { kind: 'plan_request', ...obj }
+  if (type === 'plan_approval_response') return { kind: 'plan_response', ...obj }
+  if (type === 'shutdown_request') return { kind: 'shutdown_request', ...obj }
+  if (type === 'shutdown_rejected') return { kind: 'shutdown_rejected', ...obj }
+  if (type === 'task_completed') return { kind: 'task_completed', ...obj }
+  return { kind: 'text', text }
+}
+
+function teammateColorVar(color) {
+  const map = AGENT_COLOR_MAP || {}
+  return map[color] || map.blue || '#3b82f6'
+}
+
+// 把 teammate-message XML 块包成 inline DOM。多块时连续 append 到同一组。
+function appendTeammateMessages(text, ts, uuid) {
+  const blocks = []
+  let m
+  while ((m = TEAMMATE_MSG_RE.exec(text)) !== null) {
+    blocks.push({ attrs: parseTeammateAttrs(m[1]), content: m[2] })
+  }
+  if (blocks.length === 0) return  // 兜底，理论上 dispatcher 已经命中
+  const group = document.createElement('div')
+  group.className = 'msg-group teammate'
+  if (uuid) group.dataset.uuid = uuid
+  for (const block of blocks) {
+    const cls = classifyTeammateContent(block.content)
+    if (cls.kind === 'hidden') continue
+    const teammateName = block.attrs.teammate_id || 'teammate'
+    const summary = block.attrs.summary || ''
+    const color = teammateColorVar(block.attrs.color)
+    if (cls.kind === 'plan_request') {
+      group.appendChild(buildTeammateCard({
+        variant: 'plan-request', color, teammateName, title: tt('teammate_plan_request_title'),
+        bodyHtml: `<div class="teammate-card-markdown">${renderMarkdown(cls.planContent || '')}</div>`
+          + (cls.planFilePath ? `<div class="teammate-card-meta">${escapeHtml(cls.planFilePath)}</div>` : ''),
+      }))
+    } else if (cls.kind === 'plan_response') {
+      const ok = !!cls.approved
+      group.appendChild(buildTeammateCard({
+        variant: ok ? 'plan-approved' : 'plan-rejected', color, teammateName,
+        title: ok ? tt('teammate_plan_approved_title') : tt('teammate_plan_rejected_title'),
+        bodyHtml: cls.feedback ? `<div class="teammate-card-feedback">${escapeHtml(cls.feedback)}</div>` : '',
+      }))
+    } else if (cls.kind === 'shutdown_request') {
+      group.appendChild(buildTeammateCard({
+        variant: 'shutdown-request', color, teammateName, title: tt('teammate_shutdown_request_title'),
+        bodyHtml: cls.reason ? `<div class="teammate-card-feedback">${escapeHtml(cls.reason)}</div>` : '',
+      }))
+    } else if (cls.kind === 'shutdown_rejected') {
+      group.appendChild(buildTeammateCard({
+        variant: 'shutdown-rejected', color, teammateName, title: tt('teammate_shutdown_rejected_title'),
+        bodyHtml: cls.reason ? `<div class="teammate-card-feedback">${escapeHtml(cls.reason)}</div>` : '',
+      }))
+    } else if (cls.kind === 'task_completed') {
+      group.appendChild(buildTeammateCard({
+        variant: 'task-completed', color, teammateName, title: tt('teammate_task_completed_title'),
+        bodyHtml: cls.taskId ? `<div class="teammate-card-meta">#${escapeHtml(String(cls.taskId))}</div>` : '',
+      }))
+    } else {
+      // 普通文本消息：彩色 dot + 名字 + summary header + 内容 markdown
+      const wrap = document.createElement('div')
+      wrap.className = 'teammate-bubble'
+      wrap.style.setProperty('--teammate-color', color)
+      wrap.innerHTML = `
+        <div class="teammate-header">
+          <span class="teammate-dot" style="background:${color};border-color:${color}"></span>
+          <span class="teammate-name">@${escapeHtml(teammateName)}</span>
+          ${summary ? `<span class="teammate-summary">${escapeHtml(summary)}</span>` : ''}
+        </div>
+        <div class="teammate-content">${renderMarkdown(cls.text || '')}</div>
+      `
+      group.appendChild(wrap)
+    }
+  }
+  if (group.childNodes.length === 0) return  // 全是 hidden 类型，整组不渲染
+  const bar = ensureMsgActions(group)
+  appendTimeLabel(bar, ts ?? Date.now())
+  bar.appendChild(makeCopyButton(() => text))
+  if (uuid) attachUserMessageActions(group, uuid, text)
+  messagesEl.appendChild(group)
+  scrollToBottom()
+}
+
+// 通用 teammate 卡片（plan/shutdown/task_completed 复用）。variant 决定边框颜色。
+function buildTeammateCard({ variant, color, teammateName, title, bodyHtml }) {
+  const card = document.createElement('div')
+  card.className = 'teammate-card variant-' + variant
+  card.style.setProperty('--teammate-color', color)
+  card.innerHTML = `
+    <div class="teammate-card-header">
+      <span class="teammate-dot" style="background:${color};border-color:${color}"></span>
+      <span class="teammate-name">@${escapeHtml(teammateName)}</span>
+      <span class="teammate-card-title">${escapeHtml(title)}</span>
+    </div>
+    ${bodyHtml ? `<div class="teammate-card-body">${bodyHtml}</div>` : ''}
+  `
+  return card
 }
 
 function appendFinalAssistantMsg(text, ts) {

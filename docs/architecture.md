@@ -413,7 +413,47 @@ CC main 进程的 GC 是 **lazy** 的 —— 只在下一轮 user message 触发
 
 > **通俗讲**：切到实习生的笔记本看，主对话还在自己跑，跑完的内容你切回去就能看到。
 
-#### 7.5 IPC 接口清单
+#### 7.5 套路 5 fork — boilerplate 折叠
+
+fork 出来的子 agent 第一条 user message 由 [`buildForkedMessages()`](../apps/electron/src/engine/tools/AgentTool/forkSubagent.ts) 构造，包含一段 `<fork-boilerplate>...</fork-boilerplate>` 协议规则文本（几百字告诉 fork child 它是个 fork 而不是 main agent，行为约束等等），后跟 `Your directive: <用户实际指令>` 一行。
+
+直接展示会刷屏。Klaus 在 [`chat.js:appendUserMsg`](../apps/electron/src/renderer/js/chat.js) 里加 dispatcher：text 含 `<fork-boilerplate>` → 走 `appendForkBoilerplate()` 渲染成单行折叠 pill：
+
+```
+⑂ Forked agent · [展开 fork 协议]
+<directive 一行>
+```
+
+点 toggle 按钮可展开/收起完整 boilerplate 文本（等宽字体 pre 块，max-height 滚动）。对齐 CC `UserForkBoilerplateMessage` 行为。在 `enterTeammateView` 进入 sub-agent transcript 时这个折叠最重要 —— 主 agent 视角通常看不到 fork message。
+
+#### 7.6 套路 4 teammate — 结构化消息渲染
+
+CC 把 SendMessage 的内容通过 [`useInboxPoller`](../apps/electron/src/engine/hooks/useInboxPoller.ts) 注入主对话 user message 流，包装成 XML：
+
+```xml
+<teammate-message teammate_id="researcher" color="red" summary="Found 12 hits">
+<内容: 文本 / markdown / JSON>
+</teammate-message>
+```
+
+一条 user message 可能含多个 teammate-message 块。Klaus dispatcher 看到 `<teammate-message` 走 `appendTeammateMessages()`，逐块解析、按内容分流：
+
+| 内容形态 | 触发判定 | 渲染 |
+|---|---|---|
+| 普通文本 | content 不以 `{` 开头 | `.teammate-bubble` 卡片：彩色左边框 + dot + `@name` + summary header + markdown 内容 |
+| `plan_approval_request` | JSON `type === 'plan_approval_request'` | `.teammate-card.variant-plan-request` 蓝框，标题"请求批准计划"，body 是 plan markdown + 文件路径 |
+| `plan_approval_response`（approved）| JSON + `approved: true` | `.variant-plan-approved` 绿框 |
+| `plan_approval_response`（rejected）| JSON + `approved: false` | `.variant-plan-rejected` 红框，附 feedback |
+| `shutdown_request` | JSON | `.variant-shutdown-request` 黄框，附 reason |
+| `shutdown_rejected` | JSON | `.variant-shutdown-rejected` 灰框 |
+| `shutdown_approved` / `idle_notification` / `teammate_terminated` | JSON | **不渲染**（CC 也是 hidden）|
+| `task_completed` | JSON | `.variant-task-completed` 绿框 |
+
+边框颜色与 CC `PlanApprovalMessage` / `ShutdownMessage` 的 borderColor 语义对齐（蓝=请求决策、绿=同意/完成、红=拒绝、黄=警告、灰=被拒回调）。
+
+**用户交互**：CC TUI 也没在请求消息上做按钮，plan/shutdown 的同意/拒绝**由主 agent 自己生成 SendMessage 响应**，用户的角色是看到红黄边框知道发生了什么。Klaus 桌面端遵循同样设计，未来如果要让用户直接介入审批可以在 plan-request 卡片下加 Y/N 按钮 → 走 SendMessageTool 注入响应（暂未实现）。
+
+#### 7.7 IPC 接口清单
 
 | 频道 | 方向 | 用途 |
 |---|---|---|
@@ -436,6 +476,8 @@ CC main 进程的 GC 是 **lazy** 的 —— 只在下一轮 user message 触发
 - ✅ Sub-agent JSONL 持久化（CC sidechain 机制现成）
 - ✅ Renderer dialog UI、五态 pill、unread 徽章、evictAfter 客户端轮询
 - ✅ enterTeammateView / exitTeammateView 切换交互
+- ✅ 套路 5 fork-boilerplate 折叠卡片（[`appendForkBoilerplate`](../apps/electron/src/renderer/js/chat.js)）
+- ✅ 套路 4 teammate inline 消息渲染 + plan_approval / shutdown / task_completed 五种结构化卡片样式（[`appendTeammateMessages`](../apps/electron/src/renderer/js/chat.js)）
 
 #### 8.2 已移植但需 feature flag 才能工作
 
