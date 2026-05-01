@@ -3831,6 +3831,9 @@ function setAgentPanelOpen(open) {
     if (Object.keys(tasks).length === 0 && !currentTeam) return
     agentPanelEl.style.display = ''
     agentPanelEl.dataset.open = '1'
+    // 必须在 dataset.open 设完之后再 render — renderAgentPanel 内部用
+    // isAgentPanelOpen() 决定是否填内部 body，否则首次打开 dialog 是空的。
+    renderAgentPanel()
   } else {
     agentPanelEl.style.display = 'none'
     delete agentPanelEl.dataset.open
