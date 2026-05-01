@@ -485,14 +485,25 @@ export function registerIpcHandlers(
     }
   })
 
-  ipcMain.handle('klausAuth:logout', async () => {
+  ipcMain.handle('klausAuth:logout', async (_e, opts?: { wipeLocal?: boolean }) => {
     try {
       const { logout } = await import('./klaus-auth.js')
-      await logout()
+      await logout(opts)
       broadcastAuthUpdate(null)
       return { ok: true }
     } catch (err: any) {
       console.error('[KlausAuth] logout failed:', err)
+      return { ok: false, error: err?.message ?? String(err) }
+    }
+  })
+
+  ipcMain.handle('klausAuth:wipeLocal', async () => {
+    try {
+      const { wipeLocalUserData } = await import('./klaus-auth.js')
+      wipeLocalUserData()
+      return { ok: true }
+    } catch (err: any) {
+      console.error('[KlausAuth] wipeLocal failed:', err)
       return { ok: false, error: err?.message ?? String(err) }
     }
   })

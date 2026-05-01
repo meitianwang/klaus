@@ -156,7 +156,10 @@ contextBridge.exposeInMainWorld('klaus', {
   klausAuth: {
     status: () => ipcRenderer.invoke('klausAuth:status'),
     login: () => ipcRenderer.invoke('klausAuth:login'),
-    logout: () => ipcRenderer.invoke('klausAuth:logout'),
+    logout: (opts?: { wipeLocal?: boolean }) =>
+      ipcRenderer.invoke('klausAuth:logout', opts),
+    /** Destructive: wipes ~/.klaus settings/sessions/transcripts/uploads. Confirm in UI first. */
+    wipeLocal: () => ipcRenderer.invoke('klausAuth:wipeLocal'),
     updateProfile: (displayName: string) =>
       ipcRenderer.invoke('klausAuth:updateProfile', { displayName }),
     uploadAvatar: (mime: string, buffer: ArrayBuffer) =>

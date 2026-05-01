@@ -31,7 +31,7 @@
 import { shell } from 'electron'
 import { randomBytes, createHash } from 'node:crypto'
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
-import { readFileSync, writeFileSync, chmodSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, chmodSync, mkdirSync, existsSync, unlinkSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -93,6 +93,44 @@ function writeStoredAuth(auth: StoredAuth): void {
 
 function deleteStoredAuth(): void {
   try { if (existsSync(AUTH_FILE)) unlinkSync(AUTH_FILE) } catch { /* ignore */ }
+}
+
+/**
+ * Wipe all per-user local data so the next login starts clean.
+ *
+ * Why: desktop is single-user but the SQLite/JSONL files persist across
+ * logins. Without this, user B logging in after user A would inherit A's
+ * settings, sessions, transcripts, and outputs — a privacy bug.
+ *
+ * Scope is intentionally limited to ~/.klaus/ — Klaus's own data root.
+ * ~/.claude/ is owned by Claude Code CLI / other CC clients and is NOT
+ * touched (decision #5: don't break CC engine assumptions, and other
+ * tools may depend on those files).
+ *
+ * Caller is responsible for confirming with the user first — this WIPES
+ * conversations / cron / settings irreversibly. logout() calls a soft
+ * variant via opt-in; the destructive variant is exposed separately to
+ * the renderer via IPC for an explicit "wipe local data" menu action.
+ *
+ * Best-effort: each path failure is logged but doesn't abort.
+ */
+export function wipeLocalUserData(): void {
+  const klausRoot = join(homedir(), '.klaus')
+  const targets = [
+    join(klausRoot, 'settings.db'),
+    join(klausRoot, 'settings.db-wal'),
+    join(klausRoot, 'settings.db-shm'),
+    join(klausRoot, 'sessions'),
+    join(klausRoot, 'transcripts'),
+    join(klausRoot, 'uploads'),
+  ]
+  for (const path of targets) {
+    try {
+      if (existsSync(path)) rmSync(path, { recursive: true, force: true })
+    } catch (err) {
+      console.warn(`[KlausAuth] Failed to clear ${path}:`, err)
+    }
+  }
 }
 
 // ---------- Module state ----------
@@ -339,8 +377,18 @@ export async function startLogin(): Promise<StoredAuth> {
   }
 }
 
-/** Revoke token on the server (best-effort) and clear local state. */
-export async function logout(): Promise<void> {
+/**
+ * Revoke token on the server (best-effort) and clear auth state.
+ *
+ * Local user data (settings.db / sessions / transcripts / uploads) is NOT
+ * touched by default — that's a separate destructive action the user must
+ * explicitly confirm via the "wipe local data" menu (renderer calls
+ * `auth:wipe-local` IPC after a klausDialog confirm).
+ *
+ * If `wipeLocal: true` is passed, this skips the confirmation step and
+ * also wipes local data — used by the renderer once the user has confirmed.
+ */
+export async function logout(opts?: { wipeLocal?: boolean }): Promise<void> {
   const auth = currentAuth
   if (auth) {
     try {
@@ -354,6 +402,7 @@ export async function logout(): Promise<void> {
   }
   currentAuth = null
   deleteStoredAuth()
+  if (opts?.wipeLocal) wipeLocalUserData()
 }
 
 /**
