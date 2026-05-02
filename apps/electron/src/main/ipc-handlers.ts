@@ -581,7 +581,19 @@ export function registerIpcHandlers(
   ipcMain.handle('auth:status', async () => {
     try {
       const auth = await import('../engine/utils/auth.js')
+      // Clear memoize + keychain cache so we always reflect the true current
+      // keychain state, regardless of CLAUDE_CODE_SKIP_OAUTH or prior calls.
+      auth.clearOAuthTokenCache()
+      // Temporarily lift SKIP_OAUTH so the read bypasses custom-mode suppression:
+      // auth:status answers "do you have a Claude subscription?" — independent of
+      // which auth mode is currently active.
+      const savedSkipOAuth = process.env.CLAUDE_CODE_SKIP_OAUTH
+      delete process.env.CLAUDE_CODE_SKIP_OAUTH
       const tokens = auth.getClaudeAIOAuthTokens()
+      // Restore SKIP_OAUTH and immediately clear the memoize cache again so
+      // the cached token doesn't bleed into custom-mode calls that expect null.
+      if (savedSkipOAuth !== undefined) process.env.CLAUDE_CODE_SKIP_OAUTH = savedSkipOAuth
+      auth.clearOAuthTokenCache()
       if (!tokens) return { loggedIn: false }
       const account = auth.getOauthAccountInfo?.()
       return {
