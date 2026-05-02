@@ -146,17 +146,14 @@ export function registerIpcHandlers(
     }
   })
 
-  // Agent feature toggles (5 routes — dispatch / parallel / background / swarm / fork).
-  // Settings 页改了 KV 后调一次，把新值同步到 process.env，让引擎下一次 chat()
-  // 立刻读到。background route 受 isBackgroundTasksDisabled 模块级常量约束，
-  // 改了之后该路由要等 Klaus 重启才真生效（其他 4 个路由动态生效）。
-  ipcMain.handle('agents:apply-features', async () => {
+  ipcMain.handle('agents:teammate-messages', async (_e, { sessionId, taskId }) => {
+    if (typeof sessionId !== 'string' || !sessionId) return { messages: [] }
+    if (typeof taskId !== 'string' || !taskId) return { messages: [] }
     try {
-      engine.applyAgentFeatures()
-      return { ok: true }
+      return { messages: await engine.getTeammateMessages(sessionId, taskId) }
     } catch (err) {
-      console.warn('[agents:apply-features] failed:', err)
-      return { ok: false, error: String(err) }
+      console.warn('[agents:teammate-messages] failed:', err)
+      return { messages: [] }
     }
   })
 

@@ -44,8 +44,8 @@ contextBridge.exposeInMainWorld('klaus', {
     snapshot: (sessionId: string) => ipcRenderer.invoke('agents:snapshot', { sessionId }),
     // Sub-agent transcript projection (CC enterTeammateView data source).
     history: (sessionId: string, agentId: string) => ipcRenderer.invoke('agents:history', { sessionId, agentId }),
-    // Re-apply the 5 agent route toggles after the user flips a switch.
-    applyFeatures: () => ipcRenderer.invoke('agents:apply-features'),
+    // In-process teammate messages from AppState (no JSONL file — read memory).
+    teammateMessages: (sessionId: string, taskId: string) => ipcRenderer.invoke('agents:teammate-messages', { sessionId, taskId }),
   },
 
   // Engine introspection / control surfaces that don't fit chat or session.

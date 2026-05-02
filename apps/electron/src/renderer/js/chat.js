@@ -3947,9 +3947,6 @@ async function enterTeammateView(taskId) {
   const tasks = tasksBySession.get(currentSessionId) || {}
   const task = tasks[taskId]
   if (!task) return
-  // Snapshot's agentId is the LocalAgentTaskState.agentId field (NOT the
-  // task.id with 'a' prefix). Without it the engine can't resolve the
-  // sub-agent JSONL path, so just bail.
   if (!task.agentId) {
     console.warn('[enterTeammateView] task missing agentId:', taskId)
     return
@@ -3967,9 +3964,14 @@ async function enterTeammateView(taskId) {
 
   let res
   try {
-    res = await klausApi.agents.history(currentSessionId, task.agentId)
+    if (task.type === 'in_process_teammate') {
+      // In-process teammates have no JSONL file — read from AppState memory.
+      res = await klausApi.agents.teammateMessages(currentSessionId, taskId)
+    } else {
+      res = await klausApi.agents.history(currentSessionId, task.agentId)
+    }
   } catch (err) {
-    console.warn('[agents:history] failed:', err)
+    console.warn('[enterTeammateView] history fetch failed:', err)
     res = { messages: [] }
   }
   // User exited / switched sessions / opened a different agent while the

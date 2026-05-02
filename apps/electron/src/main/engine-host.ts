@@ -1183,6 +1183,87 @@ export class EngineHost {
   }
 
   /**
+   * Get conversation messages for an in-process teammate from AppState.
+   * Unlike getSubAgentHistory (reads JSONL), teammates don't write transcript
+   * files — their messages live only in task.messages (capped at 50 entries).
+   */
+  async getTeammateMessages(sessionId: string, taskId: string): Promise<ChatMessage[]> {
+    const entry = this.sessions.get(sessionId)
+    if (!entry) return []
+    const task = (entry.appState.tasks as any)?.[taskId]
+    if (!task || task.type !== 'in_process_teammate') return []
+    const messages: any[] = task.messages ?? []
+    if (messages.length === 0) return []
+
+    const agentId = task.identity?.agentId ?? taskId
+    const toolResultById = new Map<string, string>()
+    for (const m of messages) {
+      if (m.type !== 'user') continue
+      const c = m.message?.content
+      if (!Array.isArray(c)) continue
+      for (const b of c) {
+        if (!b || b.type !== 'tool_result') continue
+        const id = b.tool_use_id
+        if (typeof id !== 'string') continue
+        let text = ''
+        if (typeof b.content === 'string') text = b.content
+        else if (Array.isArray(b.content)) {
+          text = b.content
+            .filter((x: any) => x?.type === 'text' && typeof x.text === 'string')
+            .map((x: any) => x.text)
+            .join('\n')
+        }
+        text = text.replace(SYSTEM_REMINDER_RE, '').trimEnd()
+        if (text) toolResultById.set(id, text)
+      }
+    }
+
+    const out: ChatMessage[] = []
+    let i = 0
+    let lastAssistantMsgId: string | undefined
+    for (const m of messages) {
+      if (m.type !== 'user' && m.type !== 'assistant') continue
+      const content = m.message?.content
+      let blocks = Array.isArray(content) ? content : undefined
+      if (m.type === 'user' && blocks?.length && blocks.every((b: any) => b?.type === 'tool_result')) continue
+      if (m.type === 'assistant' && blocks) {
+        blocks = blocks.map((b: any) => {
+          if (b?.type !== 'tool_use' || typeof b.id !== 'string') return b
+          const r = toolResultById.get(b.id)
+          if (!r) return b
+          if (b.name === 'AskUserQuestion') {
+            const res = parseAskUserQuestionResult(r)
+            return { ...b, input: { ...b.input, __resolution: res } }
+          }
+          return { ...b, __result: r }
+        })
+      }
+      const text = typeof content === 'string'
+        ? content
+        : blocks?.filter((b: any) => b?.type === 'text').map((b: any) => b.text || '').join('') ?? ''
+      if (m.type === 'user' && !text.trim() && !blocks?.length) continue
+
+      const msgId = m.type === 'assistant' ? m.message?.id as string | undefined : undefined
+      if (m.type === 'assistant' && msgId && msgId === lastAssistantMsgId && out.length > 0) {
+        const prev = out[out.length - 1]!
+        if (blocks?.length) prev.contentBlocks = [...(prev.contentBlocks || []), ...blocks]
+        if (text) prev.text = (prev.text || '') + text
+        continue
+      }
+      out.push({
+        id: `${agentId}-${i++}`,
+        uuid: typeof m.uuid === 'string' ? m.uuid : undefined,
+        role: m.message?.role ?? m.type,
+        text,
+        contentBlocks: blocks,
+        timestamp: Date.parse(m.timestamp || '') || 0,
+      })
+      lastAssistantMsgId = m.type === 'assistant' ? msgId : undefined
+    }
+    return out
+  }
+
+  /**
    * Sidecar JSON next to the JSONL: { [messageId]: durationMs }. Live measurement
    * happens in processStreamEvent; getHistory reads to restore "Thought for Xs"
    * on rebuild. Best-effort — corrupted/missing file just yields an empty map.
