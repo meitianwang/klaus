@@ -144,15 +144,11 @@
            forwarded somewhere they might not have open. -->
       <div id="cron-channel-banner" class="cron-channel-banner" hidden></div>
 
-      <!-- Sub-agent (teammate) transcript banner. Visible whenever the
-           main chat surface has been swapped to a sub-agent's internal
-           conversation via enterTeammateView. The "← back" button calls
-           exitTeammateView to restore the parent transcript. -->
+      <!-- Sub-agent transcript context bar. Visible when the main transcript
+           surface is swapped to a sub-agent's history. Navigation back to the
+           main conversation is via the panel row (no back button here). -->
       <div id="subagent-banner" class="subagent-banner" hidden>
-        <button id="subagent-back" type="button" data-i18n-title="back_to_main_chat" title="Back to main chat">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4 6 8l4 4"/></svg>
-          <span id="subagent-back-label"></span>
-        </button>
+        <svg class="subagent-banner-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="5" cy="6" r="2.2"/><circle cx="11" cy="6" r="2.2"/><path d="M2 13c.5-2 2-3 3-3"/><path d="M14 13c-.5-2-2-3-3-3"/></svg>
         <span id="subagent-banner-title"></span>
         <span id="subagent-banner-status"></span>
       </div>

@@ -388,9 +388,11 @@ const I18N = {
     agent_status_killed: 'killed',
     agent_status_cancelled: 'cancelled',
     agent_unread_badge: 'unread',
-    // Toggle button + sub-agent banner
-    agents_toggle_title: 'Show agents',
-    back_to_main_chat: 'Back',
+    // Panel navigation
+    main_conversation: 'Main',
+    main_conversation_status: 'Main',
+    agent_type_background: 'BG',
+    agent_type_teammate: 'Team',
     subagent_view_loading: 'Loading…',
     subagent_view_empty: 'No transcript recorded',
     subagent_view_status_running: 'running',
@@ -910,9 +912,11 @@ const I18N = {
     agent_status_killed: '已终止',
     agent_status_cancelled: '已取消',
     agent_unread_badge: '未读',
-    // Toggle button + sub-agent banner
-    agents_toggle_title: '查看智能体',
-    back_to_main_chat: '返回',
+    // Panel navigation
+    main_conversation: '主对话',
+    main_conversation_status: '主',
+    agent_type_background: '后台',
+    agent_type_teammate: '协作',
     subagent_view_loading: '加载中…',
     subagent_view_empty: '尚无对话记录',
     subagent_view_status_running: '运行中',

@@ -91,6 +91,8 @@ let slashActiveIdx = -1
 // entries). Mirrors Tasks panel permanence.
 let tasksBySession = new Map()  // sessionId → Record<taskId, AgentTaskSnapshot>
 let currentTeam = null  // { name } when team_created has fired
+const MAIN_TASK_ID = '__main__'
+let selectedAgentId = null   // null = main conversation (default)
 
 function mergeAgentTasks(sessionId, newTasks) {
   const existing = tasksBySession.get(sessionId) || {}
@@ -726,6 +728,7 @@ async function switchSession(id) {
   // Always drop out of sub-agent view when switching sessions — viewing a
   // teammate from a different session would mismatch the panel snapshot.
   if (viewingAgentTaskId) exitTeammateView()
+  selectedAgentId = null
   currentSessionId = id
   // Entering a cron-run session clears its "unread" mark — the next
   // renderSessionList reflects that (dot removed from the run row, and
@@ -2167,26 +2170,19 @@ function visibleAgentTasks() {
   return Object.entries(allTasks).filter(([, t]) => t != null)
 }
 
-// Keeps the monitor-section-agents section meta count up to date.
-// Section is always visible (mirrors Tasks section behaviour).
+// Keeps meta count (sub-agents only; main row is always present).
 function updateAgentToggle() {
   const meta = document.getElementById('monitor-agents-count')
   if (!meta) return
   const visible = visibleAgentTasks()
-  if (!currentTeam && visible.length === 0) {
-    meta.textContent = ''
-    return
-  }
+  if (visible.length === 0) { meta.textContent = ''; return }
   let runningCount = 0
   for (const [, t] of visible) {
     if (t.status === 'running' || t.status === 'pending') runningCount++
   }
-  if (runningCount > 0) {
-    meta.textContent = runningCount + ' ' + tt('agent_running')
-  } else {
-    const size = visible.length
-    meta.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
-  }
+  meta.textContent = runningCount > 0
+    ? runningCount + ' ' + tt('agent_running')
+    : visible.length + (visible.length === 1 ? tt('agent_count_one') : tt('agent_count_many'))
 }
 
 function renderAgentPanel() {
@@ -2196,40 +2192,41 @@ function renderAgentPanel() {
   if (!body) return
   const visible = visibleAgentTasks()
   if (title) title.textContent = currentTeam ? currentTeam.name : tt('agents')
-  if (visible.length === 0) {
-    body.innerHTML = `<div class="task-empty">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
-        <circle cx="5" cy="8" r="2.2"/>
-        <circle cx="15" cy="8" r="2.2"/>
-        <path d="M2 17c.5-2.5 2-4 3-4"/>
-        <path d="M18 17c-.5-2.5-2-4-3-4"/>
-        <path d="M8.5 14.5c.4-1.5 1.5-2.5 3-2.5s2.6 1 3 2.5"/>
-      </svg>
-      <span>${tt('agents_empty') || 'No agents yet'}</span>
-    </div>`
-    return
-  }
   body.innerHTML = ''
+
+  // ── Main conversation row (always first, selected by default) ──────────────
+  const mainRow = document.createElement('div')
+  mainRow.className = 'agent-row agent-row-main' + (selectedAgentId === null ? ' selected' : '')
+  mainRow.setAttribute('data-task-id', MAIN_TASK_ID)
+  mainRow.innerHTML = `<span class="agent-dot agent-dot-main"></span><div class="agent-body"><div class="agent-tags"><span class="agent-tag agent-type-main">${escapeHtml(tt('main_conversation_status'))}</span></div><span class="agent-name">${escapeHtml(tt('main_conversation'))}</span></div>`
+  body.appendChild(mainRow)
+
+  // ── Sub-agent rows ──────────────────────────────────────────────────────────
   for (const [id, task] of visible) {
     const row = document.createElement('div')
-    row.className = 'agent-row status-' + task.status
+    const isSelected = selectedAgentId === id
+    row.className = `agent-row status-${task.status}${isSelected ? ' selected' : ''}`
     row.setAttribute('data-task-id', id)
-    const color = AGENT_COLOR_MAP[task.color] || AGENT_COLOR_MAP.blue
-    // CC uses description for LocalAgent, identity.agentName for InProcessTeammate.
-    // Snapshot maps both into description / agentName fields. Final fallback to id.
-    const displayName = task.description || task.agentName || id
+    const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'killed' || task.status === 'cancelled'
+    const color = isTerminal ? 'var(--fg-quaternary, #999)' : (AGENT_COLOR_MAP[task.color] || AGENT_COLOR_MAP.blue)
+    const isTeammate = task.type === 'in_process_teammate'
+    // Teammate: @role; background/fork: task description; fallback: id
+    const displayName = isTeammate
+      ? ('@' + (task.agentName || task.description || id))
+      : (task.description || task.agentName || id)
     const isRunning = task.status === 'running'
-    let statusText
-    if (isRunning) {
-      const tc = task.toolUseCount ?? 0
-      statusText = tt('agent_running_with_tools') + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many'))
-    } else {
-      statusText = agentStatusText(task)
-    }
+    const typeTag = isTeammate
+      ? `<span class="agent-tag agent-type-teammate">${escapeHtml(tt('agent_type_teammate'))}</span>`
+      : `<span class="agent-tag agent-type-background">${escapeHtml(tt('agent_type_background'))}</span>`
+    const tc = task.toolUseCount ?? 0
+    const statusLabel = isRunning
+      ? tt('agent_status_running') + (tc > 0 ? ' · ' + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many')) : '')
+      : agentStatusText(task)
+    const statusTag = `<span class="agent-tag agent-status-tag status-${task.status}">${escapeHtml(statusLabel)}</span>`
     const unreadHtml = (task.status === 'completed' && !task.notified)
       ? `<span class="agent-unread">${escapeHtml(tt('agent_unread_badge'))}</span>`
       : ''
-    row.innerHTML = `<span class="agent-dot${isRunning ? ' running' : ''}" style="background:${color};border-color:${color}"></span><div class="agent-body"><span class="agent-name">${escapeHtml(displayName)}</span><span class="agent-status">${escapeHtml(statusText)}</span></div>${unreadHtml}`
+    row.innerHTML = `<span class="agent-dot${isRunning ? ' running' : ''}" style="background:${color};border-color:${color}"></span><div class="agent-body"><div class="agent-tags">${typeTag}${statusTag}</div><span class="agent-name">${escapeHtml(displayName)}</span></div>${unreadHtml}`
     body.appendChild(row)
   }
 }
@@ -3776,8 +3773,21 @@ document.querySelectorAll('.settings-nav-item').forEach(btn => {
   })
 })
 
-// Agent row click → enterTeammateView. Body delegation since rows are
-// re-rendered on every tasks_changed.
+// selectAgent — single entry point for panel row clicks. Drives both the
+// transcript swap and the selected highlight in the panel.
+function selectAgent(id) {
+  if (id === MAIN_TASK_ID || id === null) {
+    selectedAgentId = null
+    exitTeammateView()
+  } else {
+    selectedAgentId = id
+    enterTeammateView(id)
+  }
+  renderAgentPanel()
+}
+
+// Agent row click → selectAgent. Body delegation since rows are
+// re-rendered on tasks_changed.
 document.getElementById('monitor-agents-body')?.addEventListener('click', (e) => {
   const t = e.target
   if (!(t instanceof Element)) return
@@ -3785,11 +3795,9 @@ document.getElementById('monitor-agents-body')?.addEventListener('click', (e) =>
   if (!row) return
   const taskId = row.getAttribute('data-task-id')
   if (!taskId) return
-  enterTeammateView(taskId)
+  selectAgent(taskId)
 })
-document.getElementById('subagent-back')?.addEventListener('click', () => {
-  exitTeammateView()
-})
+// subagent-back button removed — navigation is now via panel row selection.
 
 // ==================== Sub-agent (teammate) transcript view ====================
 //
@@ -3809,15 +3817,17 @@ function setSubAgentViewVisible(on, task) {
       banner.hidden = false
       const titleEl = document.getElementById('subagent-banner-title')
       const statusEl = document.getElementById('subagent-banner-status')
-      const backLabel = document.getElementById('subagent-back-label')
-      if (titleEl) titleEl.textContent = (task?.description || task?.agentName || task?.id || '').toString()
+      const isTeammate = task?.type === 'in_process_teammate'
+      const name = isTeammate
+        ? ('@' + (task?.agentName || task?.description || ''))
+        : (task?.description || task?.agentName || '')
+      if (titleEl) titleEl.textContent = name
       if (statusEl) {
         if (!task) statusEl.textContent = ''
         else if (task.status === 'running') statusEl.textContent = tt('subagent_view_status_running')
         else if (task.status === 'completed') statusEl.textContent = tt('subagent_view_status_done')
         else statusEl.textContent = agentStatusText(task)
       }
-      if (backLabel) backLabel.textContent = tt('back_to_main_chat')
     }
     if (subEl) {
       subEl.hidden = false
