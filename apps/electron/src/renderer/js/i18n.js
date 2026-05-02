@@ -67,18 +67,6 @@ const I18N = {
     // Models
     models: 'Models', add_model: '+ Add Model', no_models: 'No models configured',
     set_default: 'Set Default', delete_model: 'Delete this model?',
-    // Agents settings — exposes the 3 CC engine feature gates
-    agents_settings: 'Agents',
-    agents_settings_title: 'Agent collaboration',
-    agents_settings_hint: 'These switches mirror the feature gates that already exist in the Claude Code engine. The main agent decides at runtime whether to actually use an authorised route. Calling sub-agents and parallel dispatch are baseline capabilities (no gate) and not shown here.',
-    agent_route_background_label: 'Background tasks',
-    agent_route_background_desc: 'Allow sub-agents to run asynchronously (run_in_background) and report back through the next message attachment.',
-    agent_route_swarm_label: 'Swarm / teammates',
-    agent_route_swarm_desc: 'Enable Team / SendMessage so multiple sub-agents can coordinate horizontally (CC isAgentSwarmsEnabled).',
-    agent_route_fork_label: 'Fork (clone main agent)',
-    agent_route_fork_desc: 'Allow the main agent to clone itself with full context inherited — set CLAUDE_CODE_FEATURES=FORK_SUBAGENT (CC feature gate).',
-    agent_route_needs_restart: 'Restart Klaus to apply',
-    agent_route_saved_restart: 'Saved · restart Klaus to apply',
     // Fork (套路 5) — 折叠 fork-boilerplate 协议文本，只突出 directive
     fork_label: 'Forked agent',
     fork_directive_empty: '(no directive)',
@@ -599,18 +587,6 @@ const I18N = {
     // Models
     models: '模型', add_model: '+ 添加模型', no_models: '暂无模型配置',
     set_default: '设为默认', delete_model: '删除此模型？',
-    // Agents 设置 — 暴露 CC 引擎本身的 3 个 feature gate
-    agents_settings: '智能体',
-    agents_settings_title: '智能体协作',
-    agents_settings_hint: '这些开关对应 Claude Code 引擎本身已有的 feature gate。开启代表"授权使用"，主智能体会根据当前任务自行决定是否真的使用。派活和同轮并行是基础能力（CC 中无 gate），因此不在这里出现。',
-    agent_route_background_label: '后台任务',
-    agent_route_background_desc: '允许子智能体后台异步运行（run_in_background），完成后通过下一轮消息附件汇报结果。',
-    agent_route_swarm_label: '群组协作（teammate）',
-    agent_route_swarm_desc: '启用 Team / SendMessage 工具，让多个子智能体在一个团队里横向沟通（对应 CC 的 isAgentSwarmsEnabled）。',
-    agent_route_fork_label: '克隆（fork 主智能体）',
-    agent_route_fork_desc: '允许主智能体克隆自己（继承完整对话上下文），等价于设置 CLAUDE_CODE_FEATURES=FORK_SUBAGENT（CC feature gate）。',
-    agent_route_needs_restart: '重启 Klaus 后生效',
-    agent_route_saved_restart: '已保存 · 重启 Klaus 后生效',
     // Fork（套路 5）— 折叠 fork-boilerplate 协议文本，只突出 directive
     fork_label: '克隆智能体',
     fork_directive_empty: '（无具体指令）',

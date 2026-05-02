@@ -509,12 +509,6 @@ export class EngineHost {
   }
 
   private async _doInit(): Promise<void> {
-    // 把用户在「Agents」设置页里勾的五个 feature 同步到 process.env，让 CC 引擎
-    // 的 feature() / isAgentSwarmsEnabled() / isBackgroundTasksDisabled 这套
-    // gate 函数能读到当前用户的偏好。必须在引擎其他模块开始 import / 缓存 env
-    // 前完成（isBackgroundTasksDisabled 是模块级常量，需要重启才能再次生效）。
-    this.applyAgentFeatures()
-
     // Fallback cwd — 实际每次 chat() 会通过 runWithCwdOverride 切到 session 自己的目录
     const defaultSessionDir = join(SESSIONS_DIR, '__default__')
     mkdirSync(defaultSessionDir, { recursive: true })
@@ -560,55 +554,6 @@ export class EngineHost {
         console.warn(`[Engine] Failed to seed section "${sec.id}":`, err)
       }
     }
-  }
-
-  /**
-   * 把用户在「Agents」设置页里勾的 3 个 feature 同步到 process.env，让 CC 引擎
-   * 自带的 gate 函数读到当前用户的偏好。**只覆盖 CC 引擎本身就有 gate 的套路**：
-   *
-   * | KV key                       | 默认 | CC 引擎里的 gate                                                                     |
-   * |------------------------------|------|--------------------------------------------------------------------------------------|
-   * | feature.agent.background     | on   | env `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` → `isBackgroundTasksDisabled` (模块常量) |
-   * | feature.agent.swarm          | off  | env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` → `isAgentSwarmsEnabled()` (动态读)       |
-   * | feature.agent.fork           | off  | env `CLAUDE_CODE_FEATURES` 含 `FORK_SUBAGENT` → `feature('FORK_SUBAGENT')` (动态读) |
-   *
-   * 派活（套路 1）和同轮并行（套路 2）在 CC 引擎里是**始终开启的基础能力**，
-   * 没有 gate，因此不出现在这里 —— UI 层也不应该做开关，关掉它们等于禁用整个
-   * sub-agent 体系，是 anti-feature。
-   *
-   * 注意：background 的 gate 是 [`AgentTool.ts:65`](../engine/tools/AgentTool/AgentTool.ts#L65)
-   * 的模块级常量 `isBackgroundTasksDisabled`，**改了之后必须重启 Klaus 才能再次生效**；
-   * swarm / fork 的 gate 函数每次调用都重读 env，下一次 chat() 立刻生效。
-   *
-   * 此方法在 _doInit() 启动时调一次，IPC `agents:apply-features` 在用户切
-   * 换设置后再次调用。
-   */
-  applyAgentFeatures(): void {
-    const get = (key: string, defaultOn: boolean) => {
-      const v = this.store.get(key)
-      if (v === 'on') return true
-      if (v === 'off') return false
-      return defaultOn
-    }
-    const background = get('feature.agent.background', true)
-    const swarm = get('feature.agent.swarm', false)
-    const fork = get('feature.agent.fork', false)
-
-    if (background) delete process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS
-    else process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1'
-
-    if (swarm) process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
-    else delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-
-    const current = (process.env.CLAUDE_CODE_FEATURES ?? '').split(',').filter(Boolean)
-    const set = new Set(current)
-    if (fork) set.add('FORK_SUBAGENT')
-    else set.delete('FORK_SUBAGENT')
-    if (set.size > 0) process.env.CLAUDE_CODE_FEATURES = Array.from(set).join(',')
-    else delete process.env.CLAUDE_CODE_FEATURES
-
-    console.log('[AgentFeatures] background=%s swarm=%s fork=%s FEATURES=%s',
-      background, swarm, fork, process.env.CLAUDE_CODE_FEATURES ?? '(none)')
   }
 
   // --- MCP ---
