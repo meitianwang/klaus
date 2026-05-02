@@ -1094,6 +1094,8 @@ async function send() {
   const text = inputEl.value.trim()
   if (!text && pendingFiles.length === 0) return
   if (busy) return
+  // Sending a message always targets the main conversation — auto-switch back.
+  if (selectedAgentId !== null) selectAgent(null)
   if (!currentSessionId) await newChat()
   busy = true
   btnSend.disabled = false           // busy 态按钮仍可点击（用于中断）
