@@ -3399,9 +3399,6 @@ async function getTeammateMailboxAttachments(
   if (!isAgentSwarmsEnabled()) {
     return []
   }
-  if (process.env.USER_TYPE !== 'ant') {
-    return []
-  }
 
   // Get AppState early to check for team lead status
   const appState = toolUseContext.getAppState()

@@ -102,6 +102,7 @@ import {
   LOCAL_COMMAND_CAVEAT_TAG,
   LOCAL_COMMAND_STDOUT_TAG,
 } from '../engine/constants/xml.js'
+import { startLeaderMailboxPoller } from '../engine/utils/swarm/leaderMailboxPoller.js'
 import { tokenCountWithEstimation } from '../engine/utils/tokens.js'
 import {
   calculateTokenWarningState,
@@ -251,6 +252,8 @@ interface SessionEntry {
    */
   streamThinkingStartTs?: number
   sawThinkingInResponse?: boolean
+  /** Cleanup function returned by startLeaderMailboxPoller; truthy = poller is active */
+  stopInboxPoller?: () => void
 }
 
 class ToolLoopDetector {
@@ -3068,6 +3071,31 @@ export class EngineHost {
     // session; CC same).
     if (JSON.stringify(prevSnap) === JSON.stringify(nextSnap)) return
     this.pushEvent({ type: 'tasks_changed', sessionId, tasks: nextSnap })
+
+    // Start/stop the leader inbox poller when in-process teammates become active
+    // or all finish. Ported from CC's print.ts / useInboxPoller lifecycle.
+    const hasActive = Object.values(nextSnap).some(
+      s => s.type === 'in_process_teammate' && !isTerminalTaskStatus(s.status as any),
+    )
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      if (hasActive && !session.stopInboxPoller) {
+        session.stopInboxPoller = startLeaderMailboxPoller(
+          () => session.appState,
+          (formatted) => void this.chat(sessionId, formatted, undefined, {
+            emitUserMessage: true,
+            // Mirror compactSession's pattern: poller turns run out-of-band
+            // (the UI never called chat:send), so sessionEmitters has no
+            // forwarder. Register one that pushes events to the main window.
+            onEvent: (event) => this.mainWindow?.webContents.send('chat:event', event),
+          }),
+          () => session.isRunning,
+        )
+      } else if (!hasActive && session.stopInboxPoller) {
+        session.stopInboxPoller()
+        session.stopInboxPoller = undefined
+      }
+    }
   }
 
   /**
