@@ -2930,6 +2930,9 @@ export class EngineHost {
       snap.agentName = task.identity?.agentName
       snap.teamName = task.identity?.teamName
       snap.color = task.identity?.color
+      snap.agentId = task.identity?.agentId
+      const tu = task.progress?.toolUseCount
+      if (typeof tu === 'number') snap.toolUseCount = tu
     }
     return snap
   }
