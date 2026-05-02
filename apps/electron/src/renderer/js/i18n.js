@@ -398,6 +398,7 @@ const I18N = {
     // Task panel (CC TaskListV2 mirror)
     tasks_panel_title: 'Tasks',
     tasks_empty: 'No tasks yet',
+    agents_empty: 'No agents yet',
     tasks_count_pending: 'pending',
     tasks_count_in_progress: 'in progress',
     tasks_count_completed: 'completed',
@@ -919,6 +920,7 @@ const I18N = {
     // Task panel (对齐 CC TaskListV2)
     tasks_panel_title: '任务',
     tasks_empty: '暂无任务',
+    agents_empty: '暂无智能体',
     tasks_count_pending: '待办',
     tasks_count_in_progress: '进行中',
     tasks_count_completed: '已完成',

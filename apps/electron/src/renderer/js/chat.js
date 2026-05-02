@@ -84,36 +84,22 @@ function setReasoningExpanded(open) {
 
 let slashSkillsCache = null
 let slashActiveIdx = -1
-// Agent / teammate panel data feed. Mirrors CC's BackgroundTasksDialog:
-// the engine's session.appState.tasks Record is the single source of truth,
-// and the renderer maintains a per-session cache fed by the `tasks_changed`
-// event (full snapshot) plus a one-shot `agents.snapshot` IPC pull on session
-// switch. The panel is a pure projection of tasksBySession[currentSessionId]
-// — incremental events (teammate_spawned/agent_progress/agent_done) are
-// advisory and no longer mutate UI state directly, so a missed event can't
-// leave the panel stuck (the next snapshot overwrites everything).
+// Agent / teammate panel data feed. Sticky accumulator — completed/failed/
+// killed/cancelled agents are never removed from the cache even when the
+// engine evicts them from appState.tasks (engine sends full-snapshot
+// tasks_changed; mergeAgentTasks only adds/updates, never deletes terminal
+// entries). Mirrors Tasks panel permanence.
 let tasksBySession = new Map()  // sessionId → Record<taskId, AgentTaskSnapshot>
 let currentTeam = null  // { name } when team_created has fired
-// 1Hz tick that re-runs renderAgentPanel — drives the CC-style evictAfter
-// fadeout client-side. Without this, a terminal agent whose evictAfter is in
-// the future at render time stays visible forever (no event re-fires until
-// the next setAppState, which doesn't happen out-of-turn).
-let agentEvictionTimer = null
-function ensureAgentEvictionTimer() {
-  if (agentEvictionTimer) return
-  agentEvictionTimer = setInterval(() => {
-    // No-op when no terminal-with-evictAfter task is in the current session.
-    const tasks = tasksBySession.get(currentSessionId)
-    if (!tasks) return
-    const now = Date.now()
-    let dueSoon = false
-    for (const id of Object.keys(tasks)) {
-      const t = tasks[id]
-      if (!t) continue
-      if (typeof t.evictAfter === 'number' && t.evictAfter <= now + 1500) { dueSoon = true; break }
-    }
-    if (dueSoon) renderAgentPanel()
-  }, 1000)
+
+function mergeAgentTasks(sessionId, newTasks) {
+  const existing = tasksBySession.get(sessionId) || {}
+  for (const [id, task] of Object.entries(newTasks || {})) {
+    existing[id] = task
+  }
+  // Keep any previously-seen terminal tasks even if absent from the new
+  // snapshot (engine evicted them from appState.tasks after evictAfter).
+  tasksBySession.set(sessionId, existing)
 }
 
 // Task list state (mirrors CC's TasksV2Store). Per-session cache keyed by
@@ -895,7 +881,7 @@ function resetStreamState() {
   // sessions' agents intact. Just hide the panel here; renderAgentPanel
   // will turn it back on if the new session has agents.
   currentTeam = null
-  if (agentPanelEl) agentPanelEl.setAttribute('hidden', '')
+  renderAgentPanel()
 }
 
 // ==================== Message-meta (time + copy) helpers ====================
@@ -2174,60 +2160,32 @@ function agentStatusText(task) {
   }
 }
 
-function isAgentTaskTerminal(task) {
-  return task.status === 'completed' || task.status === 'failed' || task.status === 'killed' || task.status === 'cancelled'
-}
-
-// CC eviction rule (framework.ts:138): a terminal task disappears once
-// notified===true and (no retain OR evictAfter has passed). The renderer
-// applies the same rule client-side so the panel collapses 30s after the
-// agent finished even if the next setAppState (which triggers main-side
-// GC) hasn't fired yet — e.g. user hasn't typed the next message.
-function isAgentTaskEvicted(task, now) {
-  if (!isAgentTaskTerminal(task)) return false
-  if (task.retain) return false
-  if (typeof task.evictAfter === 'number' && task.evictAfter <= now) return true
-  return false
-}
-
-// Compute the visible (non-evicted) tasks for the current session.
+// All accumulated agent tasks for the current session — never filtered by
+// eviction. Mirrors Tasks panel: completed entries stay permanently visible.
 function visibleAgentTasks() {
   const allTasks = tasksBySession.get(currentSessionId) || {}
-  const now = Date.now()
-  const out = []
-  for (const id of Object.keys(allTasks)) {
-    const t = allTasks[id]
-    if (!t) continue
-    if (isAgentTaskEvicted(t, now)) continue
-    out.push([id, t])
-  }
-  return out
+  return Object.entries(allTasks).filter(([, t]) => t != null)
 }
 
-// Shows/hides the monitor-section-agents section and keeps its meta count up to
-// date. Replaces the old toggle-button + popup approach — agents are now always
-// surfaced in the right monitor panel, matching the Tasks / Context sections.
+// Keeps the monitor-section-agents section meta count up to date.
+// Section is always visible (mirrors Tasks section behaviour).
 function updateAgentToggle() {
-  const section = document.getElementById('monitor-section-agents')
-  if (!section) return
+  const meta = document.getElementById('monitor-agents-count')
+  if (!meta) return
   const visible = visibleAgentTasks()
   if (!currentTeam && visible.length === 0) {
-    section.setAttribute('hidden', '')
+    meta.textContent = ''
     return
   }
-  section.removeAttribute('hidden')
-  const meta = document.getElementById('monitor-agents-count')
-  if (meta) {
-    let runningCount = 0
-    for (const [, t] of visible) {
-      if (t.status === 'running' || t.status === 'pending') runningCount++
-    }
-    if (runningCount > 0) {
-      meta.textContent = runningCount + ' ' + tt('agent_running')
-    } else {
-      const size = visible.length
-      meta.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
-    }
+  let runningCount = 0
+  for (const [, t] of visible) {
+    if (t.status === 'running' || t.status === 'pending') runningCount++
+  }
+  if (runningCount > 0) {
+    meta.textContent = runningCount + ' ' + tt('agent_running')
+  } else {
+    const size = visible.length
+    meta.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
   }
 }
 
@@ -2238,6 +2196,19 @@ function renderAgentPanel() {
   if (!body) return
   const visible = visibleAgentTasks()
   if (title) title.textContent = currentTeam ? currentTeam.name : tt('agents')
+  if (visible.length === 0) {
+    body.innerHTML = `<div class="task-empty">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+        <circle cx="5" cy="8" r="2.2"/>
+        <circle cx="15" cy="8" r="2.2"/>
+        <path d="M2 17c.5-2.5 2-4 3-4"/>
+        <path d="M18 17c-.5-2.5-2-4-3-4"/>
+        <path d="M8.5 14.5c.4-1.5 1.5-2.5 3-2.5s2.6 1 3 2.5"/>
+      </svg>
+      <span>${tt('agents_empty') || 'No agents yet'}</span>
+    </div>`
+    return
+  }
   body.innerHTML = ''
   for (const [id, task] of visible) {
     const row = document.createElement('div')
@@ -2274,12 +2245,10 @@ async function refreshAgentsForSession(sessionId) {
   try {
     const res = await klausApi.agents.snapshot(sessionId)
     const tasks = (res && res.tasks && typeof res.tasks === 'object') ? res.tasks : {}
-    tasksBySession.set(sessionId, tasks)
+    mergeAgentTasks(sessionId, tasks)
   } catch (err) {
     console.warn('[agents] snapshot failed:', err)
-    tasksBySession.set(sessionId, {})
   }
-  ensureAgentEvictionTimer()
   if (sessionId === currentSessionId) renderAgentPanel()
 }
 
@@ -3394,8 +3363,7 @@ klausApi.on.chatEvent((event) => {
     // but the panel ignores them to avoid double-bookkeeping.
     case 'team_created': currentTeam = { name: event.teamName }; renderAgentPanel(); break
     case 'tasks_changed': {
-      tasksBySession.set(event.sessionId, event.tasks || {})
-      ensureAgentEvictionTimer()
+      mergeAgentTasks(event.sessionId, event.tasks || {})
       if (event.sessionId === currentSessionId) renderAgentPanel()
       break
     }
