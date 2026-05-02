@@ -39,6 +39,7 @@ import { applyPermissionRulesToPermissionContext } from '../engine/utils/permiss
 import { applyPermissionUpdate } from '../engine/utils/permissions/PermissionUpdate.js'
 import { addPermissionRulesToSettings } from '../engine/utils/permissions/permissionsLoader.js'
 import { setOriginalCwd, setCwdState, setProjectRoot, setIsInteractive, switchSession, setQuestionPreviewFormat, setMainThreadAgentType, markPostCompaction } from '../engine/bootstrap/state.js'
+import { getMainLoopModel } from '../engine/utils/model/model.js'
 import { getAgentDefinitionsWithOverrides, clearAgentDefinitionsCache } from '../engine/tools/AgentTool/loadAgentsDir.js'
 import { createContentReplacementState, type ContentReplacementState } from '../engine/utils/toolResultStorage.js'
 import { initContextCollapse } from '../engine/services/contextCollapse/index.js'
@@ -1622,6 +1623,9 @@ export class EngineHost {
       return ''
     }
     const authMode = authPrep.mode
+    // subscription: let CC pick its own model (via /model, settings.json, default)
+    // custom: use the Klaus store model (which has provider-specific apiKey/baseURL)
+    const effectiveModel = authMode === 'subscription' ? getMainLoopModel() : this.getModel()
 
     session.isRunning = true
     session.updatedAt = Date.now()
@@ -1675,7 +1679,7 @@ export class EngineHost {
       mkdirSync(sessionDir, { recursive: true })
       const systemPromptParts = await runWithCwdOverride(sessionDir, () => getSystemPrompt(
         tools as any,
-        this.getModel(),
+        effectiveModel,
         undefined,
         this.mcpState.clients,
         sectionOverrides,
@@ -1911,7 +1915,7 @@ export class EngineHost {
           options: {
             commands: [],
             debug: false,
-            mainLoopModel: this.getModel(),
+            mainLoopModel: effectiveModel,
             tools: tools as any,
             verbose: false,
             thinkingConfig,
@@ -1965,7 +1969,7 @@ export class EngineHost {
 
       // sessionDir 已在 getSystemPrompt 之前计算并 mkdir — 这里仅用于把 query() 也包进
       // runWithCwdOverride，让工具运行时 getCwd() 也指向 session 目录（JSONL/auto-memory 等）。
-      console.log('[Engine] sessionDir=', sessionDir, 'model=', this.getModel(), 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
+      console.log('[Engine] sessionDir=', sessionDir, 'model=', effectiveModel, 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
 
       await runWithCwdOverride(sessionDir, async () => {
         console.log('[Engine] calling query()')
@@ -2564,7 +2568,8 @@ export class EngineHost {
       session.toolPermissionContext = toolPermissionContext
     }
 
-    const model = this.getModel()
+    const isSubscription = ((this.store.get('auth_mode') as string) ?? 'subscription') === 'subscription'
+    const model = isSubscription ? getMainLoopModel() : this.getModel()
     const systemPromptParts = await runWithCwdOverride(sessionDir, () =>
       getSystemPrompt(tools as any, model, undefined, this.mcpState.clients),
     )
