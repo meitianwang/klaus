@@ -868,6 +868,7 @@ async function handleSpawnInProcess(
   }
 
   // Debug: log what spawn returned
+  console.log(`[handleSpawnInProcess] spawn result: taskId=${result.taskId}, hasContext=${!!result.teammateContext}, hasAbort=${!!result.abortController}`)
   logForDebugging(
     `[handleSpawnInProcess] spawn result: taskId=${result.taskId}, hasContext=${!!result.teammateContext}, hasAbort=${!!result.abortController}`,
   )

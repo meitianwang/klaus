@@ -696,6 +696,7 @@ async function waitForNextPromptOrShutdown(
 ): Promise<WaitResult> {
   const POLL_INTERVAL_MS = 500
 
+  console.log(`[inProcessRunner] ${identity.agentName} entering poll loop (abort=${abortController.signal.aborted})`)
   logForDebugging(
     `[inProcessRunner] ${identity.agentName} starting poll loop (abort=${abortController.signal.aborted})`,
   )
@@ -901,6 +902,7 @@ export async function runInProcessTeammate(
   } = config
   const { setAppState } = toolUseContext
 
+  console.log(`[inProcessRunner] Starting agent loop for ${identity.agentId}`)
   logForDebugging(
     `[inProcessRunner] Starting agent loop for ${identity.agentId}`,
   )
@@ -925,12 +927,14 @@ export async function runInProcessTeammate(
   if (systemPromptMode === 'replace' && systemPrompt) {
     teammateSystemPrompt = systemPrompt
   } else {
+    console.log(`[inProcessRunner] ${identity.agentId} calling getSystemPrompt...`)
     const fullSystemPromptParts = await getSystemPrompt(
       toolUseContext.options.tools,
       toolUseContext.options.mainLoopModel,
       undefined,
       toolUseContext.options.mcpClients,
     )
+    console.log(`[inProcessRunner] ${identity.agentId} getSystemPrompt done, parts=${fullSystemPromptParts.length}`)
 
     const systemPromptParts = [
       ...fullSystemPromptParts,
@@ -1016,7 +1020,9 @@ export async function runInProcessTeammate(
   // from the very start. The idle loop handles claiming for subsequent tasks.
   // Use parentSessionId as the task list ID since the leader creates tasks
   // under its session ID, not the team name.
+  console.log(`[inProcessRunner] ${identity.agentId} tryClaimNextTask...`)
   await tryClaimNextTask(identity.parentSessionId, identity.agentName)
+  console.log(`[inProcessRunner] ${identity.agentId} tryClaimNextTask done, entering main loop`)
 
   try {
     // Add initial prompt to task.messages for display (wrapped with XML)
@@ -1156,9 +1162,11 @@ export async function runInProcessTeammate(
       // Track if this iteration was interrupted by work abort (not lifecycle abort)
       let workWasAborted = false
 
+      console.log(`[inProcessRunner] ${identity.agentId} calling runWithTeammateContext...`)
       // Run agent within contexts
       await runWithTeammateContext(teammateContext, async () => {
         return runWithAgentContext(agentContext, async () => {
+          console.log(`[inProcessRunner] ${identity.agentId} inside agent context, calling runAgent...`)
           // Mark task as running (not idle)
           updateTaskState(
             taskId,
@@ -1308,6 +1316,7 @@ export async function runInProcessTeammate(
         )
       }
 
+      console.log(`[inProcessRunner] ${identity.agentId} runAgent for-await done, msgs=${iterationMessages.length}`)
       // Check if already idle before updating (to skip duplicate notification)
       const prevAppState = toolUseContext.getAppState()
       const prevTask = prevAppState.tasks[taskId]
@@ -1547,6 +1556,7 @@ export function startInProcessTeammate(config: InProcessRunnerConfig): void {
   // pending - which can be hours for a long-running teammate.
   const agentId = config.identity.agentId
   void runInProcessTeammate(config).catch(error => {
+    console.error(`[inProcessRunner] Unhandled error in ${agentId}:`, error)
     logForDebugging(`[inProcessRunner] Unhandled error in ${agentId}: ${error}`)
   })
 }

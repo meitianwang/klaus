@@ -22,6 +22,10 @@ delete process.env.ELECTRON_RUN_AS_NODE
 process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.klaus')
 process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
 
+// Enable streaming idle watchdog — without this, silently dropped connections
+// hang for the full API_TIMEOUT_MS (10 min). Default idle timeout is 90s.
+process.env.CLAUDE_ENABLE_STREAM_WATCHDOG = '1'
+
 // CC 引擎的 MACRO 全局 — bundle 里只有 `MACRO.VERSION` 之类的运行时引用，没有编译期替换
 // Web 端通过 src/engine/shims/register-bun-bundle.ts 设置，Electron 端没走那条路，这里显式设
 ;(globalThis as any).MACRO = {
