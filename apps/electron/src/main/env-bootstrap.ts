@@ -35,6 +35,14 @@ process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
   IS_CI: false,
 }
 
+// Global cache scope (scope: 'global' on system blocks) requires ALL preceding
+// content — including tool definitions — to also be globally scoped. CC's engine
+// doesn't add cache_control to tool schemas, so the API rejects requests with
+// 400 "cache_control.scope global is only valid when every preceding block is
+// also globally scoped." Disabling the experimental beta falls back to 'org'
+// scope which still uses prompt caching without the constraint.
+process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = '1'
+
 // --- Feature flags (same as Web端) ---
 const REQUIRED_FEATURES = [
   'EXTRACT_MEMORIES',
