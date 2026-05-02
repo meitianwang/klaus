@@ -103,6 +103,16 @@ import {
   LOCAL_COMMAND_STDOUT_TAG,
 } from '../engine/constants/xml.js'
 import { startLeaderMailboxPoller } from '../engine/utils/swarm/leaderMailboxPoller.js'
+import {
+  createFileStateCacheWithSizeLimit,
+  READ_FILE_STATE_CACHE_SIZE,
+} from '../engine/utils/fileStateCache.js'
+import type { QueuedCommand } from '../engine/types/textInputTypes.js'
+import {
+  dequeue,
+  getCommandQueue,
+} from '../engine/utils/messageQueueManager.js'
+import { sleep } from '../engine/utils/sleep.js'
 import { tokenCountWithEstimation } from '../engine/utils/tokens.js'
 import {
   calculateTokenWarningState,
@@ -1878,82 +1888,70 @@ export class EngineHost {
 
       const canUseTool = createCanUseTool(onAsk)
 
-      // Stamp turn boundary before push. Everything session.messages[startIdx..]
-      // is the new slice for this chat() call; we persist via recordTranscript
-      // below (CC dedups by uuid so already-recorded replays are no-op).
-      startIdx = session.messages.length
-      // Append user message — persistence goes through CC's recordTranscript
-      // right after (aligns with LocalMainSessionTask's per-message flush).
-      const userMsg: Message = {
-        type: 'user',
-        message: { role: 'user', content: text },
-        uuid: randomUUID(),
-        timestamp: new Date().toISOString(),
-      } as any
-      session.messages.push(userMsg)
-      // Persist via CC API — writes to <projectDir>/<uuid>.jsonl, format
-      // identical to CC CLI's sessions. Pass lastRecordedUuid so the user
-      // turn's parentUuid chains to any restored history (or stays null if
-      // this is the very first message), matching CC's recordTranscript
-      // contract.
-      if (!session.deleted) {
-        try {
-          const recorded = await recordTranscript([userMsg], undefined, session.lastRecordedUuid as any)
-          session.lastRecordedUuid = (recorded as any) ?? userMsg.uuid
-        } catch (err) {
-          console.warn('[Engine] recordTranscript(user) failed:', err)
-        }
-      }
-      // Notify UI about inbound user turns (channel scenarios). Desktop UI
-      // chats already rendered the user bubble locally before calling chat().
-      if (options?.emitUserMessage) {
-        this.pushEvent({ type: 'user_message', sessionId, message: userMsg })
-      }
-
-      // Build thinking config
+      // Compute once per doChat call — reused across main turn and notification turns.
       const modelRecord = this.store.getDefaultModel()
       const thinkingLevel = modelRecord?.thinking ?? 'off'
       const maxCtx = modelRecord?.maxContextTokens ?? 200000
       const thinkingConfig = thinkingLevel === 'off'
         ? { type: 'disabled' as const }
         : { type: 'enabled' as const, budgetTokens: Math.floor(maxCtx * 0.8) }
-
-      // Pick fallback model: 同 provider 下的另一个可用模型（和 Web 端一致）
       const allModels = this.store.listModels()
       const fallbackRecord = allModels.find(
         (m: any) => m.id !== modelRecord?.id && m.provider === modelRecord?.provider && m.model && m.apiKey,
       )
 
-      // Build query params
-      const queryParams: QueryParams = {
-        messages: session.messages,
-        systemPrompt,
-        userContext: { currentDate: new Date().toISOString().split('T')[0]! },
-        systemContext: {},
-        canUseTool,
-        toolUseContext: {
-          // 消息数组 —— 从 session 来，processUserInput 里会调 setMessages 改它
+      // Mark turn boundary: session.messages[startIdx..] covers main turn + notification turns.
+      startIdx = session.messages.length
+
+      // Inner turn runner — mirrors CC print.ts ask() closure.
+      // Called for the main user turn and for each task-notification follow-up, reusing
+      // the pre-built tools/systemPrompt so notification turns skip the expensive setup.
+      const runTurn = async (turnText: string, emitUserMsg = false) => {
+        const userMsg: Message = {
+          type: 'user',
+          message: { role: 'user', content: turnText },
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+        } as any
+        session.messages.push(userMsg)
+        if (!session.deleted) {
+          try {
+            const recorded = await recordTranscript([userMsg], undefined, session.lastRecordedUuid as any)
+            session.lastRecordedUuid = (recorded as any) ?? userMsg.uuid
+          } catch (err) {
+            console.warn('[Engine] recordTranscript(user) failed:', err)
+          }
+        }
+        if (emitUserMsg) {
+          this.pushEvent({ type: 'user_message', sessionId, message: userMsg })
+        }
+
+        const queryParams: QueryParams = {
           messages: session.messages,
-          setMessages: (fn: (prev: Message[]) => Message[]) => {
-            session.messages = fn(session.messages)
-          },
-          // 桌面端不切 API key，no-op
-          onChangeAPIKey: () => {},
-          // MCP server 要求用户交互时触发，桌面端简单 deny
-          handleElicitation: async () => ({ action: 'decline' as const }),
-          options: {
-            commands: [],
-            debug: false,
-            mainLoopModel: effectiveModel,
-            tools: tools as any,
-            verbose: false,
-            thinkingConfig,
-            mcpClients: this.mcpState.clients,
-            mcpResources: this.mcpState.resources,
-            ideInstallationStatus: null,
-            isNonInteractiveSession: false,
-            customSystemPrompt: undefined,
-            appendSystemPrompt: undefined,
+          systemPrompt,
+          userContext: { currentDate: new Date().toISOString().split('T')[0]! },
+          systemContext: {},
+          canUseTool,
+          toolUseContext: {
+            messages: session.messages,
+            setMessages: (fn: (prev: Message[]) => Message[]) => {
+              session.messages = fn(session.messages)
+            },
+            onChangeAPIKey: () => {},
+            handleElicitation: async () => ({ action: 'decline' as const }),
+            options: {
+              commands: [],
+              debug: false,
+              mainLoopModel: effectiveModel,
+              tools: tools as any,
+              verbose: false,
+              thinkingConfig,
+              mcpClients: this.mcpState.clients,
+              mcpResources: this.mcpState.resources,
+              ideInstallationStatus: null,
+              isNonInteractiveSession: false,
+              customSystemPrompt: undefined,
+              appendSystemPrompt: undefined,
             // 与 session.appState.agentDefinitions 共享同一份引用，确保 AgentTool / WebSearchTool
             // / spawnMultiAgent 等所有读 toolUseContext.options.agentDefinitions 的工具拿到一致数据。
             agentDefinitions,
@@ -1963,7 +1961,7 @@ export class EngineHost {
           },
           // 存到 session 上，让 interrupt() 能取到；query 退出时在 finally 里清掉
           abortController: (session.abortController = new AbortController()),
-          readFileState: new Map() as any,
+          readFileState: createFileStateCacheWithSizeLimit(READ_FILE_STATE_CACHE_SIZE),
           // CC 原版 toolUseContext 要求这几个 Set 用于 nested memory / skill discovery 追踪
           nestedMemoryAttachmentTriggers: new Set<string>(),
           loadedNestedMemoryPaths: new Set<string>(),
@@ -1996,41 +1994,63 @@ export class EngineHost {
         taskBudget: undefined,
       } as any
 
-      // sessionDir 已在 getSystemPrompt 之前计算并 mkdir — 这里仅用于把 query() 也包进
-      // runWithCwdOverride，让工具运行时 getCwd() 也指向 session 目录（JSONL/auto-memory 等）。
-      console.log('[Engine] sessionDir=', sessionDir, 'model=', effectiveModel, 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
+          console.log('[Engine] sessionDir=', sessionDir, 'model=', effectiveModel, 'authMode=', authMode, 'apiKey.len=', (modelRecord as any)?.apiKey?.length, 'baseURL=', (modelRecord as any)?.baseUrl)
 
-      await runWithCwdOverride(sessionDir, async () => {
-        console.log('[Engine] calling query()')
-        const gen = query(queryParams)
-        console.log('[Engine] query() returned generator, awaiting first event...')
-        let n = 0
-        for await (const event of gen) {
-          n++
-          console.log(`[Engine] event #${n}:`, (event as any)?.type)
-          // Session was deleted mid-stream — stop processing so we don't
-          // resurrect state or re-write the unlinked JSONL. The abort
-          // signal should unwind the generator shortly; this guard is the
-          // belt for the racing events already in flight.
-          if (session.deleted) break
-          this.processStreamEvent(sessionId, event as any, session)
-          // Flush each new assistant/user message to CC's JSONL as it arrives
-          // — mirrors LocalMainSessionTask's per-event recordSidechainTranscript.
-          // lastRecordedUuid threads the parentUuid chain: each new message
-          // points to the previous one's uuid so buildConversationChain can
-          // walk the whole conversation on Cmd+R reload.
-          const t = (event as any)?.type
-          if (t === 'assistant' || t === 'user') {
-            try {
-              const recorded = await recordTranscript([event as any], undefined, session.lastRecordedUuid as any)
-              session.lastRecordedUuid = (recorded as any) ?? (event as any).uuid ?? session.lastRecordedUuid
-            } catch (err) {
-              console.warn('[Engine] recordTranscript(' + t + ') failed:', err)
+          await runWithCwdOverride(sessionDir, async () => {
+            console.log('[Engine] calling query()')
+            const gen = query(queryParams)
+            console.log('[Engine] query() returned generator, awaiting first event...')
+            let n = 0
+            for await (const event of gen) {
+              n++
+              console.log(`[Engine] event #${n}:`, (event as any)?.type)
+              if (session.deleted) break
+              this.processStreamEvent(sessionId, event as any, session)
+              const t = (event as any)?.type
+              if (t === 'assistant' || t === 'user') {
+                try {
+                  const recorded = await recordTranscript([event as any], undefined, session.lastRecordedUuid as any)
+                  session.lastRecordedUuid = (recorded as any) ?? (event as any).uuid ?? session.lastRecordedUuid
+                } catch (err) {
+                  console.warn('[Engine] recordTranscript(' + t + ') failed:', err)
+                }
+              }
             }
-          }
+            console.log('[Engine] for-await exited, total events=', n)
+          })
+        } // end runTurn
+
+      await runTurn(text, options?.emitUserMessage ?? false)
+
+      // Mirror CC print.ts lines 2367-2405: after main turn, drain task-notifications
+      // from background agents (fork / local_agent). Loop until no running agents remain.
+      // in_process_teammate is excluded — it is long-lived and managed by leaderMailboxPoller.
+      let waitingForAgents = false
+      do {
+        const notif = dequeue(
+          (c: QueuedCommand) => c.mode === 'task-notification' && c.agentId === undefined,
+        )
+        if (notif) {
+          // Feed the notification to the model as a new turn (same as CC print.ts ask() fallthrough)
+          const notifText = typeof notif.value === 'string' ? notif.value : ''
+          await runTurn(notifText)
         }
-        console.log('[Engine] for-await exited, total events=', n)
-      })
+        waitingForAgents = false
+        const hasRunningBg = Object.values(session.appState.tasks ?? {}).some(
+          (t: any) =>
+            (t.status === 'running' || t.status === 'pending') &&
+            t.type !== 'in_process_teammate' &&
+            t.type !== 'dream' &&
+            !('isBackgrounded' in t && t.isBackgrounded === false),
+        )
+        const hasPendingNotif = getCommandQueue().some(
+          (c: QueuedCommand) => c.mode === 'task-notification' && c.agentId === undefined,
+        )
+        if (hasRunningBg || hasPendingNotif) {
+          waitingForAgents = true
+          if (!hasPendingNotif) await sleep(100)
+        }
+      } while (waitingForAgents)
     } catch (err: any) {
       const msg: string = err?.message ?? String(err)
       const isAbort = err?.name === 'AbortError'
@@ -2286,7 +2306,7 @@ export class EngineHost {
           hooksConfig: {},
         },
         abortController,
-        readFileState: new Map() as any,
+        readFileState: createFileStateCacheWithSizeLimit(READ_FILE_STATE_CACHE_SIZE),
         nestedMemoryAttachmentTriggers: new Set<string>(),
         loadedNestedMemoryPaths: new Set<string>(),
         dynamicSkillDirTriggers: new Set<string>(),
