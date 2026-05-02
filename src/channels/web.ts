@@ -324,10 +324,10 @@ type AuthResult =
   | { readonly kind: "user"; readonly user: User }
   | { readonly kind: "invalid" };
 
-function authenticateRequest(req: IncomingMessage): AuthResult {
+async function authenticateRequest(req: IncomingMessage): Promise<AuthResult> {
   if (!userStoreRef) return { kind: "invalid" };
   const token = getSessionToken(req);
-  const auth = userStoreRef.validateSession(token);
+  const auth = await userStoreRef.validateSession(token);
   if (!auth) return { kind: "invalid" };
   return {
     kind: auth.user.role === "admin" ? "admin" : "user",
@@ -480,8 +480,8 @@ function getClientIp(req: IncomingMessage): string {
 // Route handlers
 // ---------------------------------------------------------------------------
 
-function serveHtml(req: IncomingMessage, res: ServerResponse): void {
-  const auth = authenticateRequest(req);
+async function serveHtml(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     res.writeHead(302, { Location: "/login" });
     res.end();
@@ -490,13 +490,13 @@ function serveHtml(req: IncomingMessage, res: ServerResponse): void {
   serveHtmlPage(res, getChatHtml());
 }
 
-function serveLogin(res: ServerResponse, cfg: WebConfig): void {
-  const isFirst = userStoreRef ? userStoreRef.isFirstUser() : false;
+async function serveLogin(res: ServerResponse, cfg: WebConfig): Promise<void> {
+  const isFirst = userStoreRef ? await userStoreRef.isFirstUser() : false;
   serveHtmlPage(res, getLoginHtml(!!cfg.google, isFirst));
 }
 
-function serveAdmin(req: IncomingMessage, res: ServerResponse): void {
-  const auth = authenticateRequest(req);
+async function serveAdmin(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const auth = await authenticateRequest(req);
   if (auth.kind !== "admin") {
     res.writeHead(302, { Location: "/login" });
     res.end();
@@ -856,7 +856,7 @@ async function handleUpload(
     return;
   }
 
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -917,13 +917,13 @@ async function handleUpload(
 // Admin: shared auth guard (cookie-based, checks role)
 // ---------------------------------------------------------------------------
 
-function adminAuth(req: IncomingMessage, res: ServerResponse): User | null {
+async function adminAuth(req: IncomingMessage, res: ServerResponse): Promise<User | null> {
   const ip = getClientIp(req);
   if (!checkRateLimit(ip)) {
     jsonResponse(res, 429, { error: "too many requests" });
     return null;
   }
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind !== "admin") {
     jsonResponse(res, 401, { error: "admin access required" });
     return null;
@@ -939,7 +939,7 @@ async function handleAdminInvites(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
 
   if (!inviteStoreRef) {
     jsonResponse(res, 503, { error: "invite store unavailable" });
@@ -962,7 +962,7 @@ async function handleAdminInvites(
     } catch {
       // Empty label is fine
     }
-    const invite = inviteStoreRef.create(label);
+    const invite = await inviteStoreRef.create(label);
     console.log(
       `[Web] Created invite code: ${invite.code.slice(0, 8)}... (label: ${label || "(none)"})`,
     );
@@ -977,7 +977,7 @@ async function handleAdminInvites(
       jsonResponse(res, 400, { error: "missing code parameter" });
       return;
     }
-    const deleted = inviteStoreRef.delete(code);
+    const deleted = await inviteStoreRef.delete(code);
     if (!deleted) {
       jsonResponse(res, 404, { error: "invite code not found" });
       return;
@@ -998,7 +998,7 @@ async function handleAdminUsers(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
 
   if (req.method === "GET") {
     try {
@@ -1015,7 +1015,7 @@ async function handleAdminUsers(
       jsonResponse(
         res,
         200,
-        gateway.updateAdminUser({
+        await gateway.updateAdminUser({
           userId: String(parsed.userId ?? ""),
           isActive:
             typeof parsed.isActive === "boolean" ? parsed.isActive : undefined,
@@ -1042,7 +1042,7 @@ async function handleAdminSessions(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method !== "GET") {
     jsonResponse(res, 405, { error: "method not allowed" });
     return;
@@ -1069,7 +1069,7 @@ async function handleAdminHistory(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method !== "GET") {
     jsonResponse(res, 405, { error: "method not allowed" });
     return;
@@ -1101,11 +1101,11 @@ async function handleAdminSettings(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
 
   if (req.method === "GET") {
     try {
-      jsonResponse(res, 200, gateway.getAdminSettings());
+      jsonResponse(res, 200, await gateway.getAdminSettings());
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1115,7 +1115,7 @@ async function handleAdminSettings(
   if (req.method === "PATCH") {
     try {
       const parsed = await readJsonBody(req, 8192);
-      jsonResponse(res, 200, gateway.updateAdminSettings(parsed));
+      jsonResponse(res, 200, await gateway.updateAdminSettings(parsed));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1133,7 +1133,7 @@ async function handleAdminPermissionRules(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
 
   const { loadAllPermissionRulesFromDisk } = await import(
     "../engine/utils/permissions/permissionsLoader.js"
@@ -1233,10 +1233,10 @@ async function handleAdminCronTasks(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method === "GET") {
     try {
-      jsonResponse(res, 200, gateway.listCronTasks());
+      jsonResponse(res, 200, await gateway.listCronTasks());
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1246,7 +1246,7 @@ async function handleAdminCronTasks(
   if (req.method === "POST") {
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 201, gateway.createCronTask(parsed));
+      jsonResponse(res, 201, await gateway.createCronTask(parsed));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1263,7 +1263,7 @@ async function handleAdminCronTasks(
 
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 200, gateway.updateCronTask({ id, patch: parsed }));
+      jsonResponse(res, 200, await gateway.updateCronTask({ id, patch: parsed }));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1279,7 +1279,7 @@ async function handleAdminCronTasks(
     }
 
     try {
-      const deleted = gateway.deleteCronTask(id);
+      const deleted = await gateway.deleteCronTask(id);
       if (!deleted) {
         jsonResponse(res, 404, { error: "task not found" });
         return;
@@ -1302,7 +1302,7 @@ async function handleUserCronTasks(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -1315,7 +1315,7 @@ async function handleUserCronTasks(
   }
 
   if (req.method === "GET") {
-    const tasks = settingsStoreRef.listUserTasks(userId);
+    const tasks = await settingsStoreRef.listUserTasks(userId);
     const schedulerStatus = cronSchedulerRef
       ? cronSchedulerRef.getSchedulerStatus()
       : { running: false, taskCount: 0, activeJobs: 0, runningTasks: 0, maxConcurrentRuns: null, nextWakeAt: null };
@@ -1360,7 +1360,7 @@ async function handleUserCronTasks(
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      settingsStoreRef.upsertTask(task);
+      await settingsStoreRef.upsertTask(task);
       cronSchedulerRef?.addTask(task);
       jsonResponse(res, 201, { ok: true, task });
     } catch (err) {
@@ -1377,7 +1377,7 @@ async function handleUserCronTasks(
       return;
     }
     // Verify ownership
-    const existing = settingsStoreRef.getTask(id);
+    const existing = await settingsStoreRef.getTask(id);
     if (!existing || existing.userId !== userId) {
       jsonResponse(res, 404, { error: "task not found" });
       return;
@@ -1399,7 +1399,7 @@ async function handleUserCronTasks(
         id,
         updatedAt: Date.now(),
       };
-      settingsStoreRef.upsertTask(updated);
+      await settingsStoreRef.upsertTask(updated);
       cronSchedulerRef?.editTask(id, updated);
       jsonResponse(res, 200, { ok: true, task: updated });
     } catch (err) {
@@ -1415,7 +1415,7 @@ async function handleUserCronTasks(
       jsonResponse(res, 400, { error: "id query parameter required" });
       return;
     }
-    const deleted = settingsStoreRef.deleteUserTask(userId, id);
+    const deleted = await settingsStoreRef.deleteUserTask(userId, id);
     if (!deleted) {
       jsonResponse(res, 404, { error: "task not found" });
       return;
@@ -1436,7 +1436,7 @@ async function handleAdminProviders(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method !== "GET") {
     jsonResponse(res, 405, { error: "method not allowed" });
     return;
@@ -1458,7 +1458,7 @@ async function handleAdminProvidersReload(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method !== "POST") {
     jsonResponse(res, 405, { error: "method not allowed" });
     return;
@@ -1501,7 +1501,7 @@ async function handleOAuthStart(
   res: ServerResponse,
   cfg: WebConfig,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   const url = new URL(req.url ?? "", "http://localhost");
   const providerId = url.searchParams.get("provider") ?? "";
   const modelId = url.searchParams.get("modelId") ?? "";
@@ -1540,10 +1540,10 @@ async function handleAdminModels(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method === "GET") {
     try {
-      jsonResponse(res, 200, gateway.listAdminModels());
+      jsonResponse(res, 200, await gateway.listAdminModels());
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1553,7 +1553,7 @@ async function handleAdminModels(
   if (req.method === "POST") {
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 201, gateway.createAdminModel(parsed));
+      jsonResponse(res, 201, await gateway.createAdminModel(parsed));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1567,7 +1567,7 @@ async function handleAdminModels(
 
     try {
       const parsed = await readJsonBody(req, 4096);
-      jsonResponse(res, 200, gateway.updateAdminModel({ id, patch: parsed }));
+      jsonResponse(res, 200, await gateway.updateAdminModel({ id, patch: parsed }));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1579,7 +1579,7 @@ async function handleAdminModels(
     const id = url.searchParams.get("id") ?? "";
     if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
     try {
-      const deleted = gateway.deleteAdminModel(id);
+      const deleted = await gateway.deleteAdminModel(id);
       if (!deleted) { jsonResponse(res, 404, { error: "model not found" }); return; }
       jsonResponse(res, 200, { ok: true });
     } catch (err) {
@@ -1599,10 +1599,10 @@ async function handleAdminPrompts(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
   if (req.method === "GET") {
     try {
-      jsonResponse(res, 200, gateway.listAdminPrompts());
+      jsonResponse(res, 200, await gateway.listAdminPrompts());
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1612,7 +1612,7 @@ async function handleAdminPrompts(
   if (req.method === "POST") {
     try {
       const parsed = await readJsonBody(req, 16384);
-      jsonResponse(res, 201, gateway.createAdminPrompt(parsed));
+      jsonResponse(res, 201, await gateway.createAdminPrompt(parsed));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1626,7 +1626,7 @@ async function handleAdminPrompts(
 
     try {
       const parsed = await readJsonBody(req, 16384);
-      jsonResponse(res, 200, gateway.updateAdminPrompt({ id, patch: parsed }));
+      jsonResponse(res, 200, await gateway.updateAdminPrompt({ id, patch: parsed }));
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -1638,7 +1638,7 @@ async function handleAdminPrompts(
     const id = url.searchParams.get("id") ?? "";
     if (!id) { jsonResponse(res, 400, { error: "id required" }); return; }
     try {
-      const deleted = gateway.deleteAdminPrompt(id);
+      const deleted = await gateway.deleteAdminPrompt(id);
       if (!deleted) { jsonResponse(res, 404, { error: "prompt not found" }); return; }
       jsonResponse(res, 200, { ok: true });
     } catch (err) {
@@ -1662,7 +1662,7 @@ async function handleUserMcp(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -1674,7 +1674,7 @@ async function handleUserMcp(
       const { servers } = await gateway.listMcpServers(userId);
       // Merge enable/disable preferences from settings store
       if (settingsStoreRef) {
-        const prefs = settingsStoreRef.getByPrefix(`user.${userId}.mcp.`);
+        const prefs = await settingsStoreRef.getByPrefix(`user.${userId}.mcp.`);
         const enriched = servers.map(s => {
           const prefKey = `user.${userId}.mcp.${s.name}`;
           const pref = prefs.get(prefKey);
@@ -1761,7 +1761,7 @@ async function handleUserSkills(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -1785,7 +1785,7 @@ async function handleUserSkills(
         () => getCommands(join(homedir(), '.klaus')),
       );
       // Read per-user skill preferences
-      const userSkillPrefs = settingsStoreRef.getByPrefix(`user.${auth.user.id}.skill.`);
+      const userSkillPrefs = await settingsStoreRef.getByPrefix(`user.${auth.user.id}.skill.`);
       // Check which skills are installed in user directory
       let userInstalledNames: Set<string>;
       try {
@@ -1851,7 +1851,7 @@ async function handleUserSettings(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -1925,7 +1925,7 @@ async function handleSkillsMarket(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -1982,7 +1982,7 @@ async function handleSkillsInstall(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -2110,7 +2110,7 @@ async function handleSkillUninstall(
   res: ServerResponse,
   skillName: string,
 ): Promise<void> {
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -2158,7 +2158,7 @@ async function handleAdminChannels(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!adminAuth(req, res)) return;
+  if (!(await adminAuth(req, res))) return;
 
   // GET /api/admin/channels — list all channel configs
   if (req.method === "GET") {
@@ -2166,15 +2166,41 @@ async function handleAdminChannels(
       jsonResponse(res, 503, { error: "settings store unavailable" });
       return;
     }
-    const feishuAppId = settingsStoreRef.get("channel.feishu.app_id") ?? "";
-    const feishuEnabled = settingsStoreRef.getBool("channel.feishu.enabled", false);
-    const feishuBotName = settingsStoreRef.get("channel.feishu.bot_name") ?? "";
-    const dtClientId = settingsStoreRef.get("channel.dingtalk.client_id") ?? "";
-    const dtEnabled = settingsStoreRef.getBool("channel.dingtalk.enabled", false);
-    const wxAccountId = settingsStoreRef.get("channel.wechat.account_id") ?? "";
-    const wxEnabled = settingsStoreRef.getBool("channel.wechat.enabled", false);
-    const qqAppId = settingsStoreRef.get("channel.qq.app_id") ?? "";
-    const qqEnabled = settingsStoreRef.getBool("channel.qq.enabled", false);
+    const [
+      feishuAppId,
+      feishuEnabled,
+      feishuBotName,
+      dtClientId,
+      dtEnabled,
+      wxAccountId,
+      wxEnabled,
+      qqAppId,
+      qqEnabled,
+      wecomEnabled,
+      wecomBotId,
+      tgEnabled,
+      tgBotToken,
+      tgBotUsername,
+      tgBotName,
+      waEnabled,
+    ] = await Promise.all([
+      settingsStoreRef.get("channel.feishu.app_id").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.feishu.enabled", false),
+      settingsStoreRef.get("channel.feishu.bot_name").then(v => v ?? ""),
+      settingsStoreRef.get("channel.dingtalk.client_id").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.dingtalk.enabled", false),
+      settingsStoreRef.get("channel.wechat.account_id").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.wechat.enabled", false),
+      settingsStoreRef.get("channel.qq.app_id").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.qq.enabled", false),
+      settingsStoreRef.getBool("channel.wecom.enabled", false),
+      settingsStoreRef.get("channel.wecom.bot_id").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.telegram.enabled", false),
+      settingsStoreRef.get("channel.telegram.bot_token").then(v => v ?? ""),
+      settingsStoreRef.get("channel.telegram.bot_username").then(v => v ?? ""),
+      settingsStoreRef.get("channel.telegram.bot_name").then(v => v ?? ""),
+      settingsStoreRef.getBool("channel.whatsapp.enabled", false),
+    ]);
     jsonResponse(res, 200, {
       feishu: {
         enabled: feishuEnabled && !!feishuAppId,
@@ -2194,16 +2220,16 @@ async function handleAdminChannels(
         app_id: qqAppId,
       },
       wecom: {
-        enabled: settingsStoreRef.getBool("channel.wecom.enabled", false) && !!(settingsStoreRef.get("channel.wecom.bot_id") ?? ""),
-        bot_id: settingsStoreRef.get("channel.wecom.bot_id") ?? "",
+        enabled: wecomEnabled && !!wecomBotId,
+        bot_id: wecomBotId,
       },
       telegram: {
-        enabled: settingsStoreRef.getBool("channel.telegram.enabled", false) && !!(settingsStoreRef.get("channel.telegram.bot_token") ?? ""),
-        bot_username: settingsStoreRef.get("channel.telegram.bot_username") ?? "",
-        bot_name: settingsStoreRef.get("channel.telegram.bot_name") ?? "",
+        enabled: tgEnabled && !!tgBotToken,
+        bot_username: tgBotUsername,
+        bot_name: tgBotName,
       },
       whatsapp: {
-        enabled: settingsStoreRef.getBool("channel.whatsapp.enabled", false),
+        enabled: waEnabled,
       },
     });
     return;
@@ -2216,7 +2242,7 @@ async function handleAdminChannelFeishu(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2291,7 +2317,7 @@ async function handleAdminAnalytics(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const user = adminAuth(req, res);
+  const user = await adminAuth(req, res);
   if (!user) return;
 
   if (!analyticsSinkRef) {
@@ -2358,7 +2384,7 @@ async function handleToolsList(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const user = adminAuth(req, res);
+  const user = await adminAuth(req, res);
   if (!user) return;
   if (req.method !== "GET") {
     jsonResponse(res, 405, { error: "method not allowed" });
@@ -2379,7 +2405,7 @@ async function handleToolsInvoke(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const user = adminAuth(req, res);
+  const user = await adminAuth(req, res);
   if (!user) return;
   if (req.method !== "POST") {
     jsonResponse(res, 405, { error: "method not allowed" });
@@ -2431,7 +2457,7 @@ async function handleAdminChannelWechat(
     wechatQrSession = null;
   }
 
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2445,7 +2471,7 @@ async function handleAdminChannelWechat(
   if (req.method === "POST" && url.pathname.endsWith("/qr-start")) {
     try {
       const { fetchQRCode, DEFAULT_BASE_URL } = await import("./wechat-api.js");
-      const baseUrl = settingsStoreRef.get("channel.wechat.base_url") || DEFAULT_BASE_URL;
+      const baseUrl = (await settingsStoreRef.get("channel.wechat.base_url")) || DEFAULT_BASE_URL;
       const qr = await fetchQRCode(baseUrl);
       wechatQrSession = {
         qrcode: qr.qrcode,
@@ -2471,7 +2497,7 @@ async function handleAdminChannelWechat(
     }
     try {
       const { pollQRStatus, DEFAULT_BASE_URL } = await import("./wechat-api.js");
-      const baseUrl = settingsStoreRef.get("channel.wechat.base_url") || DEFAULT_BASE_URL;
+      const baseUrl = (await settingsStoreRef.get("channel.wechat.base_url")) || DEFAULT_BASE_URL;
       const result = await pollQRStatus(baseUrl, wechatQrSession.qrcode);
       wechatQrSession.status = result.status;
 
@@ -2522,7 +2548,7 @@ async function handleAdminChannelDingtalk(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2581,7 +2607,7 @@ async function handleAdminChannelQQ(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2640,7 +2666,7 @@ async function handleAdminChannelWecom(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2699,7 +2725,7 @@ async function handleAdminChannelTelegram(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
 
   if (!settingsStoreRef) {
@@ -2757,7 +2783,7 @@ async function handleAdminChannelWhatsapp(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const authUser = adminAuth(req, res);
+  const authUser = await adminAuth(req, res);
   if (!authUser) return;
   if (!settingsStoreRef) { jsonResponse(res, 503, { error: "settings store unavailable" }); return; }
 
@@ -2852,7 +2878,7 @@ async function handleFileDownload(
     return;
   }
 
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (auth.kind === "invalid") {
     jsonResponse(res, 401, { error: "unauthorized" });
     return;
@@ -3141,7 +3167,7 @@ case "/api/cron/tasks":
         jsonResponse(res, 429, { error: "too many requests" });
         return;
       }
-      const histAuth = authenticateRequest(req);
+      const histAuth = await authenticateRequest(req);
       if (histAuth.kind === "invalid") {
         jsonResponse(res, 401, { error: "unauthorized" });
         return;
@@ -3163,7 +3189,7 @@ case "/api/cron/tasks":
       };
       for (const [prefix, ownerKey] of Object.entries(channelOwnerChecks)) {
         if (histSessionId.startsWith(prefix)) {
-          const ownerId = settingsStoreRef?.get(ownerKey);
+          const ownerId = await settingsStoreRef?.get(ownerKey);
           if (ownerId && ownerId !== histAuth.user.id) {
             jsonResponse(res, 403, { error: "access denied" });
             return;
@@ -3197,7 +3223,7 @@ case "/api/cron/tasks":
         jsonResponse(res, 429, { error: "too many requests" });
         return;
       }
-      const auth = authenticateRequest(req);
+      const auth = await authenticateRequest(req);
       if (auth.kind === "invalid") {
         jsonResponse(res, 401, { error: "unauthorized" });
         return;
@@ -3212,7 +3238,7 @@ case "/api/cron/tasks":
         return;
       }
       const sessionKey = `web:${auth.user.id}:${sessionId}`;
-      const records = settingsStoreRef.listArtifacts(sessionKey);
+      const records = await settingsStoreRef.listArtifacts(sessionKey);
       const artifacts = records.map((r) => ({
         filePath: r.filePath,
         fileName: basename(r.filePath),
@@ -3237,7 +3263,7 @@ case "/api/cron/tasks":
         jsonResponse(res, 429, { error: "too many requests" });
         return;
       }
-      const auth = authenticateRequest(req);
+      const auth = await authenticateRequest(req);
       if (auth.kind === "invalid") {
         jsonResponse(res, 401, { error: "unauthorized" });
         return;
@@ -3304,7 +3330,7 @@ case "/api/cron/tasks":
         jsonResponse(res, 429, { error: "too many requests" });
         return;
       }
-      const sessAuth = authenticateRequest(req);
+      const sessAuth = await authenticateRequest(req);
       if (sessAuth.kind === "invalid") {
         jsonResponse(res, 401, { error: "unauthorized" });
         return;
@@ -3313,19 +3339,21 @@ case "/api/cron/tasks":
         try {
           // Build list of channel prefixes this user can see
           const channels: string[] = [];
-          const feishuOwnerId = settingsStoreRef?.get("channel.feishu.owner_id");
+          const [feishuOwnerId, dtOwnerId, wxOwnerId, qqOwnerId, wecomOwnerId, tgOwnerId, waOwnerId] = await Promise.all([
+            settingsStoreRef?.get("channel.feishu.owner_id"),
+            settingsStoreRef?.get("channel.dingtalk.owner_id"),
+            settingsStoreRef?.get("channel.wechat.owner_id"),
+            settingsStoreRef?.get("channel.qq.owner_id"),
+            settingsStoreRef?.get("channel.wecom.owner_id"),
+            settingsStoreRef?.get("channel.telegram.owner_id"),
+            settingsStoreRef?.get("channel.whatsapp.owner_id"),
+          ]);
           if (!feishuOwnerId || feishuOwnerId === sessAuth.user.id) channels.push("feishu:");
-          const dtOwnerId = settingsStoreRef?.get("channel.dingtalk.owner_id");
           if (!dtOwnerId || dtOwnerId === sessAuth.user.id) channels.push("dingtalk:");
-          const wxOwnerId = settingsStoreRef?.get("channel.wechat.owner_id");
           if (!wxOwnerId || wxOwnerId === sessAuth.user.id) channels.push("wechat:");
-          const qqOwnerId = settingsStoreRef?.get("channel.qq.owner_id");
           if (!qqOwnerId || qqOwnerId === sessAuth.user.id) channels.push("qq:");
-          const wecomOwnerId = settingsStoreRef?.get("channel.wecom.owner_id");
           if (!wecomOwnerId || wecomOwnerId === sessAuth.user.id) channels.push("wecom:");
-          const tgOwnerId = settingsStoreRef?.get("channel.telegram.owner_id");
           if (!tgOwnerId || tgOwnerId === sessAuth.user.id) channels.push("telegram:");
-          const waOwnerId = settingsStoreRef?.get("channel.whatsapp.owner_id");
           if (!waOwnerId || waOwnerId === sessAuth.user.id) channels.push("whatsapp:");
           const result = await gateway.listSessions({
             userId: sessAuth.user.id,
@@ -3437,9 +3465,9 @@ export const webPlugin: ChannelPlugin = {
   deliver: deliverWebMessage,
 
   config: {
-    listAccountIds: () => ["default"],
-    resolveAccount: () => ({}),
-    isEnabled: () => true,
+    listAccountIds: async () => ["default"],
+    resolveAccount: async () => ({}),
+    isEnabled: async () => true,
     isConfigured: () => true,
   },
 
@@ -3503,7 +3531,7 @@ export const webPlugin: ChannelPlugin = {
     // WebSocket server (noServer mode — manual upgrade handling via cookie)
     const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
-    server.on("upgrade", (req, socket, head) => {
+    server.on("upgrade", async (req, socket, head) => {
       const url = new URL(req.url ?? "/", `http://localhost:${cfg.port}`);
       if (url.pathname !== "/api/ws") {
         socket.destroy();
@@ -3534,7 +3562,7 @@ export const webPlugin: ChannelPlugin = {
       }
 
       // Authenticate via cookie
-      const auth = authenticateRequest(req);
+      const auth = await authenticateRequest(req);
       if (auth.kind === "invalid") {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();

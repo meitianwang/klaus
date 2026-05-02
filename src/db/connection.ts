@@ -13,6 +13,7 @@
 
 import { Pool, type PoolClient } from "pg";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { sql } from "drizzle-orm";
 import * as schema from "./schema.js";
 
 export type Db = NodePgDatabase<typeof schema>;
@@ -76,10 +77,11 @@ export async function withUserScope<T>(
     if (!/^[0-9a-f-]{36}$/i.test(userId)) {
       throw new Error(`[db] invalid userId format: ${userId}`);
     }
-    await tx.execute(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { sql: `SET LOCAL app.current_user_id = '${userId}'`, params: [] } as any,
-    );
+    // Demote to the app role so RLS is enforced even when the connection is a
+    // superuser (dev/test convenience). In production the pool connects as
+    // klaus_app already; SET LOCAL ROLE makes dev behaviour match prod.
+    await tx.execute(sql.raw(`SET LOCAL ROLE 'klaus_app'`));
+    await tx.execute(sql.raw(`SET LOCAL app.current_user_id = '${userId}'`));
     return await fn(tx);
   });
 }

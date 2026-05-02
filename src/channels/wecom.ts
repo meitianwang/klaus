@@ -124,9 +124,9 @@ export const wecomPlugin: ChannelPlugin<WecomConfig> = {
     deleteKeys: ["owner_id"],
   },
 
-  config: singleAccountConfig<WecomConfig>("wecom", "bot_id", (store) => {
-    const botId = store.get("channel.wecom.bot_id");
-    const secret = decryptCred(store.get("channel.wecom.secret") ?? "");
+  config: singleAccountConfig<WecomConfig>("wecom", "bot_id", async (store) => {
+    const botId = await store.get("channel.wecom.bot_id");
+    const secret = decryptCred((await store.get("channel.wecom.secret")) ?? "");
     return botId && secret ? { botId, secret } : null;
   }),
 

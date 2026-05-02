@@ -67,7 +67,7 @@ async function start(): Promise<void> {
   // Apply model role overrides so the engine's getDefaultSonnetModel() / getDefaultHaikuModel()
   // return model IDs compatible with this Klaus instance's provider.
   // Roles are set per-model in the admin panel (sonnet / haiku / opus).
-  settingsStore.applyModelEnvOverrides();
+  await settingsStore.applyModelEnvOverrides();
 
   // Run per-user directory migration if needed
   const { runMigrationIfNeeded } = await import("./migration/user-dirs.js");
@@ -86,14 +86,15 @@ async function start(): Promise<void> {
   // Initialize MCP connections (uses engine's getAllMcpConfigs + getMcpToolsCommandsAndResources)
   await agentManager.initMcp();
 
-  const defaultModel = settingsStore.getDefaultModel();
+  const defaultModel = await settingsStore.getDefaultModel();
+  const maxSessions = await settingsStore.getNumber("max_sessions", 20);
   console.log(
-    `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${settingsStore.getNumber("max_sessions", 20)})`,
+    `[Agent] Initialized (model=${defaultModel?.model ?? "none"}, maxSessions=${maxSessions})`,
   );
 
   // Initialize cost tracker with per-model pricing from SettingsStore
   const { setModelPricing } = await import("./engine/cost-tracker.js");
-  for (const model of settingsStore.listModels()) {
+  for (const model of await settingsStore.listModels()) {
     if (model.cost) {
       setModelPricing(model.model, {
         input: model.cost.input,
@@ -107,21 +108,21 @@ async function start(): Promise<void> {
   // Migrate config.yaml skills section to SettingsStore (one-time)
   const { decryptCred, encryptCred } = await import("./channels/channel-creds.js");
   const { migrateSkillsConfigIfNeeded } = await import("./migration/skills-config.js");
-  migrateSkillsConfigIfNeeded(settingsStore, encryptCred);
+  await migrateSkillsConfigIfNeeded(settingsStore, encryptCred);
 
   // Skill filter is set per-user in agent-manager.chat() before each query
 
   // Initialize message persistence (JSONL transcripts)
   const { MessageStore } = await import("./message-store.js");
-  const transcriptsCfg = {
-    transcriptsDir: settingsStore.get("transcripts.dir") ?? undefined,
-    maxFiles: settingsStore.getNumber("transcripts.max_files", 200),
-    maxAgeDays: settingsStore.getNumber("transcripts.max_age_days", 30),
-  };
+  const [transcriptsDir, maxFiles, maxAgeDays] = await Promise.all([
+    settingsStore.get("transcripts.dir"),
+    settingsStore.getNumber("transcripts.max_files", 200),
+    settingsStore.getNumber("transcripts.max_age_days", 30),
+  ]);
   const { loadTranscriptsConfig } = await import("./config.js");
   const messageStore = new MessageStore(
-    transcriptsCfg.transcriptsDir
-      ? { transcriptsDir: transcriptsCfg.transcriptsDir, maxFiles: transcriptsCfg.maxFiles, maxAgeDays: transcriptsCfg.maxAgeDays }
+    transcriptsDir
+      ? { transcriptsDir, maxFiles, maxAgeDays }
       : loadTranscriptsConfig(),
   );
   messageStore.prune();
@@ -171,12 +172,12 @@ async function start(): Promise<void> {
 
     const { UserStore } = await import("./user-store.js");
     const webCfg = loadWebConfig();
-    const sessionMaxAgeDays = settingsStore.getNumber("web.session_max_age_days", webCfg.sessionMaxAgeDays);
+    const sessionMaxAgeDays = await settingsStore.getNumber("web.session_max_age_days", webCfg.sessionMaxAgeDays);
     const sessionMaxAgeMs = sessionMaxAgeDays * 24 * 60 * 60 * 1000;
     const userStore = new UserStore(undefined, sessionMaxAgeMs);
     userStoreInstance = userStore;
 
-    const pruned = userStore.pruneExpiredSessions();
+    const pruned = await userStore.pruneExpiredSessions();
     if (pruned > 0) {
       console.log(`[UserStore] Pruned ${pruned} expired auth session(s)`);
     }
@@ -224,14 +225,15 @@ async function start(): Promise<void> {
   // Initialize cron scheduler
   let cronScheduler: import("./cron.js").CronScheduler | null = null;
   {
-    const tasks = settingsStore.listTasks();
+    const tasks = await settingsStore.listTasks();
     const { CronScheduler } = await import("./cron.js");
     const deliverers = manager.buildDeliverers();
+    const maxConcurrentRuns = await settingsStore.getNumber("cron.max_concurrent_runs", 0);
     cronScheduler = new CronScheduler(
       {
         enabled: true,
         tasks,
-        maxConcurrentRuns: settingsStore.getNumber("cron.max_concurrent_runs", 0) || undefined,
+        maxConcurrentRuns: maxConcurrentRuns || undefined,
       },
       cronExecutor,
       deliverers,
@@ -247,7 +249,7 @@ async function start(): Promise<void> {
 
   // Bridge engine cron tools to Klaus's SQLite + CronScheduler
   const { setKlausCronBridge } = await import("./engine/utils/klausCronBridge.js");
-  setKlausCronBridge(settingsStore, cronScheduler);
+  setKlausCronBridge(settingsStore as any, cronScheduler);
 
   try {
     await manager.startAll();

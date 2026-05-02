@@ -27,20 +27,20 @@ export type GatewaySettingsSnapshot = {
 };
 
 export type GatewayAdminRpcContext = {
-  listAdminModels(): { models: readonly unknown[] };
-  createAdminModel(input: Record<string, unknown>): { ok: true; model: unknown };
+  listAdminModels(): Promise<{ models: readonly unknown[] }>;
+  createAdminModel(input: Record<string, unknown>): Promise<{ ok: true; model: unknown }>;
   updateAdminModel(params: {
     id: string;
     patch: Record<string, unknown>;
-  }): { ok: true; model: unknown };
-  deleteAdminModel(id: string): boolean;
-  listAdminPrompts(): { prompts: readonly unknown[] };
-  createAdminPrompt(input: Record<string, unknown>): { ok: true; prompt: unknown };
+  }): Promise<{ ok: true; model: unknown }>;
+  deleteAdminModel(id: string): Promise<boolean>;
+  listAdminPrompts(): Promise<{ prompts: readonly unknown[] }>;
+  createAdminPrompt(input: Record<string, unknown>): Promise<{ ok: true; prompt: unknown }>;
   updateAdminPrompt(params: {
     id: string;
     patch: Record<string, unknown>;
-  }): { ok: true; prompt: unknown };
-  deleteAdminPrompt(id: string): boolean;
+  }): Promise<{ ok: true; prompt: unknown }>;
+  deleteAdminPrompt(id: string): Promise<boolean>;
   listMcpServers(userId: string): Promise<{ servers: readonly unknown[] }>;
   createMcpServer(userId: string, input: Record<string, unknown>): Promise<{ ok: true; name: string }>;
   deleteMcpServer(userId: string, name: string): Promise<boolean>;

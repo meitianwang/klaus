@@ -131,9 +131,9 @@ export interface ChannelAccountSnapshot {
 // ---------------------------------------------------------------------------
 
 export interface ChannelConfigAdapter<TAccount = unknown> {
-  listAccountIds(store: SettingsStore): string[];
-  resolveAccount(store: SettingsStore, accountId?: string): TAccount | null;
-  isEnabled(account: TAccount, store: SettingsStore): boolean;
+  listAccountIds(store: SettingsStore): Promise<string[]>;
+  resolveAccount(store: SettingsStore, accountId?: string): Promise<TAccount | null>;
+  isEnabled(account: TAccount, store: SettingsStore): Promise<boolean>;
   isConfigured(account: TAccount, store: SettingsStore): boolean;
 }
 
@@ -144,12 +144,12 @@ export interface ChannelConfigAdapter<TAccount = unknown> {
 export function singleAccountConfig<T>(
   channelId: string,
   primaryKey: string,
-  resolve: (store: SettingsStore) => T | null,
+  resolve: (store: SettingsStore) => Promise<T | null>,
 ): ChannelConfigAdapter<T> {
   return {
-    listAccountIds: (store) => store.get(`channel.${channelId}.${primaryKey}`) ? ["default"] : [],
+    listAccountIds: async (store) => (await store.get(`channel.${channelId}.${primaryKey}`)) ? ["default"] : [],
     resolveAccount: resolve,
-    isEnabled: (_account, store) => store.getBool(`channel.${channelId}.enabled`, false),
+    isEnabled: async (_account, store) => store.getBool(`channel.${channelId}.enabled`, false),
     isConfigured: (account) => Boolean(account),
   };
 }

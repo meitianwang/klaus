@@ -27,14 +27,14 @@ const DEFAULTS: SandboxConfig = {
   workdir: "/workspace",
 };
 
-export function loadSandboxConfig(store: SettingsStore): SandboxConfig {
+export async function loadSandboxConfig(store: SettingsStore): Promise<SandboxConfig> {
   return {
-    enabled: store.getBool("sandbox.enabled", DEFAULTS.enabled),
-    image: store.get("sandbox.image") ?? DEFAULTS.image,
-    timeout: store.getNumber("sandbox.timeout", DEFAULTS.timeout),
-    network: store.get("sandbox.network") ?? DEFAULTS.network,
-    memory: store.get("sandbox.memory") ?? DEFAULTS.memory,
-    workdir: store.get("sandbox.workdir") ?? DEFAULTS.workdir,
+    enabled: await store.getBool("sandbox.enabled", DEFAULTS.enabled),
+    image: (await store.get("sandbox.image")) ?? DEFAULTS.image,
+    timeout: await store.getNumber("sandbox.timeout", DEFAULTS.timeout),
+    network: (await store.get("sandbox.network")) ?? DEFAULTS.network,
+    memory: (await store.get("sandbox.memory")) ?? DEFAULTS.memory,
+    workdir: (await store.get("sandbox.workdir")) ?? DEFAULTS.workdir,
   };
 }
 

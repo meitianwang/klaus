@@ -679,9 +679,9 @@ export const feishuPlugin: ChannelPlugin<FeishuConfig> = {
     deleteKeys: ["bot_name", "bot_open_id", "owner_id"],
   },
 
-  config: singleAccountConfig<FeishuConfig>("feishu", "app_id", (store) => {
-    const appId = store.get("channel.feishu.app_id");
-    const appSecret = decryptCred(store.get("channel.feishu.app_secret") ?? "");
+  config: singleAccountConfig<FeishuConfig>("feishu", "app_id", async (store) => {
+    const appId = await store.get("channel.feishu.app_id");
+    const appSecret = decryptCred((await store.get("channel.feishu.app_secret")) ?? "");
     return appId && appSecret ? { appId, appSecret } as FeishuConfig : null;
   }),
 

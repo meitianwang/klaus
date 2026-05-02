@@ -41,7 +41,8 @@ async function resolveProviderModels(params: {
   }
 
   try {
-    const stored = params.settingsStore?.listModels().find(
+    const allModels = params.settingsStore ? await params.settingsStore.listModels() : [];
+    const stored = allModels.find(
       (model) => model.provider === params.providerId,
     );
     const apiKey = stored?.apiKey;
@@ -157,7 +158,7 @@ export async function completeGatewayProviderOAuth(params: {
     accessToken: string;
     refreshToken?: string;
     expiresInSeconds?: number;
-  }) => boolean;
+  }) => Promise<boolean>;
 }): Promise<OAuthCallbackPage> {
   if (params.error) {
     return {
@@ -184,7 +185,7 @@ export async function completeGatewayProviderOAuth(params: {
       pending.redirectUri,
       pending.verifier,
     );
-    const updated = params.updateModelOAuthTokens({
+    const updated = await params.updateModelOAuthTokens({
       modelId: pending.modelId,
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,

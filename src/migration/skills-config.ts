@@ -10,23 +10,23 @@ import type { SettingsStore } from "../settings-store.js";
 
 const MARKER = "migration.skills_config_done";
 
-export function migrateSkillsConfigIfNeeded(
+export async function migrateSkillsConfigIfNeeded(
   store: SettingsStore,
   encrypt: (plaintext: string) => string,
-): void {
-  if (store.get(MARKER) === "true") return;
+): Promise<void> {
+  if ((await store.get(MARKER)) === "true") return;
 
   const cfg = loadConfig();
   const raw = cfg.skills;
 
   if (raw === "all") {
     // "all" → set a global flag so loadEnabledSkills treats unset skills as enabled
-    store.set("skills.default_enabled", "true");
+    await store.set("skills.default_enabled", "true");
     console.log("[Migration] skills: all → skills.default_enabled=true");
   } else if (Array.isArray(raw)) {
     for (const name of raw) {
       const key = `skill.${String(name)}.enabled`;
-      if (!store.get(key)) store.set(key, "true");
+      if (!(await store.get(key))) await store.set(key, "true");
     }
     console.log(`[Migration] skills: [${raw.join(", ")}] → individual enabled keys`);
   } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -35,8 +35,8 @@ export function migrateSkillsConfigIfNeeded(
       | undefined;
     if (entries) {
       for (const [name, skillCfg] of Object.entries(entries)) {
-        if (skillCfg.enabled !== undefined && !store.get(`skill.${name}.enabled`)) {
-          store.set(`skill.${name}.enabled`, skillCfg.enabled ? "true" : "false");
+        if (skillCfg.enabled !== undefined && !(await store.get(`skill.${name}.enabled`))) {
+          await store.set(`skill.${name}.enabled`, skillCfg.enabled ? "true" : "false");
         }
         // Migrate env vars → only the first non-empty value is stored as the skill's API key.
         // The new model supports one API key per skill (primaryEnv). Extra env vars are lost.
@@ -46,8 +46,8 @@ export function migrateSkillsConfigIfNeeded(
             console.warn(`[Migration] skill "${name}" has ${envEntries.length} env vars but only 1 apiKey slot — extra vars will be lost`);
           }
           const first = envEntries[0];
-          if (first && !store.get(`skill.${name}.apiKey`)) {
-            store.set(`skill.${name}.apiKey`, encrypt(first[1]));
+          if (first && !(await store.get(`skill.${name}.apiKey`))) {
+            await store.set(`skill.${name}.apiKey`, encrypt(first[1]));
           }
         }
       }
@@ -55,5 +55,5 @@ export function migrateSkillsConfigIfNeeded(
     }
   }
 
-  store.set(MARKER, "true");
+  await store.set(MARKER, "true");
 }

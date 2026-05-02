@@ -343,7 +343,7 @@ const sessionListEl = document.getElementById('session-list')
 const statusEl = document.getElementById('status')
 const dropOverlay = document.getElementById('drop-overlay')
 const slashMenu = document.getElementById('slash-menu')
-const agentPanelEl = document.getElementById('agent-panel')
+const agentPanelEl = document.getElementById('monitor-section-agents')
 
 // --- Markdown + Syntax Highlighting ---
 let renderMarkdown
@@ -895,7 +895,7 @@ function resetStreamState() {
   // sessions' agents intact. Just hide the panel here; renderAgentPanel
   // will turn it back on if the new session has agents.
   currentTeam = null
-  if (agentPanelEl) agentPanelEl.style.display = 'none'
+  if (agentPanelEl) agentPanelEl.setAttribute('hidden', '')
 }
 
 // ==================== Message-meta (time + copy) helpers ====================
@@ -1215,6 +1215,9 @@ const imgSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stro
 // 触发这些分支。命中后走专属渲染，否则 fall through 到下面的常规渲染。
 function appendUserMsg(text, ts, uuid) {
   if (typeof text === 'string') {
+    // task-notification is injected by the engine's do-while drain (套路3/5) as
+    // LLM context but is not user content — the agent panel shows the status.
+    if (text.trimStart().startsWith('<task-notification>')) return
     if (text.includes('<fork-boilerplate>')) {
       return appendForkBoilerplate(text, ts, uuid)
     }
@@ -2201,58 +2204,40 @@ function visibleAgentTasks() {
   return out
 }
 
-// Surfaces the agent toggle button + its running-count badge. Hides the
-// button entirely when there are no agents — same gating CC's pillLabel
-// uses to avoid an empty BackgroundTasksIndicator.
+// Shows/hides the monitor-section-agents section and keeps its meta count up to
+// date. Replaces the old toggle-button + popup approach — agents are now always
+// surfaced in the right monitor panel, matching the Tasks / Context sections.
 function updateAgentToggle() {
-  const toggle = document.getElementById('agent-toggle')
-  const badge = document.getElementById('agent-toggle-badge')
-  if (!toggle) return
+  const section = document.getElementById('monitor-section-agents')
+  if (!section) return
   const visible = visibleAgentTasks()
   if (!currentTeam && visible.length === 0) {
-    toggle.hidden = true
-    setAgentPanelOpen(false)
+    section.setAttribute('hidden', '')
     return
   }
-  toggle.hidden = false
-  let runningCount = 0
-  for (const [, t] of visible) {
-    if (t.status === 'running' || t.status === 'pending') runningCount++
-  }
-  if (badge) {
+  section.removeAttribute('hidden')
+  const meta = document.getElementById('monitor-agents-count')
+  if (meta) {
+    let runningCount = 0
+    for (const [, t] of visible) {
+      if (t.status === 'running' || t.status === 'pending') runningCount++
+    }
     if (runningCount > 0) {
-      badge.hidden = false
-      badge.textContent = String(runningCount)
+      meta.textContent = runningCount + ' ' + tt('agent_running')
     } else {
-      badge.hidden = true
+      const size = visible.length
+      meta.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
     }
   }
 }
 
 function renderAgentPanel() {
   updateAgentToggle()
-  if (!agentPanelEl) return
-  // Dialog only re-renders its inner content when open. Closed dialog: the
-  // toggle button (+ badge) is the only surface that needs updating.
-  if (!isAgentPanelOpen()) return
-  const visible = visibleAgentTasks()
-  const title = agentPanelEl.querySelector('#agent-panel-title')
-  const count = agentPanelEl.querySelector('#agent-panel-count')
-  const body = agentPanelEl.querySelector('#agent-panel-body')
-  if (title) title.textContent = currentTeam ? currentTeam.name : tt('agents')
-  let runningCount = 0
-  for (const [, t] of visible) {
-    if (t.status === 'running' || t.status === 'pending') runningCount++
-  }
-  if (count) {
-    if (runningCount > 0) {
-      count.textContent = runningCount + ' ' + tt('agent_running')
-    } else {
-      const size = visible.length
-      count.textContent = size + (size === 1 ? tt('agent_count_one') : tt('agent_count_many'))
-    }
-  }
+  const body = document.getElementById('monitor-agents-body')
+  const title = document.getElementById('monitor-agents-title')
   if (!body) return
+  const visible = visibleAgentTasks()
+  if (title) title.textContent = currentTeam ? currentTeam.name : tt('agents')
   body.innerHTML = ''
   for (const [id, task] of visible) {
     const row = document.createElement('div')
@@ -3823,53 +3808,9 @@ document.querySelectorAll('.settings-nav-item').forEach(btn => {
   })
 })
 
-// Agent dialog (CC BackgroundTasksDialog mirror). The toggle button in the
-// input row opens/closes the popup; click-outside also closes it. Close
-// button is a per-card teardown (hides + remembers explicit dismiss until
-// next tasks_changed). enterTeammateView is wired via event delegation on
-// the panel body so newly-rendered rows pick it up automatically.
-function setAgentPanelOpen(open) {
-  if (!agentPanelEl) return
-  if (open) {
-    // Only meaningful when the current session has agents to show. If
-    // there's nothing to display the toggle button is hidden anyway, but
-    // double-guard keeps stray keyboard shortcuts from opening an empty
-    // popup.
-    const tasks = tasksBySession.get(currentSessionId) || {}
-    if (Object.keys(tasks).length === 0 && !currentTeam) return
-    agentPanelEl.style.display = ''
-    agentPanelEl.dataset.open = '1'
-    // 必须在 dataset.open 设完之后再 render — renderAgentPanel 内部用
-    // isAgentPanelOpen() 决定是否填内部 body，否则首次打开 dialog 是空的。
-    renderAgentPanel()
-  } else {
-    agentPanelEl.style.display = 'none'
-    delete agentPanelEl.dataset.open
-  }
-}
-function isAgentPanelOpen() {
-  return !!(agentPanelEl && agentPanelEl.dataset.open === '1')
-}
-document.getElementById('agent-toggle')?.addEventListener('click', (e) => {
-  e.stopPropagation()
-  setAgentPanelOpen(!isAgentPanelOpen())
-})
-document.getElementById('agent-panel-close')?.addEventListener('click', (e) => {
-  e.stopPropagation()
-  setAgentPanelOpen(false)
-})
-// Click-outside: anywhere outside the panel and toggle button closes it.
-document.addEventListener('click', (e) => {
-  if (!isAgentPanelOpen()) return
-  const t = e.target
-  if (!(t instanceof Node)) return
-  if (agentPanelEl?.contains(t)) return
-  if (document.getElementById('agent-toggle')?.contains(t)) return
-  setAgentPanelOpen(false)
-})
 // Agent row click → enterTeammateView. Body delegation since rows are
 // re-rendered on every tasks_changed.
-document.getElementById('agent-panel-body')?.addEventListener('click', (e) => {
+document.getElementById('monitor-agents-body')?.addEventListener('click', (e) => {
   const t = e.target
   if (!(t instanceof Element)) return
   const row = t.closest('.agent-row')
@@ -3877,7 +3818,6 @@ document.getElementById('agent-panel-body')?.addEventListener('click', (e) => {
   const taskId = row.getAttribute('data-task-id')
   if (!taskId) return
   enterTeammateView(taskId)
-  setAgentPanelOpen(false)
 })
 document.getElementById('subagent-back')?.addEventListener('click', () => {
   exitTeammateView()

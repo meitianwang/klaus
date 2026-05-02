@@ -137,9 +137,9 @@ export const qqPlugin: ChannelPlugin<QQBotConfig> = {
     deleteKeys: ["owner_id"],
   },
 
-  config: singleAccountConfig<QQBotConfig>("qq", "app_id", (store) => {
-    const appId = store.get("channel.qq.app_id");
-    const clientSecret = decryptCred(store.get("channel.qq.client_secret") ?? "");
+  config: singleAccountConfig<QQBotConfig>("qq", "app_id", async (store) => {
+    const appId = await store.get("channel.qq.app_id");
+    const clientSecret = decryptCred((await store.get("channel.qq.client_secret")) ?? "");
     return appId && clientSecret ? { appId, clientSecret } : null;
   }),
 

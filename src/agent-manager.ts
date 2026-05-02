@@ -243,7 +243,7 @@ export class AgentSessionManager {
   private readonly store: SettingsStore;
   /** In-memory throttle for skill audit — avoids stat on every query. */
   private static readonly _lastAuditCheck = new Map<string, number>();
-  private readonly maxSessions: number;
+  private maxSessions: number;
   // Per-user MCP state — each user owns independent connections, tools, and resources.
   private readonly _mcpByUser = new Map<string, McpUserState>();
   // Per-user command queues — persist across chat() calls so background agent
@@ -260,7 +260,7 @@ export class AgentSessionManager {
 
   constructor(store: SettingsStore) {
     this.store = store;
-    this.maxSessions = store.getNumber("max_sessions", 20);
+    this.maxSessions = 20; // default; overridden async in init()
     // Initialize engine state — use ~/.klaus as project root so the engine
     // does NOT scan the Klaus source tree's .claude/skills/ (those are dev
     // tools, not user-facing skills).
@@ -286,12 +286,15 @@ export class AgentSessionManager {
       });
     }).catch(err => console.error("[Skills] Failed to init bundled skills:", err));
     // CLI hooks disabled at engine level (hasHookForEvent → false)
-    // Seed default prompt sections from engine hardcoded content
-    this.seedPromptSections();
+    // Seed default prompt sections from engine hardcoded content (fire-and-forget)
+    void this.seedPromptSections();
+    // Load max_sessions from store asynchronously
+    void this.store.getNumber("max_sessions", 20).then((n) => { this.maxSessions = n; });
   }
 
-  private seedPromptSections(): void {
-    const existing = new Set(this.store.listPrompts().map((p: any) => p.id));
+  private async seedPromptSections(): Promise<void> {
+    const prompts = await this.store.listPrompts();
+    const existing = new Set(prompts.map((p: any) => p.id));
     const defaults: { id: string; name: string; content: string }[] = [
       { id: "intro", name: "Identity & Role", content: getSimpleIntroSection(null) },
       { id: "system", name: "System Rules", content: getSimpleSystemSection() },
@@ -303,7 +306,7 @@ export class AgentSessionManager {
     const now = Date.now();
     for (const def of defaults) {
       if (!existing.has(def.id)) {
-        this.store.upsertPrompt({
+        await this.store.upsertPrompt({
           id: def.id,
           name: def.name,
           content: def.content,
@@ -497,7 +500,7 @@ export class AgentSessionManager {
       );
 
       // Build ToolUseContext
-      const toolUseContext = this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, agentDefinitions, apiKey, baseUrl);
+      const toolUseContext = await this.buildToolUseContext(sessionKey, session, tools, model, thinkingConfig, agentDefinitions, apiKey, baseUrl);
 
       // Thread the rendered system prompt into the context so fork subagents can
       // inherit it byte-for-byte (AgentTool.ts fork path uses this for cache-identical
@@ -823,22 +826,24 @@ export class AgentSessionManager {
                   if (!found) continue;
                   const rel = relativeWithinWorkspace(workspaceDir, found.filePath);
                   if (!rel) continue;
-                  try {
-                    const rec = this.store.upsertArtifactForUser(sessionKey, userId, rel, found.op);
-                    if (parsed && sendEvent) {
-                      sendEvent(parsed.userId, {
-                        type: "artifact",
-                        sessionId: parsed.sessionId,
-                        filePath: rec.filePath,
-                        fileName: basename(rec.filePath),
-                        lastOp: rec.lastOp,
-                        firstSeenAt: rec.firstSeenAt,
-                        lastModifiedAt: rec.lastModifiedAt,
-                      });
+                  void (async () => {
+                    try {
+                      const rec = await this.store.upsertArtifactForUser(sessionKey, userId, rel, found.op);
+                      if (parsed && sendEvent) {
+                        sendEvent(parsed.userId, {
+                          type: "artifact",
+                          sessionId: parsed.sessionId,
+                          filePath: rec.filePath,
+                          fileName: basename(rec.filePath),
+                          lastOp: rec.lastOp,
+                          firstSeenAt: rec.firstSeenAt,
+                          lastModifiedAt: rec.lastModifiedAt,
+                        });
+                      }
+                    } catch (err) {
+                      console.error("[Artifact] upsert failed:", err);
                     }
-                  } catch (err) {
-                    console.error("[Artifact] upsert failed:", err);
-                  }
+                  })();
                 }
               }
             }
@@ -1028,7 +1033,7 @@ export class AgentSessionManager {
     const workspaceDir = getUserWorkspaceDir(userId);
     const uploadsDir   = getUserUploadsDir(userId);
     const allowedDirs  = [workspaceDir, uploadsDir];
-    const modelRecord = this.store.getDefaultModel();
+    const modelRecord = await this.store.getDefaultModel();
     const providerDef = modelRecord?.provider ? getProvider(modelRecord.provider) : undefined;
     const apiKey = apiKeyOverride ?? modelRecord?.apiKey;
 
@@ -1092,7 +1097,7 @@ export class AgentSessionManager {
   private async runSandboxExec(
     args: Record<string, unknown>,
   ): Promise<{ ok: true; result: { content: { type: string; text: string }[] } } | { ok: false; error: string }> {
-    const config = loadSandboxConfig(this.store);
+    const config = await loadSandboxConfig(this.store);
     if (!config.enabled) {
       return { ok: false, error: "Sandbox is not enabled. Set sandbox.enabled=true in settings." };
     }
@@ -1248,7 +1253,7 @@ export class AgentSessionManager {
     toolSchemas: any[];
   }> {
     const userId = extractUserId(sessionKey);
-    const modelRecord = this.store.getDefaultModel();
+    const modelRecord = await this.store.getDefaultModel();
     if (!modelRecord || !modelRecord.model || !modelRecord.provider) {
       throw new Error("No valid model configured. Add a model in the admin panel.");
     }
@@ -1288,7 +1293,7 @@ export class AgentSessionManager {
 
     // Build system prompt section overrides from SettingsStore prompts table
     const sectionOverrides: Record<string, string> = {};
-    for (const prompt of this.store.listPrompts()) {
+    for (const prompt of await this.store.listPrompts()) {
       if (prompt.content && prompt.content.trim()) {
         sectionOverrides[prompt.id] = prompt.content;
       }
@@ -1297,7 +1302,7 @@ export class AgentSessionManager {
     // Build tools
     const tools = await this.buildTools(userId, apiKey);
 
-    const disabledSkills = this.getDisabledSkills(userId);
+    const disabledSkills = await this.getDisabledSkills(userId);
     const systemPromptParts = await getSystemPrompt(
       tools,
       modelRecord.model,
@@ -1324,7 +1329,7 @@ export class AgentSessionManager {
       : { type: "enabled", budgetTokens: Math.floor(modelRecord.maxContextTokens * 0.8) };
 
     // Pick a fallback model: first non-default model from the same provider
-    const allModels = this.store.listModels();
+    const allModels = await this.store.listModels();
     const fallbackRecord = allModels.find(
       (m) => m.id !== modelRecord.id && m.provider === modelRecord.provider && m.model && m.apiKey,
     );
@@ -1344,10 +1349,10 @@ export class AgentSessionManager {
     };
   }
 
-  private getDisabledSkills(userId: string): Set<string> {
+  private async getDisabledSkills(userId: string): Promise<Set<string>> {
     const disabled = new Set<string>();
     const prefix = `user.${userId}.skill.`;
-    const prefs = this.store.getByPrefix(prefix);
+    const prefs = await this.store.getByPrefix(prefix);
     for (const [key, value] of prefs) {
       if (value === "off") {
         disabled.add(key.slice(prefix.length)); // strip prefix to get skill name
@@ -1364,7 +1369,7 @@ export class AgentSessionManager {
   // The engine type has many more fields for CLI/UI concerns that are
   // irrelevant in a headless server context.  Partial<> + cast documents
   // this intentional subset rather than hiding it behind `as any`.
-  private buildToolUseContext(
+  private async buildToolUseContext(
     sessionKey: string,
     session: SessionEntry,
     tools: any[],
@@ -1373,13 +1378,13 @@ export class AgentSessionManager {
     agentDefinitions: AgentDefinitionsResult,
     apiKey?: string,
     baseURL?: string,
-  ): ToolUseContext {
+  ): Promise<ToolUseContext> {
     // Per-user permission mode takes precedence over global setting
     const userId = extractUserId(sessionKey);
+    const userPermMode = await this.store.getUserPermissionMode(userId);
+    const globalPermMode = await this.store.get("permission_mode");
     const permissionMode = (
-      this.store.getUserPermissionMode(userId)
-      ?? this.store.get("permission_mode")
-      ?? "default"
+      userPermMode ?? globalPermMode ?? "default"
     ) as ToolPermissionContext["mode"];
     const isBypass = permissionMode === "bypassPermissions";
 
@@ -1451,7 +1456,7 @@ export class AgentSessionManager {
       // User ID for per-user features
       userId: extractUserId(sessionKey),
       // Per-user disabled skills (read from SettingsStore, checked by SkillTool)
-      disabledSkills: this.getDisabledSkills(extractUserId(sessionKey)),
+      disabledSkills: await this.getDisabledSkills(userId),
       // Per-session content replacement state for tool result budget
       contentReplacementState: session.contentReplacementState,
       // Public base URL for MCP OAuth callbacks (e.g. "https://example.com")

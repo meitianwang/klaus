@@ -110,11 +110,11 @@ export class ChannelManager {
         console.warn(`[ChannelManager] ${plugin.meta.label} has no config adapter, skipping`);
         continue;
       }
-      const accountIds = plugin.config.listAccountIds(this.opts.settingsStore);
+      const accountIds = await plugin.config.listAccountIds(this.opts.settingsStore);
       for (const accountId of accountIds) {
-        const account = plugin.config.resolveAccount(this.opts.settingsStore, accountId);
+        const account = await plugin.config.resolveAccount(this.opts.settingsStore, accountId);
         if (!account) continue;
-        if (!plugin.config.isEnabled(account, this.opts.settingsStore)) continue;
+        if (!(await plugin.config.isEnabled(account, this.opts.settingsStore))) continue;
         if (!plugin.config.isConfigured(account, this.opts.settingsStore)) continue;
         const label = accountId === "default" ? plugin.meta.label : `${plugin.meta.label}:${accountId}`;
         console.log(`[ChannelManager] ${label} enabled`);
@@ -189,14 +189,14 @@ export class ChannelManager {
       console.warn(`[ChannelManager] hotStart: "${channelId}" has no config adapter`);
       return;
     }
-    const account = plugin.config.resolveAccount(this.opts.settingsStore, accountId);
-    if (!account || !plugin.config.isEnabled(account, this.opts.settingsStore)) {
-      console.warn(`[ChannelManager] hotStart: "${channelId}:${accountId}" not configured/enabled`);
-      return;
-    }
 
     // Stop existing instance first, then start new one
-    void this.stop(channelId, accountId).then(() => {
+    void this.stop(channelId, accountId).then(async () => {
+      const account = await plugin.config!.resolveAccount(this.opts.settingsStore, accountId);
+      if (!account || !(await plugin.config!.isEnabled(account, this.opts.settingsStore))) {
+        console.warn(`[ChannelManager] hotStart: "${channelId}:${accountId}" not configured/enabled`);
+        return;
+      }
       this.startAccount(plugin, accountId).catch((err) => {
         console.error(`[ChannelManager] ${plugin.meta.label} hot-start failed:`, err);
       });
@@ -212,7 +212,7 @@ export class ChannelManager {
         const store = this.opts.settingsStore;
         const pid = plugin.meta.id;
         result.set(pid, async (to, text) => {
-          const account = plugin.config?.resolveAccount(store, "default") ?? {};
+          const account = (await plugin.config?.resolveAccount(store, "default")) ?? {};
           const ctx: OutboundContext = {
             accountId: "default",
             sessionKey: "",
@@ -332,14 +332,21 @@ export class ChannelManager {
     Object.assign(runtime.snapshot, { state: "stopped", running: false, lastStopAt: Date.now() });
   }
 
-  private buildContext(plugin: ChannelPlugin, signal: AbortSignal, accountId = "default"): ChannelContext {
-    // Read ownerId from SettingsStore (channel.{id}.owner_id)
-    const ownerId = this.opts.settingsStore.get(`channel.${plugin.meta.id}.owner_id`) ?? undefined;
-
+  private buildContext(plugin: ChannelPlugin, signal: AbortSignal, _accountId = "default"): ChannelContext {
+    // ownerId is resolved lazily inside notify so we don't need to await here.
+    // buildNotify accepts undefined and falls back to broadcastEvent.
     const transcript: TranscriptFn = (sessionKey, role, text) =>
       this.opts.messageStore.append(sessionKey, role, text);
 
-    const notify = this.opts.buildNotify(ownerId);
+    // Resolve ownerId lazily: fire-and-forget per-message lookup via async closure.
+    const store = this.opts.settingsStore;
+    const channelId = plugin.meta.id;
+    const buildNotify = this.opts.buildNotify;
+    const notify: import("./types.js").NotifyFn = (sessionKey, role, text) => {
+      void store.get(`channel.${channelId}.owner_id`).then((ownerId) => {
+        buildNotify(ownerId ?? undefined)(sessionKey, role, text);
+      });
+    };
 
     return {
       handler: this.opts.handler,

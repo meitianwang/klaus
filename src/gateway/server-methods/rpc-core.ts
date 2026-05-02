@@ -6,13 +6,13 @@ import type { CronTask } from "../../types.js";
 export type GatewayRpcCoreContext = {
   listAllStoredSessions(): Promise<readonly unknown[]>;
   deleteStoredSessionByKey(key: string): boolean;
-  listCronTasks(): { tasks: readonly unknown[]; scheduler: unknown };
-  createCronTask(input: Record<string, unknown> | CronTask): { ok: true; task: CronTask };
+  listCronTasks(): Promise<{ tasks: readonly unknown[]; scheduler: unknown }>;
+  createCronTask(input: Record<string, unknown> | CronTask): Promise<{ ok: true; task: CronTask }>;
   updateCronTask(params: {
     id: string;
     patch: Record<string, unknown> | Partial<CronTask>;
-  }): { ok: true; task: CronTask };
-  deleteCronTask(id: string): boolean;
+  }): Promise<{ ok: true; task: CronTask }>;
+  deleteCronTask(id: string): Promise<boolean>;
   runCronTask(id: string): Promise<unknown>;
   getCronStatus(): unknown;
   processInboundMessage(params: {
@@ -106,7 +106,7 @@ export async function handleGatewayCoreRpcMethod(
       };
     case "cron.list":
       try {
-        return { handled: true, result: ctx.listCronTasks() };
+        return { handled: true, result: await ctx.listCronTasks() };
       } catch (err) {
         return { handled: true, error: String(err) };
       }
@@ -118,7 +118,7 @@ export async function handleGatewayCoreRpcMethod(
         }
         return {
           handled: true,
-          result: ctx.createCronTask(task),
+          result: await ctx.createCronTask(task),
         };
       } catch (err) {
         return { handled: true, error: String(err) };
@@ -133,7 +133,7 @@ export async function handleGatewayCoreRpcMethod(
         const patch = (params.params.patch ?? {}) as Partial<CronTask>;
         return {
           handled: true,
-          result: ctx.updateCronTask({ id: taskId, patch }),
+          result: await ctx.updateCronTask({ id: taskId, patch }),
         };
       } catch (err) {
         return { handled: true, error: String(err) };
@@ -147,7 +147,7 @@ export async function handleGatewayCoreRpcMethod(
       try {
         return {
           handled: true,
-          result: { ok: ctx.deleteCronTask(taskId) },
+          result: { ok: await ctx.deleteCronTask(taskId) },
         };
       } catch (err) {
         return { handled: true, error: String(err) };

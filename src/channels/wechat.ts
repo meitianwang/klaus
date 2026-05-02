@@ -147,10 +147,10 @@ export const wechatPlugin: ChannelPlugin<WechatConfig> = {
     dm: true,
   },
 
-  config: singleAccountConfig<WechatConfig>("wechat", "account_id", (store) => {
-    const token = decryptCred(store.get("channel.wechat.token") ?? "");
-    const baseUrl = store.get("channel.wechat.base_url");
-    const accountId = store.get("channel.wechat.account_id");
+  config: singleAccountConfig<WechatConfig>("wechat", "account_id", async (store) => {
+    const token = decryptCred((await store.get("channel.wechat.token")) ?? "");
+    const baseUrl = await store.get("channel.wechat.base_url");
+    const accountId = await store.get("channel.wechat.account_id");
     return token && baseUrl && accountId ? { token, baseUrl, accountId } : null;
   }),
 

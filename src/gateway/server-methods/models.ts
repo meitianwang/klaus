@@ -110,70 +110,70 @@ function normalizeModelInput(
   };
 }
 
-export function listGatewayAdminModels(params: {
+export async function listGatewayAdminModels(params: {
   settingsStore: SettingsStore;
-}): { models: readonly unknown[] } {
+}): Promise<{ models: readonly unknown[] }> {
   return {
-    models: params.settingsStore.listModels().map((model) => sanitizeModel(model)),
+    models: (await params.settingsStore.listModels()).map((model) => sanitizeModel(model)),
   };
 }
 
-export function createGatewayAdminModel(params: {
+export async function createGatewayAdminModel(params: {
   settingsStore: SettingsStore;
   input: Record<string, unknown>;
-}): { ok: true; model: unknown } {
+}): Promise<{ ok: true; model: unknown }> {
   const model = normalizeModelInput(params.input);
-  params.settingsStore.upsertModel(model);
+  await params.settingsStore.upsertModel(model);
   if (params.input.is_default) {
-    params.settingsStore.setDefaultModel(model.id);
+    await params.settingsStore.setDefaultModel(model.id);
   }
   if (model.role) {
-    params.settingsStore.setModelRole(model.id, model.role);
+    await params.settingsStore.setModelRole(model.id, model.role);
   }
-  const stored = params.settingsStore.getModel(model.id) ?? model;
+  const stored = (await params.settingsStore.getModel(model.id)) ?? model;
   return { ok: true, model: sanitizeModel(stored) };
 }
 
-export function updateGatewayAdminModel(params: {
+export async function updateGatewayAdminModel(params: {
   settingsStore: SettingsStore;
   id: string;
   patch: Record<string, unknown>;
-}): { ok: true; model: unknown } {
-  const existing = params.settingsStore.getModel(params.id);
+}): Promise<{ ok: true; model: unknown }> {
+  const existing = await params.settingsStore.getModel(params.id);
   if (!existing) {
     throw GatewayError.notFound("model not found");
   }
   const model = normalizeModelInput({ ...params.patch, id: params.id }, existing);
-  params.settingsStore.upsertModel(model);
+  await params.settingsStore.upsertModel(model);
   if (params.patch.is_default) {
-    params.settingsStore.setDefaultModel(model.id);
+    await params.settingsStore.setDefaultModel(model.id);
   }
   if ("role" in params.patch) {
-    params.settingsStore.setModelRole(model.id, model.role ?? null);
+    await params.settingsStore.setModelRole(model.id, model.role ?? null);
   }
-  const stored = params.settingsStore.getModel(model.id) ?? model;
+  const stored = (await params.settingsStore.getModel(model.id)) ?? model;
   return { ok: true, model: sanitizeModel(stored) };
 }
 
-export function deleteGatewayAdminModel(params: {
+export async function deleteGatewayAdminModel(params: {
   settingsStore: SettingsStore;
   id: string;
-}): boolean {
+}): Promise<boolean> {
   return params.settingsStore.deleteModel(requireEntityId(params.id));
 }
 
-export function updateGatewayModelOAuthTokens(params: {
+export async function updateGatewayModelOAuthTokens(params: {
   settingsStore: SettingsStore;
   modelId: string;
   accessToken: string;
   refreshToken?: string;
   expiresInSeconds?: number;
-}): boolean {
-  const existing = params.settingsStore.getModel(params.modelId);
+}): Promise<boolean> {
+  const existing = await params.settingsStore.getModel(params.modelId);
   if (!existing) {
     return false;
   }
-  params.settingsStore.upsertModel({
+  await params.settingsStore.upsertModel({
     ...existing,
     apiKey: params.accessToken,
     authType: "oauth",

@@ -81,8 +81,8 @@ export const whatsappPlugin: ChannelPlugin<WhatsAppConfig> = {
     group: true,
   },
 
-  config: singleAccountConfig<WhatsAppConfig>("whatsapp", "auth_dir", (store) => {
-    const authDir = store.get("channel.whatsapp.auth_dir") ?? DEFAULT_AUTH_DIR;
+  config: singleAccountConfig<WhatsAppConfig>("whatsapp", "auth_dir", async (store) => {
+    const authDir = (await store.get("channel.whatsapp.auth_dir")) ?? DEFAULT_AUTH_DIR;
     return { authDir };
   }),
 

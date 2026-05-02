@@ -466,72 +466,72 @@ class GatewayService {
     });
   }
 
-  listAdminModels(): { models: readonly unknown[] } {
+  async listAdminModels(): Promise<{ models: readonly unknown[] }> {
     return listGatewayAdminModels({
       settingsStore: this.requireSettingsStore(),
     });
   }
 
-  createAdminModel(input: Record<string, unknown>): { ok: true; model: unknown } {
+  async createAdminModel(input: Record<string, unknown>): Promise<{ ok: true; model: unknown }> {
     return createGatewayAdminModel({
       settingsStore: this.requireSettingsStore(),
       input,
     });
   }
 
-  updateAdminModel(params: {
+  async updateAdminModel(params: {
     id: string;
     patch: Record<string, unknown>;
-  }): { ok: true; model: unknown } {
+  }): Promise<{ ok: true; model: unknown }> {
     return updateGatewayAdminModel({
       settingsStore: this.requireSettingsStore(),
       ...params,
     });
   }
 
-  deleteAdminModel(id: string): boolean {
+  async deleteAdminModel(id: string): Promise<boolean> {
     return deleteGatewayAdminModel({
       settingsStore: this.requireSettingsStore(),
       id,
     });
   }
 
-  updateModelOAuthTokens(params: {
+  async updateModelOAuthTokens(params: {
     modelId: string;
     accessToken: string;
     refreshToken?: string;
     expiresInSeconds?: number;
-  }): boolean {
+  }): Promise<boolean> {
     return updateGatewayModelOAuthTokens({
       settingsStore: this.requireSettingsStore(),
       ...params,
     });
   }
 
-  listAdminPrompts(): { prompts: readonly PromptRecord[] } {
+  async listAdminPrompts(): Promise<{ prompts: readonly PromptRecord[] }> {
     return listGatewayAdminPrompts({
       settingsStore: this.requireSettingsStore(),
     });
   }
 
-  createAdminPrompt(input: Record<string, unknown>): { ok: true; prompt: PromptRecord } {
+  async createAdminPrompt(input: Record<string, unknown>): Promise<{ ok: true; prompt: PromptRecord }> {
     return createGatewayAdminPrompt({
       settingsStore: this.requireSettingsStore(),
       input,
     });
   }
 
-  updateAdminPrompt(params: {
+  async updateAdminPrompt(params: {
     id: string;
     patch: Record<string, unknown>;
-  }): { ok: true; prompt: PromptRecord } {
+  }): Promise<{ ok: true; prompt: PromptRecord }> {
     return updateGatewayAdminPrompt({
       settingsStore: this.requireSettingsStore(),
       ...params,
     });
   }
 
-  deleteAdminPrompt(id: string): boolean {
+  async deleteAdminPrompt(id: string): Promise<boolean> {
     return deleteGatewayAdminPrompt({
       settingsStore: this.requireSettingsStore(),
       id,
@@ -635,11 +635,11 @@ async listMcpServers(userId: string) {
     });
   }
 
-  updateAdminUser(params: {
+  async updateAdminUser(params: {
     userId: string;
     isActive?: boolean;
     role?: "admin" | "user";
-  }): { user: unknown } {
+  }): Promise<{ user: unknown }> {
     return updateGatewayAdminUser({
       userStore: this.requireUserStore(),
       ...params,
@@ -665,33 +665,33 @@ async listMcpServers(userId: string) {
     });
   }
 
-  getAdminSettings(): GatewaySettingsSnapshot {
+  async getAdminSettings(): Promise<GatewaySettingsSnapshot> {
     return getGatewayAdminSettings({
       settingsStore: this.requireSettingsStore(),
     });
   }
 
-  updateAdminSettings(params: Record<string, unknown>): GatewaySettingsSnapshot {
+  async updateAdminSettings(params: Record<string, unknown>): Promise<GatewaySettingsSnapshot> {
     return updateGatewayAdminSettings({
       settingsStore: this.requireSettingsStore(),
       input: params,
     });
   }
 
-  listCronTasks(): {
+  async listCronTasks(): Promise<{
     tasks: readonly unknown[];
     scheduler: CronSchedulerStatus;
-  } {
+  }> {
     return listGatewayCronTasks({
       settingsStore: this.requireSettingsStore(),
       cronScheduler: this.cronScheduler,
     });
   }
 
-  createCronTask(input: Record<string, unknown> | CronTask): {
+  async createCronTask(input: Record<string, unknown> | CronTask): Promise<{
     ok: true;
     task: CronTask;
-  } {
+  }> {
     return createGatewayCronTask({
       settingsStore: this.requireSettingsStore(),
       cronScheduler: this.cronScheduler,
@@ -699,13 +699,13 @@ async listMcpServers(userId: string) {
     });
   }
 
-  updateCronTask(params: {
+  async updateCronTask(params: {
     id: string;
     patch: Record<string, unknown> | Partial<CronTask>;
-  }): {
+  }): Promise<{
     ok: true;
     task: CronTask;
-  } {
+  }> {
     return updateGatewayCronTask({
       settingsStore: this.requireSettingsStore(),
       cronScheduler: this.cronScheduler,
@@ -713,7 +713,7 @@ async listMcpServers(userId: string) {
     });
   }
 
-  deleteCronTask(id: string): boolean {
+  async deleteCronTask(id: string): Promise<boolean> {
     return deleteGatewayCronTask({
       settingsStore: this.requireSettingsStore(),
       cronScheduler: this.cronScheduler,

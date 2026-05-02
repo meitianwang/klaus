@@ -168,18 +168,6 @@
 
       <!-- Input -->
       <div id="input-wrapper">
-        <!-- Agent dialog (CC BackgroundTasksDialog mirror). Default hidden;
-             toggled by #agent-toggle in the input row below. Lives INSIDE
-             #input-wrapper so its position:absolute / bottom:100% anchors
-             correctly to the input area. -->
-        <div id="agent-panel" class="agent-panel-popup" style="display:none">
-          <div id="agent-panel-header">
-            <span id="agent-panel-title"></span>
-            <span id="agent-panel-count"></span>
-            <button id="agent-panel-close" data-i18n-title="close_btn" title="Close">&times;</button>
-          </div>
-          <div id="agent-panel-body"></div>
-        </div>
         <div id="slash-menu" class="slash-menu hidden"></div>
         <div id="input-area">
           <div id="previews"></div>
@@ -189,10 +177,6 @@
             </button>
             <button id="compact-btn" type="button" data-i18n-title="compact_button_title" title="Compact conversation">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12"/><path d="M3.5 8h9"/><path d="M5 12h6"/></svg>
-            </button>
-            <button id="agent-toggle" type="button" class="agent-toggle" data-i18n-title="agents_toggle_title" title="Show agents" hidden>
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.2"/><circle cx="11" cy="6" r="2.2"/><path d="M2 13c.5-2 2-3 3-3"/><path d="M14 13c-.5-2-2-3-3-3"/></svg>
-              <span id="agent-toggle-badge" class="agent-toggle-badge" hidden>0</span>
             </button>
             <input type="file" id="file-input" multiple hidden>
             <textarea id="input" rows="1" data-i18n-placeholder="placeholder" placeholder="Send a message..." autocomplete="off"></textarea>
@@ -439,6 +423,14 @@
             <span class="artifacts-section-meta" id="monitor-tasks-count"></span>
           </div>
           <div class="artifacts-section-body" id="monitor-tasks-body"></div>
+        </div>
+        <!-- Agents section (CC BackgroundTasksDialog equivalent). Hidden when no agents. -->
+        <div class="artifacts-section" id="monitor-section-agents" hidden>
+          <div class="artifacts-section-header">
+            <span class="artifacts-section-title" id="monitor-agents-title" data-i18n="agents">Agents</span>
+            <span class="artifacts-section-meta" id="monitor-agents-count"></span>
+          </div>
+          <div class="artifacts-section-body" id="monitor-agents-body"></div>
         </div>
         <div class="artifacts-section">
           <div class="artifacts-section-header">

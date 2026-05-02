@@ -11,7 +11,7 @@ export async function handleGatewayAdminRpcMethod(
   switch (method) {
     case "models.list":
       try {
-        return { handled: true, result: ctx.listAdminModels() };
+        return { handled: true, result: await ctx.listAdminModels() };
       } catch (err) {
         return { handled: true, error: String(err) };
       }
@@ -19,7 +19,7 @@ export async function handleGatewayAdminRpcMethod(
       try {
         return {
           handled: true,
-          result: ctx.createAdminModel(
+          result: await ctx.createAdminModel(
             (params.model ?? params) as Record<string, unknown>,
           ),
         };
@@ -34,7 +34,7 @@ export async function handleGatewayAdminRpcMethod(
       try {
         return {
           handled: true,
-          result: ctx.updateAdminModel({
+          result: await ctx.updateAdminModel({
             id,
             patch: (params.patch ?? {}) as Record<string, unknown>,
           }),
@@ -49,14 +49,14 @@ export async function handleGatewayAdminRpcMethod(
         return { handled: true, error: "missing id parameter" };
       }
       try {
-        return { handled: true, result: { ok: ctx.deleteAdminModel(id) } };
+        return { handled: true, result: { ok: await ctx.deleteAdminModel(id) } };
       } catch (err) {
         return { handled: true, error: String(err) };
       }
     }
     case "prompts.list":
       try {
-        return { handled: true, result: ctx.listAdminPrompts() };
+        return { handled: true, result: await ctx.listAdminPrompts() };
       } catch (err) {
         return { handled: true, error: String(err) };
       }
@@ -64,7 +64,7 @@ export async function handleGatewayAdminRpcMethod(
       try {
         return {
           handled: true,
-          result: ctx.createAdminPrompt(
+          result: await ctx.createAdminPrompt(
             (params.prompt ?? params) as Record<string, unknown>,
           ),
         };
@@ -79,7 +79,7 @@ export async function handleGatewayAdminRpcMethod(
       try {
         return {
           handled: true,
-          result: ctx.updateAdminPrompt({
+          result: await ctx.updateAdminPrompt({
             id,
             patch: (params.patch ?? {}) as Record<string, unknown>,
           }),
@@ -94,12 +94,12 @@ export async function handleGatewayAdminRpcMethod(
         return { handled: true, error: "missing id parameter" };
       }
       try {
-        return { handled: true, result: { ok: ctx.deleteAdminPrompt(id) } };
+        return { handled: true, result: { ok: await ctx.deleteAdminPrompt(id) } };
       } catch (err) {
         return { handled: true, error: String(err) };
       }
     }
-case "mcp.list":
+    case "mcp.list":
       try {
         const userId = params.userId as string;
         if (!userId) return { handled: true, error: "missing userId parameter" };

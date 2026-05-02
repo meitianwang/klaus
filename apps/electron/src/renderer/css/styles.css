@@ -1334,8 +1334,6 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   margin: 0 auto;
   padding: 0 16px 20px;
   width: 100%;
-  /* Anchor for the absolute-positioned #agent-panel.agent-panel-popup. */
-  position: relative;
 }
 
 #input-area {
@@ -3318,80 +3316,9 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 .file-card-dl:hover { background: var(--accent-hover); }
 
-/* ===== Agent panel (CC BackgroundTasksDialog mirror) =====
-   Pop-up dialog floating above the input wrapper. Toggled by #agent-toggle
-   in the input row; default hidden. Click an agent row to drop into that
-   sub-agent's transcript via enterTeammateView. */
-#agent-panel.agent-panel-popup {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(560px, calc(100% - 32px));
-  margin: 0 0 8px;
-  padding: 0;
-  z-index: 30;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .15);
-  max-height: 50vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-#agent-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  user-select: none;
-}
-#agent-panel-title { font-weight: 600; color: var(--fg); }
-#agent-panel-count { color: var(--fg-quaternary); flex: 1; }
-#agent-panel-close { background: none; border: none; cursor: pointer; color: var(--fg-quaternary); font-size: 16px; padding: 0 2px; line-height: 1; }
-#agent-panel-close:hover { color: var(--fg); }
-#agent-panel-body { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; overflow-y: auto; }
-
-/* Agent toggle button — sits in the input row next to compact-btn.
-   Same circular treatment as #attach / #compact-btn for visual consistency.
-   Badge floats over the top-right corner with running agent count. */
-#agent-toggle {
-  position: relative;
-  background: transparent;
-  border: none;
-  border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg-tertiary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all var(--transition);
-}
-#agent-toggle:hover { color: var(--fg); background: var(--bg-hover); }
-#agent-toggle svg { width: 16px; height: 16px; }
-#agent-toggle[hidden] { display: none; }
-.agent-toggle-badge {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 10px;
-  background: var(--accent, #3b82f6);
-  color: #fff;
-  font-size: 9px;
-  line-height: 14px;
-  text-align: center;
-  font-weight: 600;
-  pointer-events: none;
-}
+/* ===== Agent rows in monitor panel (CC BackgroundTasksDialog equivalent) =====
+   Agents section lives in the right monitor panel alongside Context / Tasks.
+   Click a row to drop into that sub-agent's transcript via enterTeammateView. */
 
 /* Sub-agent transcript banner — appears above #messages when the main
    chat surface has been swapped to a sub-agent's internal conversation. */

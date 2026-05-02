@@ -7,7 +7,7 @@ export async function listGatewayAdminUsers(params: {
   userStore: UserStore;
   messageStore: MessageStore | null;
 }): Promise<{ users: readonly unknown[] }> {
-  const users = params.userStore.listUsers();
+  const users = await params.userStore.listUsers();
   const enriched = await Promise.all(
     users.map(async (user) => {
       let sessionCount = 0;
@@ -39,22 +39,22 @@ export async function listGatewayAdminUsers(params: {
   return { users: enriched };
 }
 
-export function updateGatewayAdminUser(params: {
+export async function updateGatewayAdminUser(params: {
   userStore: UserStore;
   userId: string;
   isActive?: boolean;
   role?: "admin" | "user";
-}): { user: unknown } {
+}): Promise<{ user: unknown }> {
   if (!params.userId) {
     throw GatewayError.badRequest("missing userId");
   }
   if (typeof params.isActive === "boolean") {
-    params.userStore.setActive(params.userId, params.isActive);
+    await params.userStore.setActive(params.userId, params.isActive);
   }
   if (params.role === "admin" || params.role === "user") {
-    params.userStore.setRole(params.userId, params.role);
+    await params.userStore.setRole(params.userId, params.role);
   }
-  const user = params.userStore.getUserById(params.userId);
+  const user = await params.userStore.getUserById(params.userId);
   if (!user) {
     throw GatewayError.notFound("user not found");
   }

@@ -1,23 +1,22 @@
 /**
- * Runtime settings store — SQLite-backed configuration for models, prompts, and general settings.
+ * Runtime settings store — Postgres-backed configuration for models, prompts, and general settings.
+ *
+ * All methods are async (delegating to PG repos). Callers must add `await`.
  */
 
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { CONFIG_DIR } from "./config.js";
+import type { Db } from "./db/connection.js";
+import { getDb } from "./db/connection.js";
 import type { CronTask } from "./types.js";
-import { ModelsRepo, type ModelRow } from "./db/repos/models.js";
-import { CronRepo, type CronTaskRow } from "./db/repos/cron.js";
-import { ArtifactsRepo, type ArtifactRow } from "./db/repos/artifacts.js";
-import { PromptsRepo, type PromptRow } from "./db/repos/prompts.js";
-import { UserPromptsRepo } from "./db/repos/user-prompts.js";
-import { UserSettingsRepo } from "./db/repos/user-settings.js";
-import { SessionsRepo } from "./db/repos/sessions.js";
-import { CronRunsRepo } from "./db/repos/cron-runs.js";
-import { TokenUsageRepo } from "./db/repos/token-usage.js";
-
-const DEFAULT_DB_PATH = join(CONFIG_DIR, "settings.db");
+import { ModelsRepoPg, type ModelRow } from "./db/repos/models.pg.js";
+import { CronRepoPg, type CronTaskRow } from "./db/repos/cron.pg.js";
+import { ArtifactsRepoPg, type ArtifactRow } from "./db/repos/artifacts.pg.js";
+import { PromptsRepoPg, type PromptRow } from "./db/repos/prompts.pg.js";
+import { UserPromptsRepoPg } from "./db/repos/user-prompts.pg.js";
+import { UserSettingsRepoPg } from "./db/repos/user-settings.pg.js";
+import { SessionsRepoPg } from "./db/repos/sessions.pg.js";
+import { CronRunsRepoPg } from "./db/repos/cron-runs.pg.js";
+import { TokenUsageRepoPg } from "./db/repos/token-usage.pg.js";
+import { PlatformSettingsRepoPg } from "./db/repos/platform-settings.pg.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,170 +76,31 @@ export interface ArtifactRecord {
 // ---------------------------------------------------------------------------
 
 export class SettingsStore {
-  private readonly db: Database;
-  private readonly models: ModelsRepo;
-  private readonly cron: CronRepo;
-  private readonly artifacts: ArtifactsRepo;
-  private readonly prompts: PromptsRepo;
+  private readonly models: ModelsRepoPg;
+  private readonly cron: CronRepoPg;
+  private readonly artifacts: ArtifactsRepoPg;
+  private readonly prompts: PromptsRepoPg;
+  private readonly platformSettings: PlatformSettingsRepoPg;
   // Phase 0 additions — exposed via accessor methods for future code to use.
-  // Existing legacy code paths (e.g. getUserLanguage reading from KV settings)
-  // are kept intact; new features should use these repos directly.
-  readonly userPrompts: UserPromptsRepo;
-  readonly userSettings: UserSettingsRepo;
-  readonly sessions: SessionsRepo;
-  readonly cronRuns: CronRunsRepo;
-  readonly tokenUsage: TokenUsageRepo;
+  readonly userPrompts: UserPromptsRepoPg;
+  readonly userSettings: UserSettingsRepoPg;
+  readonly sessions: SessionsRepoPg;
+  readonly cronRuns: CronRunsRepoPg;
+  readonly tokenUsage: TokenUsageRepoPg;
 
-  constructor(dbPath?: string) {
-    const path = dbPath ?? DEFAULT_DB_PATH;
-    mkdirSync(dirname(path), { recursive: true });
-    this.db = new Database(path);
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA foreign_keys = ON");
-    this.createTables();
-    this.migrate();
-    // Repos must be constructed AFTER createTables + migrate so prepared
-    // statements see the final column list.
-    this.models = new ModelsRepo(this.db);
-    this.cron = new CronRepo(this.db);
-    this.artifacts = new ArtifactsRepo(this.db);
-    this.prompts = new PromptsRepo(this.db);
-    this.userPrompts = new UserPromptsRepo(this.db);
-    this.userSettings = new UserSettingsRepo(this.db);
-    this.sessions = new SessionsRepo(this.db);
-    this.cronRuns = new CronRunsRepo(this.db);
-    this.tokenUsage = new TokenUsageRepo(this.db);
-  }
-
-  private createTables(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS models (
-        id                  TEXT PRIMARY KEY,
-        name                TEXT NOT NULL,
-        provider            TEXT NOT NULL DEFAULT '',
-        model               TEXT NOT NULL,
-        api_key             TEXT,
-        base_url            TEXT,
-        max_context_tokens  INTEGER NOT NULL DEFAULT 200000,
-        thinking            TEXT NOT NULL DEFAULT 'off',
-        is_default          INTEGER NOT NULL DEFAULT 0,
-        cost_input          REAL,
-        cost_output         REAL,
-        cost_cache_read     REAL,
-        cost_cache_write    REAL,
-        created_at          INTEGER NOT NULL,
-        updated_at          INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS prompts (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        content     TEXT NOT NULL,
-        is_default  INTEGER NOT NULL DEFAULT 0,
-        created_at  INTEGER NOT NULL,
-        updated_at  INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS settings (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS session_artifacts (
-        session_key       TEXT NOT NULL,
-        file_path         TEXT NOT NULL,
-        last_op           TEXT NOT NULL,
-        first_seen_at     INTEGER NOT NULL,
-        last_modified_at  INTEGER NOT NULL,
-        PRIMARY KEY (session_key, file_path)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_session_artifacts_session
-        ON session_artifacts (session_key, last_modified_at DESC);
-
-      CREATE TABLE IF NOT EXISTS cron_tasks (
-        id                TEXT PRIMARY KEY,
-        name              TEXT,
-        description       TEXT,
-        schedule          TEXT NOT NULL,
-        prompt            TEXT NOT NULL,
-        enabled           INTEGER NOT NULL DEFAULT 1,
-        thinking          TEXT,
-        light_context     INTEGER DEFAULT 0,
-        timeout_seconds   INTEGER,
-        delete_after_run  INTEGER DEFAULT 0,
-        deliver           TEXT,
-        webhook_url       TEXT,
-        webhook_token     TEXT,
-        failure_alert     TEXT,
-        created_at        INTEGER NOT NULL,
-        updated_at        INTEGER NOT NULL
-      );
-
-      -- Phase 0: cron run history (per-execution audit trail)
-      CREATE TABLE IF NOT EXISTS cron_runs (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id      TEXT NOT NULL,
-        user_id      TEXT,
-        started_at   INTEGER NOT NULL,
-        finished_at  INTEGER,
-        status       TEXT NOT NULL,
-        error        TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id, started_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_cron_runs_user ON cron_runs(user_id);
-
-      -- Phase 0: per-call token usage (decision #1: platform-shared key + quota)
-      CREATE TABLE IF NOT EXISTS token_usage (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id         TEXT NOT NULL,
-        session_id      TEXT,
-        model_id        TEXT NOT NULL,
-        input_tokens    INTEGER NOT NULL DEFAULT 0,
-        output_tokens   INTEGER NOT NULL DEFAULT 0,
-        cache_read      INTEGER NOT NULL DEFAULT 0,
-        cache_write     INTEGER NOT NULL DEFAULT 0,
-        cost_usd        REAL NOT NULL DEFAULT 0,
-        occurred_at     INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_usage_user_time ON token_usage(user_id, occurred_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_usage_model ON token_usage(model_id, occurred_at);
-
-      -- Phase 0: explicit session index table (Klaus-side metadata only;
-      -- transcript content stays in CC engine's local JSONL files per decision #5)
-      CREATE TABLE IF NOT EXISTS sessions (
-        id               TEXT PRIMARY KEY,
-        user_id          TEXT NOT NULL,
-        title            TEXT,
-        cwd              TEXT,
-        transcript_path  TEXT,
-        created_at       INTEGER NOT NULL,
-        last_active_at   INTEGER
-      );
-      CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, last_active_at DESC);
-
-      -- Phase 0: per-user custom prompts (admin-managed prompts stay in the prompts table)
-      CREATE TABLE IF NOT EXISTS user_prompts (
-        id          TEXT PRIMARY KEY,
-        user_id     TEXT NOT NULL,
-        name        TEXT NOT NULL,
-        content     TEXT NOT NULL,
-        is_default  INTEGER NOT NULL DEFAULT 0,
-        created_at  INTEGER NOT NULL,
-        updated_at  INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_user_prompts_user ON user_prompts(user_id);
-
-      -- Phase 0: per-user typed key-value preferences (replaces "user.<id>.<key>" in settings KV).
-      -- Existing per-user data in the settings KV table stays put for now; new code reads from here.
-      CREATE TABLE IF NOT EXISTS user_settings (
-        user_id     TEXT NOT NULL,
-        key         TEXT NOT NULL,
-        value       TEXT NOT NULL,
-        updated_at  INTEGER NOT NULL,
-        PRIMARY KEY (user_id, key)
-      );
-    `);
+  constructor(db?: Db | string) {
+    // Accept legacy (dbPath?: string) signature — if string, ignore it (PG uses DATABASE_URL).
+    const resolvedDb = (db == null || typeof db === "string") ? getDb() : db;
+    this.models = new ModelsRepoPg(resolvedDb);
+    this.cron = new CronRepoPg(resolvedDb);
+    this.artifacts = new ArtifactsRepoPg(resolvedDb);
+    this.prompts = new PromptsRepoPg(resolvedDb);
+    this.platformSettings = new PlatformSettingsRepoPg(resolvedDb);
+    this.userPrompts = new UserPromptsRepoPg(resolvedDb);
+    this.userSettings = new UserSettingsRepoPg(resolvedDb);
+    this.sessions = new SessionsRepoPg(resolvedDb);
+    this.cronRuns = new CronRunsRepoPg(resolvedDb);
+    this.tokenUsage = new TokenUsageRepoPg(resolvedDb);
   }
 
   /**
@@ -248,19 +108,12 @@ export class SettingsStore {
    * getDefaultSonnetModel() / getDefaultHaikuModel() / getSmallFastModel()
    * return the correct model IDs for this Klaus instance.
    *
-   * Three tiers matching the CC engine:
-   *   model.sonnet  — Sonnet-tier (memory relevance selection via findRelevantMemories)
-   *   model.haiku   — Haiku-tier (token counting, hooks, Web Search)
-   *   model.opus    — Opus-tier (not currently used by engine internals, reserved)
-   *
-   * If not set, falls back to the default model to prevent the engine
-   * from calling hardcoded Anthropic model IDs on third-party providers.
    * Call once at startup after SettingsStore is initialized.
    */
-  applyModelEnvOverrides(): void {
-    const sonnetModel = this.getModelByRole("sonnet");
-    const haikuModel = this.getModelByRole("haiku");
-    const opusModel = this.getModelByRole("opus");
+  async applyModelEnvOverrides(): Promise<void> {
+    const sonnetModel = await this.getModelByRole("sonnet");
+    const haikuModel = await this.getModelByRole("haiku");
+    const opusModel = await this.getModelByRole("opus");
 
     if (sonnetModel) {
       process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel.model;
@@ -274,9 +127,7 @@ export class SettingsStore {
     }
 
     // Fall back to the default model for any unconfigured tier.
-    // This prevents the engine from calling hardcoded Anthropic model IDs
-    // that don't exist on the user's provider.
-    const defaultModel = this.getDefaultModel();
+    const defaultModel = await this.getDefaultModel();
     if (defaultModel) {
       if (!sonnetModel) {
         process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = defaultModel.model;
@@ -291,79 +142,27 @@ export class SettingsStore {
     }
   }
 
-  private migrate(): void {
-    // Add cost columns to models table (v0.2.2)
-    const cols = this.db.prepare("PRAGMA table_info(models)").all() as { name: string }[];
-    const colNames = new Set(cols.map((c) => c.name));
-    if (!colNames.has("cost_input")) {
-      this.db.exec(`
-        ALTER TABLE models ADD COLUMN cost_input REAL;
-        ALTER TABLE models ADD COLUMN cost_output REAL;
-        ALTER TABLE models ADD COLUMN cost_cache_read REAL;
-        ALTER TABLE models ADD COLUMN cost_cache_write REAL;
-      `);
-    }
-    // Add user_id column to cron_tasks table (user-level cron)
-    const cronCols = this.db.prepare("PRAGMA table_info(cron_tasks)").all() as { name: string }[];
-    const cronColNames = new Set(cronCols.map((c) => c.name));
-    if (!cronColNames.has("user_id")) {
-      this.db.exec(`ALTER TABLE cron_tasks ADD COLUMN user_id TEXT`);
-    }
-    // Add OAuth columns to models table
-    if (!colNames.has("auth_type")) {
-      this.db.exec(`
-        ALTER TABLE models ADD COLUMN auth_type TEXT DEFAULT 'api_key';
-        ALTER TABLE models ADD COLUMN refresh_token TEXT;
-        ALTER TABLE models ADD COLUMN token_expires_at INTEGER;
-      `);
-    }
-    // Add role column (sonnet / haiku / opus / null)
-    if (!colNames.has("role")) {
-      this.db.exec(`ALTER TABLE models ADD COLUMN role TEXT`);
-    }
-    // Phase 0: add user_id to session_artifacts for future RLS-friendly queries.
-    // Existing rows get NULL (no owner info available retroactively); new rows
-    // are expected to populate user_id via upsertWithUser().
-    const artifactCols = this.db
-      .prepare("PRAGMA table_info(session_artifacts)")
-      .all() as { name: string }[];
-    const artifactColNames = new Set(artifactCols.map((c) => c.name));
-    if (!artifactColNames.has("user_id")) {
-      this.db.exec(`ALTER TABLE session_artifacts ADD COLUMN user_id TEXT`);
-      this.db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_session_artifacts_user ON session_artifacts(user_id)`,
-      );
-    }
-  }
-
   // -----------------------------------------------------------------------
-  // KV settings
+  // KV settings (platform-global)
   // -----------------------------------------------------------------------
 
-  get(key: string): string | undefined {
-    const row = this.db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get(key) as { value: string } | undefined;
-    return row?.value;
+  async get(key: string): Promise<string | undefined> {
+    return this.platformSettings.get(key);
   }
 
-  set(key: string, value: string): void {
-    this.db
-      .prepare(
-        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
-      .run(key, value);
+  async set(key: string, value: string): Promise<void> {
+    return this.platformSettings.set(key, value);
   }
 
-  getNumber(key: string, fallback: number): number {
-    const raw = this.get(key);
+  async getNumber(key: string, fallback: number): Promise<number> {
+    const raw = await this.get(key);
     if (raw == null) return fallback;
     const n = Number(raw);
     return Number.isFinite(n) ? n : fallback;
   }
 
-  getHooks(): import("./hooks.js").HooksConfig {
-    const raw = this.get("hooks");
+  async getHooks(): Promise<import("./hooks.js").HooksConfig> {
+    const raw = await this.get("hooks");
     if (!raw) return {};
     try {
       return JSON.parse(raw) as import("./hooks.js").HooksConfig;
@@ -372,29 +171,24 @@ export class SettingsStore {
     }
   }
 
-  setHooks(config: import("./hooks.js").HooksConfig): void {
-    this.set("hooks", JSON.stringify(config));
+  async setHooks(config: import("./hooks.js").HooksConfig): Promise<void> {
+    await this.set("hooks", JSON.stringify(config));
   }
 
-  getBool(key: string, fallback: boolean): boolean {
-    const raw = this.get(key);
+  async getBool(key: string, fallback: boolean): Promise<boolean> {
+    const raw = await this.get(key);
     if (raw == null) return fallback;
     return raw === "true" || raw === "1";
   }
 
-  /** Bulk-read all settings whose key starts with the given prefix (single SQL query). */
-  getByPrefix(prefix: string): Map<string, string> {
-    // Escape SQL LIKE wildcards in the prefix so % and _ are matched literally
-    const escaped = prefix.replace(/[%_]/g, (ch) => `\\${ch}`);
-    const rows = this.db
-      .prepare("SELECT key, value FROM settings WHERE key LIKE ? || '%' ESCAPE '\\'")
-      .all(escaped) as { key: string; value: string }[];
-    return new Map(rows.map((r) => [r.key, r.value]));
+  /** Bulk-read all settings whose key starts with the given prefix. */
+  async getByPrefix(prefix: string): Promise<Map<string, string>> {
+    return this.platformSettings.getByPrefix(prefix);
   }
 
   /** Bulk-load all admin skill settings (enabled state + encrypted API keys). */
-  getSkillSettings(): Map<string, { enabled: boolean | undefined; encryptedApiKey: string | undefined }> {
-    const raw = this.getByPrefix("skill.");
+  async getSkillSettings(): Promise<Map<string, { enabled: boolean | undefined; encryptedApiKey: string | undefined }>> {
+    const raw = await this.getByPrefix("skill.");
     const result = new Map<string, { enabled: boolean | undefined; encryptedApiKey: string | undefined }>();
     for (const [key, value] of raw) {
       const match = key.match(/^skill\.(.+)\.(enabled|apiKey)$/);
@@ -412,9 +206,9 @@ export class SettingsStore {
   }
 
   /** Bulk-load per-user skill preferences (single SQL query). */
-  getUserSkillPreferences(userId: string): Map<string, "on" | "off"> {
+  async getUserSkillPreferences(userId: string): Promise<Map<string, "on" | "off">> {
     const prefix = `user.${userId}.skill.`;
-    const raw = this.getByPrefix(prefix);
+    const raw = await this.getByPrefix(prefix);
     const result = new Map<string, "on" | "off">();
     for (const [key, value] of raw) {
       const skillName = key.slice(prefix.length);
@@ -427,51 +221,51 @@ export class SettingsStore {
   // Per-user settings (language, output_style)
   // -----------------------------------------------------------------------
 
-  getUserLanguage(userId: string): string | undefined {
-    return this.get(`user.${userId}.language`) || undefined;
+  async getUserLanguage(userId: string): Promise<string | undefined> {
+    return (await this.get(`user.${userId}.language`)) || undefined;
   }
 
-  setUserLanguage(userId: string, language: string): void {
-    this.set(`user.${userId}.language`, language);
+  async setUserLanguage(userId: string, language: string): Promise<void> {
+    await this.set(`user.${userId}.language`, language);
   }
 
-  getUserOutputStyle(userId: string): string | undefined {
-    return this.get(`user.${userId}.output_style`) || undefined;
+  async getUserOutputStyle(userId: string): Promise<string | undefined> {
+    return (await this.get(`user.${userId}.output_style`)) || undefined;
   }
 
-  setUserOutputStyle(userId: string, style: string): void {
-    this.set(`user.${userId}.output_style`, style);
+  async setUserOutputStyle(userId: string, style: string): Promise<void> {
+    await this.set(`user.${userId}.output_style`, style);
   }
 
-  getUserPermissionMode(userId: string): string | undefined {
-    return this.get(`user.${userId}.permission_mode`) || undefined;
+  async getUserPermissionMode(userId: string): Promise<string | undefined> {
+    return (await this.get(`user.${userId}.permission_mode`)) || undefined;
   }
 
-  setUserPermissionMode(userId: string, mode: string): void {
-    this.set(`user.${userId}.permission_mode`, mode);
+  async setUserPermissionMode(userId: string, mode: string): Promise<void> {
+    await this.set(`user.${userId}.permission_mode`, mode);
   }
 
   // -----------------------------------------------------------------------
   // Models CRUD
   // -----------------------------------------------------------------------
 
-  listModels(): ModelRecord[] {
-    return this.models.list().map(toModelRecord);
+  async listModels(): Promise<ModelRecord[]> {
+    return (await this.models.list()).map(toModelRecord);
   }
 
-  getModel(id: string): ModelRecord | undefined {
-    const row = this.models.findById(id);
+  async getModel(id: string): Promise<ModelRecord | undefined> {
+    const row = await this.models.findById(id);
     return row ? toModelRecord(row) : undefined;
   }
 
-  getDefaultModel(): ModelRecord | undefined {
-    const row = this.models.findDefault() ?? this.models.findFirst();
+  async getDefaultModel(): Promise<ModelRecord | undefined> {
+    const row = (await this.models.findDefault()) ?? (await this.models.findFirst());
     return row ? toModelRecord(row) : undefined;
   }
 
-  upsertModel(m: ModelRecord): void {
+  async upsertModel(m: ModelRecord): Promise<void> {
     const now = Date.now();
-    this.models.upsert({
+    await this.models.upsert({
       id: m.id,
       name: m.name,
       provider: m.provider,
@@ -494,22 +288,22 @@ export class SettingsStore {
     });
   }
 
-  deleteModel(id: string): boolean {
+  async deleteModel(id: string): Promise<boolean> {
     return this.models.delete(id);
   }
 
-  setDefaultModel(id: string): void {
-    this.models.setDefault(id);
+  async setDefaultModel(id: string): Promise<void> {
+    return this.models.setDefault(id);
   }
 
   /** Assign a role to a model. Clears the role from any other model first. */
-  setModelRole(id: string, role: ModelRole | null): void {
-    this.models.setRole(id, role);
+  async setModelRole(id: string, role: ModelRole | null): Promise<void> {
+    return this.models.setRole(id, role);
   }
 
   /** Get the model assigned to a specific role, or undefined. */
-  getModelByRole(role: ModelRole): ModelRecord | undefined {
-    const row = this.models.findByRole(role);
+  async getModelByRole(role: ModelRole): Promise<ModelRecord | undefined> {
+    const row = await this.models.findByRole(role);
     return row ? toModelRecord(row) : undefined;
   }
 
@@ -517,23 +311,23 @@ export class SettingsStore {
   // Prompts CRUD
   // -----------------------------------------------------------------------
 
-  listPrompts(): PromptRecord[] {
-    return this.prompts.list().map(toPromptRecord);
+  async listPrompts(): Promise<PromptRecord[]> {
+    return (await this.prompts.list()).map(toPromptRecord);
   }
 
-  getPrompt(id: string): PromptRecord | undefined {
-    const row = this.prompts.findById(id);
+  async getPrompt(id: string): Promise<PromptRecord | undefined> {
+    const row = await this.prompts.findById(id);
     return row ? toPromptRecord(row) : undefined;
   }
 
-  getDefaultPrompt(): PromptRecord | undefined {
-    const row = this.prompts.findDefault() ?? this.prompts.findFirst();
+  async getDefaultPrompt(): Promise<PromptRecord | undefined> {
+    const row = (await this.prompts.findDefault()) ?? (await this.prompts.findFirst());
     return row ? toPromptRecord(row) : undefined;
   }
 
-  upsertPrompt(p: PromptRecord): void {
+  async upsertPrompt(p: PromptRecord): Promise<void> {
     const now = Date.now();
-    this.prompts.upsert({
+    await this.prompts.upsert({
       id: p.id,
       name: p.name,
       content: p.content,
@@ -543,12 +337,12 @@ export class SettingsStore {
     });
   }
 
-  deletePrompt(id: string): boolean {
+  async deletePrompt(id: string): Promise<boolean> {
     return this.prompts.delete(id);
   }
 
-  setDefaultPrompt(id: string): void {
-    this.prompts.setDefault(id);
+  async setDefaultPrompt(id: string): Promise<void> {
+    return this.prompts.setDefault(id);
   }
 
   // -----------------------------------------------------------------------
@@ -556,42 +350,35 @@ export class SettingsStore {
   // -----------------------------------------------------------------------
 
   /**
-   * Record a file produced by the agent. Idempotent: re-writing the same
-   * file just updates last_op + last_modified_at.
-   * Returns the resulting record (with first_seen_at preserved on update).
-   */
-  /**
    * Phase 0: prefer `upsertArtifactForUser` (records user_id for RLS-friendly queries).
-   * This overload is kept for legacy callers; new code should pass userId.
+   * The non-user `upsertArtifact` overload throws on PG (NOT NULL user_id constraint).
    */
-  upsertArtifact(sessionKey: string, filePath: string, op: ArtifactOp): ArtifactRecord {
-    const now = Date.now();
-    this.artifacts.upsert(sessionKey, filePath, op, now);
-    return this.getArtifact(sessionKey, filePath)!;
+  async upsertArtifact(_sessionKey: string, _filePath: string, _op: ArtifactOp): Promise<ArtifactRecord> {
+    throw new Error("[SettingsStore.upsertArtifact] PG requires user_id; call upsertArtifactForUser instead");
   }
 
-  upsertArtifactForUser(
+  async upsertArtifactForUser(
     sessionKey: string,
     userId: string,
     filePath: string,
     op: ArtifactOp,
-  ): ArtifactRecord {
+  ): Promise<ArtifactRecord> {
     const now = Date.now();
-    this.artifacts.upsertWithUser(sessionKey, userId, filePath, op, now);
-    return this.getArtifact(sessionKey, filePath)!;
+    await this.artifacts.upsertWithUser(sessionKey, userId, filePath, op, now);
+    return (await this.getArtifact(sessionKey, filePath))!;
   }
 
-  getArtifact(sessionKey: string, filePath: string): ArtifactRecord | undefined {
-    const row = this.artifacts.findBySessionAndPath(sessionKey, filePath);
+  async getArtifact(sessionKey: string, filePath: string): Promise<ArtifactRecord | undefined> {
+    const row = await this.artifacts.findBySessionAndPath(sessionKey, filePath);
     return row ? toArtifactRecord(row) : undefined;
   }
 
-  listArtifacts(sessionKey: string): ArtifactRecord[] {
-    return this.artifacts.listBySession(sessionKey).map(toArtifactRecord);
+  async listArtifacts(sessionKey: string): Promise<ArtifactRecord[]> {
+    return (await this.artifacts.listBySession(sessionKey)).map(toArtifactRecord);
   }
 
   /** Cascade-delete all artifact rows for a session. Returns the row count. */
-  deleteArtifactsBySession(sessionKey: string): number {
+  async deleteArtifactsBySession(sessionKey: string): Promise<number> {
     return this.artifacts.deleteBySession(sessionKey);
   }
 
@@ -599,18 +386,18 @@ export class SettingsStore {
   // Cron tasks CRUD
   // -----------------------------------------------------------------------
 
-  listTasks(): CronTask[] {
-    return this.cron.list().map(toCronTask);
+  async listTasks(): Promise<CronTask[]> {
+    return (await this.cron.list()).map(toCronTask);
   }
 
-  getTask(id: string): CronTask | undefined {
-    const row = this.cron.findById(id);
+  async getTask(id: string): Promise<CronTask | undefined> {
+    const row = await this.cron.findById(id);
     return row ? toCronTask(row) : undefined;
   }
 
-  upsertTask(task: CronTask): void {
+  async upsertTask(task: CronTask): Promise<void> {
     const now = Date.now();
-    this.cron.upsert({
+    await this.cron.upsert({
       id: task.id,
       userId: task.userId ?? null,
       name: task.name ?? null,
@@ -634,32 +421,25 @@ export class SettingsStore {
     });
   }
 
-  deleteTask(id: string): boolean {
+  async deleteTask(id: string): Promise<boolean> {
     return this.cron.delete(id);
   }
 
-  listUserTasks(userId: string): CronTask[] {
-    return this.cron.listByUser(userId).map(toCronTask);
+  async listUserTasks(userId: string): Promise<CronTask[]> {
+    return (await this.cron.listByUser(userId)).map(toCronTask);
   }
 
-  deleteUserTask(userId: string, taskId: string): boolean {
+  async deleteUserTask(userId: string, taskId: string): Promise<boolean> {
     return this.cron.deleteUserTask(userId, taskId);
   }
-
-  // MCP config moved to engine's .mcp.json system (engine/services/mcp/config.ts)
-
-  // -----------------------------------------------------------------------
-  // Memory config
-  // -----------------------------------------------------------------------
-
-  // Old memory config removed — Klaus now uses claude-code engine's three-layer memory system
 
   // -----------------------------------------------------------------------
   // Lifecycle
   // -----------------------------------------------------------------------
 
+  /** No-op — PG pool is managed globally. */
   close(): void {
-    this.db.close();
+    // PG pool lifecycle is managed by getDb() singleton; nothing to close here.
   }
 }
 
@@ -770,5 +550,3 @@ function toCronTask(r: CronTaskRow): CronTask {
     updatedAt: r.updated_at,
   };
 }
-
-

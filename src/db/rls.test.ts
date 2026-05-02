@@ -116,9 +116,13 @@ describe("Postgres RLS (decision #4 cross-tenant safety net)", () => {
   });
 
   it("without withUserScope: query returns 0 rows (policy fails closed)", async () => {
-    // Query directly via the global db with no SET LOCAL — RLS fails closed.
+    // Demote to the app role (no BYPASSRLS), then query without setting
+    // app.current_user_id — RLS should fail closed (returns 0 rows).
     const db = getDb({ url: TEST_DB_URL });
-    const rows = await db.select().from(cronTasks);
+    const rows = await db.transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET LOCAL ROLE 'klaus_app'`));
+      return await tx.select().from(cronTasks);
+    });
     expect(rows).toHaveLength(0);
   });
 

@@ -60,9 +60,9 @@ export function getSessionToken(req: IncomingMessage): string {
 // Resolve current user from either a web session cookie or a desktop Bearer
 // token. Lets profile/avatar endpoints serve both web and desktop clients
 // through the same route. Web session wins if both are present.
-function resolveAuthUser(req: IncomingMessage, userStore: UserStore) {
+async function resolveAuthUser(req: IncomingMessage, userStore: UserStore) {
   const token = getSessionToken(req);
-  const session = userStore.validateSession(token);
+  const session = await userStore.validateSession(token);
   if (session) return session.user;
   const authHeader = req.headers.authorization ?? "";
   const match = authHeader.match(/^Bearer\s+(\S+)$/);
@@ -240,7 +240,7 @@ export async function handleAuthRegister(
   }
 
   // First user can register without invite code (becomes admin)
-  const isFirstUser = userStore.isFirstUser();
+  const isFirstUser = await userStore.isFirstUser();
   if (!isFirstUser) {
     if (!inviteCode) {
       json(res, 400, { error: "invite_code_required" });
@@ -248,14 +248,14 @@ export async function handleAuthRegister(
     }
 
     // Validate invite code
-    if (!inviteStore.isValid(inviteCode)) {
+    if (!(await inviteStore.isValid(inviteCode))) {
       json(res, 400, { error: "invalid_invite_code" });
       return;
     }
   }
 
   // Check if email already registered
-  if (userStore.getUserByEmail(email)) {
+  if (await userStore.getUserByEmail(email)) {
     json(res, 409, { error: "email_already_registered" });
     return;
   }
@@ -279,13 +279,13 @@ export async function handleAuthRegister(
 
     // Consume the invite code (one-time use)
     if (!isFirstUser && inviteCode) {
-      inviteStore.consume(inviteCode, email);
+      await inviteStore.consume(inviteCode, email);
     }
 
     console.log(`[Web] User registered: ${user.id.slice(0, 8)} (${user.role})`);
 
     if (desktopParams.desktop) {
-      const code = userStore.createDesktopAuthCode(
+      const code = await userStore.createDesktopAuthCode(
         user.id,
         desktopParams.state,
         desktopParams.codeChallenge,
@@ -297,7 +297,7 @@ export async function handleAuthRegister(
       return;
     }
 
-    const session = userStore.createSession(
+    const session = await userStore.createSession(
       user.id,
       getClientIp(req),
       req.headers["user-agent"] ?? "",
@@ -361,7 +361,7 @@ export async function handleAuthLogin(
   console.log(`[Web] User logged in: ${user.id.slice(0, 8)}`);
 
   if (desktopParams.desktop) {
-    const code = userStore.createDesktopAuthCode(
+    const code = await userStore.createDesktopAuthCode(
       user.id,
       desktopParams.state,
       desktopParams.codeChallenge,
@@ -373,7 +373,7 @@ export async function handleAuthLogin(
     return;
   }
 
-  const session = userStore.createSession(
+  const session = await userStore.createSession(
     user.id,
     getClientIp(req),
     req.headers["user-agent"] ?? "",
@@ -387,11 +387,11 @@ export async function handleAuthLogin(
   json(res, 200, { user: userResponse(user) });
 }
 
-export function handleAuthLogout(
+export async function handleAuthLogout(
   req: IncomingMessage,
   res: ServerResponse,
   userStore: UserStore,
-): void {
+): Promise<void> {
   if (req.method !== "POST") {
     json(res, 405, { error: "method not allowed" });
     return;
@@ -399,26 +399,26 @@ export function handleAuthLogout(
 
   const token = getSessionToken(req);
   if (token) {
-    userStore.revokeSession(token);
+    await userStore.revokeSession(token);
   }
 
   clearSessionCookie(res);
   json(res, 200, { ok: true });
 }
 
-export function handleAuthMe(
+export async function handleAuthMe(
   req: IncomingMessage,
   res: ServerResponse,
   userStore: UserStore,
   cfg: WebConfig,
-): void {
+): Promise<void> {
   if (req.method !== "GET") {
     json(res, 405, { error: "method not allowed" });
     return;
   }
 
   const token = getSessionToken(req);
-  const auth = userStore.validateSession(token);
+  const auth = await userStore.validateSession(token);
   if (!auth) {
     json(res, 401, { error: "not_authenticated" });
     return;
@@ -444,7 +444,7 @@ export async function handleAuthProfile(
     return;
   }
 
-  const user = resolveAuthUser(req, userStore);
+  const user = await resolveAuthUser(req, userStore);
   if (!user) {
     json(res, 401, { error: "not_authenticated" });
     return;
@@ -469,8 +469,8 @@ export async function handleAuthProfile(
     return;
   }
 
-  userStore.setDisplayName(user.id, displayName);
-  const updated = userStore.getUserById(user.id);
+  await userStore.setDisplayName(user.id, displayName);
+  const updated = await userStore.getUserById(user.id);
   if (!updated) {
     json(res, 500, { error: "update_failed" });
     return;
@@ -497,7 +497,7 @@ export async function handleAvatarUpload(
     return;
   }
 
-  const user = resolveAuthUser(req, userStore);
+  const user = await resolveAuthUser(req, userStore);
   if (!user) {
     json(res, 401, { error: "not_authenticated" });
     return;
@@ -534,9 +534,9 @@ export async function handleAvatarUpload(
   writeFileSync(join(AVATARS_DIR, fileName), body);
 
   const avatarUrl = `/api/avatars/${fileName}`;
-  userStore.setAvatarUrl(user.id, avatarUrl);
+  await userStore.setAvatarUrl(user.id, avatarUrl);
 
-  const updated = userStore.getUserById(user.id);
+  const updated = await userStore.getUserById(user.id);
   if (!updated) {
     json(res, 500, { error: "update_failed" });
     return;
@@ -774,9 +774,9 @@ export async function handleGoogleCallback(
     };
 
     // Find or create user — first user skips invite code requirement
-    const isFirstUser = userStore.isFirstUser();
+    const isFirstUser = await userStore.isFirstUser();
     let inviteForCreate: string | undefined;
-    if (!isFirstUser && inviteCode && inviteStore.isValid(inviteCode)) {
+    if (!isFirstUser && inviteCode && (await inviteStore.isValid(inviteCode))) {
       inviteForCreate = inviteCode;
     }
 
@@ -805,7 +805,7 @@ export async function handleGoogleCallback(
 
     // Consume the invite code if a new user was created
     if (result.isNew && inviteForCreate) {
-      inviteStore.consume(inviteForCreate, googleUser.email);
+      await inviteStore.consume(inviteForCreate, googleUser.email);
     }
 
     console.log(
@@ -823,7 +823,7 @@ export async function handleGoogleCallback(
         res.end();
         return;
       }
-      const authCode = userStore.createDesktopAuthCode(
+      const authCode = await userStore.createDesktopAuthCode(
         result.user.id,
         desktopState,
         desktopChallenge,
@@ -836,7 +836,7 @@ export async function handleGoogleCallback(
       return;
     }
 
-    const session = userStore.createSession(
+    const session = await userStore.createSession(
       result.user.id,
       getClientIp(req),
       req.headers["user-agent"] ?? "",
@@ -908,7 +908,7 @@ export async function handleDesktopTokenExchange(
     return;
   }
 
-  const result = userStore.redeemDesktopAuthCode(code, codeVerifier, deviceInfo);
+  const result = await userStore.redeemDesktopAuthCode(code, codeVerifier, deviceInfo);
   if (!result) {
     json(res, 400, { error: "invalid_or_expired_code" });
     return;
@@ -925,11 +925,11 @@ export async function handleDesktopTokenExchange(
  * GET /api/auth/desktop/me
  * Header: Authorization: Bearer <token>
  */
-export function handleDesktopMe(
+export async function handleDesktopMe(
   req: IncomingMessage,
   res: ServerResponse,
   userStore: UserStore,
-): void {
+): Promise<void> {
   if (req.method !== "GET") {
     json(res, 405, { error: "method not allowed" });
     return;
@@ -942,7 +942,7 @@ export function handleDesktopMe(
     return;
   }
 
-  const user = userStore.validateDesktopToken(match[1] ?? "");
+  const user = await userStore.validateDesktopToken(match[1] ?? "");
   if (!user) {
     json(res, 401, { error: "invalid_token" });
     return;

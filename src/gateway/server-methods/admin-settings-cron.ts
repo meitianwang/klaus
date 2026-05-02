@@ -19,22 +19,22 @@ const DEFAULT_CRON_SCHEDULER_STATUS: CronSchedulerStatus = {
   nextWakeAt: null,
 };
 
-function buildSettingsSnapshot(settingsStore: SettingsStore): GatewaySettingsSnapshot {
+async function buildSettingsSnapshot(settingsStore: SettingsStore): Promise<GatewaySettingsSnapshot> {
   return {
-    max_sessions: settingsStore.getNumber("max_sessions", 20),
-    yolo: settingsStore.getBool("yolo", true),
-    permission_mode: settingsStore.get("permission_mode") ?? "default",
+    max_sessions: await settingsStore.getNumber("max_sessions", 20),
+    yolo: await settingsStore.getBool("yolo", true),
+    permission_mode: (await settingsStore.get("permission_mode")) ?? "default",
     web: {
-      session_max_age_days: settingsStore.getNumber("web.session_max_age_days", 7),
+      session_max_age_days: await settingsStore.getNumber("web.session_max_age_days", 7),
     },
     transcripts: {
-      max_files: settingsStore.getNumber("transcripts.max_files", 200),
-      max_age_days: settingsStore.getNumber("transcripts.max_age_days", 30),
+      max_files: await settingsStore.getNumber("transcripts.max_files", 200),
+      max_age_days: await settingsStore.getNumber("transcripts.max_age_days", 30),
     },
     cron: {
-      max_concurrent_runs: settingsStore.getNumber("cron.max_concurrent_runs", 0) || null,
+      max_concurrent_runs: (await settingsStore.getNumber("cron.max_concurrent_runs", 0)) || null,
     },
-    hooks: settingsStore.getHooks(),
+    hooks: await settingsStore.getHooks(),
   };
 }
 
@@ -159,30 +159,30 @@ function normalizeCronTaskInput(
   return nextTask as CronTask;
 }
 
-export function getGatewayAdminSettings(params: {
+export async function getGatewayAdminSettings(params: {
   settingsStore: SettingsStore;
-}): GatewaySettingsSnapshot {
+}): Promise<GatewaySettingsSnapshot> {
   return buildSettingsSnapshot(params.settingsStore);
 }
 
-export function updateGatewayAdminSettings(params: {
+export async function updateGatewayAdminSettings(params: {
   settingsStore: SettingsStore;
   input: Record<string, unknown>;
-}): GatewaySettingsSnapshot {
+}): Promise<GatewaySettingsSnapshot> {
   if ("max_sessions" in params.input) {
     const value = Math.floor(Number(params.input.max_sessions));
     if (value > 0) {
-      params.settingsStore.set("max_sessions", String(value));
+      await params.settingsStore.set("max_sessions", String(value));
     }
   }
   if ("yolo" in params.input) {
-    params.settingsStore.set("yolo", String(Boolean(params.input.yolo)));
+    await params.settingsStore.set("yolo", String(Boolean(params.input.yolo)));
   }
   if ("permission_mode" in params.input) {
     const mode = String(params.input.permission_mode);
     const validModes = ["default", "plan", "acceptEdits", "bypassPermissions"];
     if (validModes.includes(mode)) {
-      params.settingsStore.set("permission_mode", mode);
+      await params.settingsStore.set("permission_mode", mode);
     }
   }
   if ("web" in params.input && typeof params.input.web === "object" && params.input.web) {
@@ -190,7 +190,7 @@ export function updateGatewayAdminSettings(params: {
     if ("session_max_age_days" in web) {
       const value = Number(web.session_max_age_days);
       if (Number.isFinite(value) && value > 0) {
-        params.settingsStore.set("web.session_max_age_days", String(value));
+        await params.settingsStore.set("web.session_max_age_days", String(value));
       }
     }
   }
@@ -203,13 +203,13 @@ export function updateGatewayAdminSettings(params: {
     if ("max_files" in transcripts) {
       const value = Math.floor(Number(transcripts.max_files));
       if (value > 0) {
-        params.settingsStore.set("transcripts.max_files", String(value));
+        await params.settingsStore.set("transcripts.max_files", String(value));
       }
     }
     if ("max_age_days" in transcripts) {
       const value = Number(transcripts.max_age_days);
       if (Number.isFinite(value) && value > 0) {
-        params.settingsStore.set("transcripts.max_age_days", String(value));
+        await params.settingsStore.set("transcripts.max_age_days", String(value));
       }
     }
   }
@@ -217,7 +217,7 @@ export function updateGatewayAdminSettings(params: {
     const cron = params.input.cron as Record<string, unknown>;
     if ("max_concurrent_runs" in cron) {
       const value = cron.max_concurrent_runs;
-      params.settingsStore.set(
+      await params.settingsStore.set(
         "cron.max_concurrent_runs",
         value ? String(Math.floor(Number(value))) : "0",
       );
@@ -225,7 +225,7 @@ export function updateGatewayAdminSettings(params: {
   }
 
   if ("hooks" in params.input && typeof params.input.hooks === "object") {
-    params.settingsStore.setHooks(
+    await params.settingsStore.setHooks(
       (params.input.hooks ?? {}) as import("../../hooks.js").HooksConfig,
     );
   }
@@ -233,13 +233,13 @@ export function updateGatewayAdminSettings(params: {
   return buildSettingsSnapshot(params.settingsStore);
 }
 
-export function listGatewayCronTasks(params: {
+export async function listGatewayCronTasks(params: {
   settingsStore: SettingsStore;
   cronScheduler: CronSchedulerLike | null;
-}): {
+}): Promise<{
   tasks: readonly unknown[];
   scheduler: CronSchedulerStatus;
-} {
+}> {
   if (params.cronScheduler) {
     return {
       tasks: params.cronScheduler.getStatus(),
@@ -247,7 +247,7 @@ export function listGatewayCronTasks(params: {
     };
   }
 
-  const tasks = params.settingsStore.listTasks().map((task) => ({
+  const tasks = (await params.settingsStore.listTasks()).map((task) => ({
     id: task.id,
     name: task.name,
     description: task.description,
@@ -273,30 +273,30 @@ export function listGatewayCronTasks(params: {
   };
 }
 
-export function createGatewayCronTask(params: {
+export async function createGatewayCronTask(params: {
   settingsStore: SettingsStore;
   cronScheduler: CronSchedulerLike | null;
   input: Record<string, unknown> | CronTask;
-}): {
+}): Promise<{
   ok: true;
   task: CronTask;
-} {
+}> {
   const task = normalizeCronTaskInput(params.input);
-  params.settingsStore.upsertTask(task);
+  await params.settingsStore.upsertTask(task);
   params.cronScheduler?.addTask(task);
   return { ok: true, task };
 }
 
-export function updateGatewayCronTask(params: {
+export async function updateGatewayCronTask(params: {
   settingsStore: SettingsStore;
   cronScheduler: CronSchedulerLike | null;
   id: string;
   patch: Record<string, unknown> | Partial<CronTask>;
-}): {
+}): Promise<{
   ok: true;
   task: CronTask;
-} {
-  const existing = params.settingsStore.getTask(params.id);
+}> {
+  const existing = await params.settingsStore.getTask(params.id);
   if (!existing) {
     throw GatewayError.notFound("task not found");
   }
@@ -304,17 +304,17 @@ export function updateGatewayCronTask(params: {
     { ...(params.patch as Record<string, unknown>), id: params.id },
     existing,
   );
-  params.settingsStore.upsertTask(task);
+  await params.settingsStore.upsertTask(task);
   params.cronScheduler?.editTask(params.id, task);
   return { ok: true, task };
 }
 
-export function deleteGatewayCronTask(params: {
+export async function deleteGatewayCronTask(params: {
   settingsStore: SettingsStore;
   cronScheduler: CronSchedulerLike | null;
   id: string;
-}): boolean {
-  const deleted = params.settingsStore.deleteTask(params.id);
+}): Promise<boolean> {
+  const deleted = await params.settingsStore.deleteTask(params.id);
   if (!deleted) {
     return false;
   }

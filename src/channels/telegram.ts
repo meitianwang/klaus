@@ -116,8 +116,8 @@ export const telegramPlugin: ChannelPlugin<TelegramConfig> = {
     emoji: true,
   },
 
-  config: singleAccountConfig<TelegramConfig>("telegram", "bot_token", (store) => {
-    const botToken = decryptCred(store.get("channel.telegram.bot_token") ?? "");
+  config: singleAccountConfig<TelegramConfig>("telegram", "bot_token", async (store) => {
+    const botToken = decryptCred((await store.get("channel.telegram.bot_token")) ?? "");
     return botToken ? { botToken } : null;
   }),
 

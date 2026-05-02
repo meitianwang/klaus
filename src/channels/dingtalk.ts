@@ -153,9 +153,9 @@ export const dingtalkPlugin: ChannelPlugin<DingtalkConfig> = {
     deleteKeys: ["owner_id"],
   },
 
-  config: singleAccountConfig<DingtalkConfig>("dingtalk", "client_id", (store) => {
-    const clientId = store.get("channel.dingtalk.client_id");
-    const clientSecret = decryptCred(store.get("channel.dingtalk.client_secret") ?? "");
+  config: singleAccountConfig<DingtalkConfig>("dingtalk", "client_id", async (store) => {
+    const clientId = await store.get("channel.dingtalk.client_id");
+    const clientSecret = decryptCred((await store.get("channel.dingtalk.client_secret")) ?? "");
     return clientId && clientSecret ? { clientId, clientSecret } : null;
   }),
 
