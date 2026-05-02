@@ -2258,7 +2258,7 @@ function renderAgentPanel() {
     const unreadHtml = (task.status === 'completed' && !task.notified)
       ? `<span class="agent-unread">${escapeHtml(tt('agent_unread_badge'))}</span>`
       : ''
-    row.innerHTML = `<span class="agent-dot${isRunning ? ' running' : ''}" style="background:${color};border-color:${color}"></span><span class="agent-name">${escapeHtml(displayName)}</span><span class="agent-status">${escapeHtml(statusText)}</span>${unreadHtml}`
+    row.innerHTML = `<span class="agent-dot${isRunning ? ' running' : ''}" style="background:${color};border-color:${color}"></span><div class="agent-body"><span class="agent-name">${escapeHtml(displayName)}</span><span class="agent-status">${escapeHtml(statusText)}</span></div>${unreadHtml}`
     body.appendChild(row)
   }
 }

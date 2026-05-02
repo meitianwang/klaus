@@ -3348,11 +3348,13 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .subagent-banner #subagent-banner-title { font-weight: 600; color: var(--fg); }
 .subagent-banner #subagent-banner-status { color: var(--fg-quaternary); flex: 1; }
 
-.agent-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px; border-left: 2px solid var(--border); }
-.agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.agent-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; font-size: 12px; border-left: 2px solid var(--border); cursor: pointer; }
+.agent-row:hover { background: var(--bg-hover); }
+.agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
 .agent-dot.running { animation: blink 1s infinite; }
-.agent-name { font-weight: 500; color: var(--fg); }
-.agent-status { color: var(--fg-quaternary); flex: 1; }
+.agent-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.agent-name { font-weight: 500; color: var(--fg); word-break: break-word; }
+.agent-status { color: var(--fg-quaternary); font-size: 11px; }
 /* Per-status accents — mirrors CC pillLabel.ts coloring. running stays
    the default (animated dot already conveys it). Failed/killed/cancelled
    share a danger tone; completed gets a subtle muted treatment. */
@@ -3362,6 +3364,7 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .agent-row.status-completed .agent-status { color: var(--fg-tertiary, var(--fg-quaternary)); }
 /* Unread badge on completed-but-not-yet-attached agents (CC ", unread" suffix). */
 .agent-unread {
+  align-self: flex-start;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: .04em;
