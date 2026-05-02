@@ -61,10 +61,12 @@ const proactiveModule = null;
 // Progress display constants (for showing background hint)
 const PROGRESS_THRESHOLD_MS = 2000; // Show background hint after 2 seconds
 
-// Check if background tasks are disabled at module load time
-const isBackgroundTasksDisabled =
-// eslint-disable-next-line custom-rules/no-process-env-top-level -- Intentional: schema must be defined at module load
-isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS);
+// In Klaus, applyAgentFeatures() sets CLAUDE_CODE_DISABLE_BACKGROUND_TASKS after
+// this module is evaluated (static import chain runs before _doInit). Read lazily
+// so the current env value is checked on every inputSchema/shouldRunAsync call.
+function isBackgroundTasksDisabled(): boolean {
+  return isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS)
+}
 
 // Auto-background agent tasks after this many ms (0 = disabled)
 // Enabled by env var OR GrowthBook gate (checked lazily since GB may not be ready at module load)
@@ -118,7 +120,7 @@ export const inputSchema = lazySchema(() => {
   // by forceAsync) or "schema hides a param that would've worked" (gate
   // flips off mid-session: everything still runs async via memoized
   // forceAsync). No Zod rejection, no crash — unlike required→optional.
-  return isBackgroundTasksDisabled || isForkSubagentEnabled() ? schema.omit({
+  return isBackgroundTasksDisabled() || isForkSubagentEnabled() ? schema.omit({
     run_in_background: true
   }) : schema;
 });
@@ -422,7 +424,7 @@ export const AgentTool = buildTool({
       color: selectedAgent.color as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       is_built_in_agent: isBuiltInAgent(selectedAgent),
       is_resume: false,
-      is_async: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled,
+      is_async: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled(),
       is_fork: isForkPath
     });
 
@@ -494,7 +496,7 @@ export const AgentTool = buildTool({
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
-      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
+      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled()
     };
 
     // Use inline env check instead of coordinatorModule to avoid circular
@@ -513,7 +515,7 @@ export const AgentTool = buildTool({
     // <task-notification> re-entry there is handled by the else branch
     // below (registerAsyncAgentTask + notifyOnCompletion).
     const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || false) && !isBackgroundTasksDisabled;
+    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || false) && !isBackgroundTasksDisabled();
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
@@ -764,7 +766,7 @@ export const AgentTool = buildTool({
           type: 'background';
         }> | undefined;
         let cancelAutoBackground: (() => void) | undefined;
-        if (!isBackgroundTasksDisabled) {
+        if (!isBackgroundTasksDisabled()) {
           const registration = registerAgentForeground({
             agentId: syncAgentId,
             description,
