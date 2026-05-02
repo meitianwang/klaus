@@ -2315,13 +2315,21 @@ function renderTaskPanel() {
   const meta = document.getElementById('monitor-tasks-count')
   if (!section || !body) return
   const tasks = getCurrentTasks()
-  // Empty list → hide the whole section so the Monitor panel doesn't show a
-  // "Tasks" label dangling above empty space. Other sections (Outputs) stay
-  // visible regardless.
   if (tasks.length === 0) {
-    section.style.display = 'none'
-    body.innerHTML = ''
+    section.style.display = ''
     if (meta) meta.textContent = ''
+    body.innerHTML = `<div class="task-empty">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+        <rect x="3.5" y="2.5" width="13" height="15" rx="2"/>
+        <polyline points="6.5,7 8,8.5 11,5.5"/>
+        <line x1="10.5" y1="7" x2="14" y2="7"/>
+        <polyline points="6.5,11 8,12.5 11,9.5"/>
+        <line x1="10.5" y1="11" x2="14" y2="11"/>
+        <polyline points="6.5,15 8,16.5 11,13.5"/>
+        <line x1="10.5" y1="15" x2="14" y2="15"/>
+      </svg>
+      <span>${tt('tasks_empty') || 'No tasks'}</span>
+    </div>`
     return
   }
   // Sort by numeric id ascending (CC byIdAsc).

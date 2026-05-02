@@ -397,6 +397,7 @@ const I18N = {
     subagent_view_status_done: 'finished',
     // Task panel (CC TaskListV2 mirror)
     tasks_panel_title: 'Tasks',
+    tasks_empty: 'No tasks yet',
     tasks_count_pending: 'pending',
     tasks_count_in_progress: 'in progress',
     tasks_count_completed: 'completed',
@@ -917,6 +918,7 @@ const I18N = {
     subagent_view_status_done: '已完成',
     // Task panel (对齐 CC TaskListV2)
     tasks_panel_title: '任务',
+    tasks_empty: '暂无任务',
     tasks_count_pending: '待办',
     tasks_count_in_progress: '进行中',
     tasks_count_completed: '已完成',
