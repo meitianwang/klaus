@@ -7,7 +7,11 @@
     "build": "tsup",
     "dev": "lsof -ti:3000 -ti:3456 | xargs kill -9 2>/dev/null; bun --preload ./src/engine/shims/register-bun-bundle.ts src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test src/db/repos/"
+    "test": "bun test src/db/repos/",
+    "test:rls": "bun test src/db/rls.test.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts"
   },
   "private": true,
   "dependencies": {
@@ -49,6 +53,7 @@
     "croner": "^10.0.1",
     "diff": "^8.0.4",
     "dingtalk-stream": "^2.1.6-beta.1",
+    "drizzle-orm": "^0.45.2",
     "env-paths": "^4.0.0",
     "execa": "^9.6.1",
     "fflate": "^0.8.2",
@@ -63,6 +68,7 @@
     "lru-cache": "^11.2.7",
     "marked": "^17.0.5",
     "p-map": "^7.0.4",
+    "pg": "^8.20.0",
     "plist": "^3.1.0",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4",
@@ -87,12 +93,14 @@
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
     "@types/plist": "^3.0.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",
     "@types/shell-quote": "^1.7.5",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
+    "drizzle-kit": "^0.31.10",
     "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.6.0"

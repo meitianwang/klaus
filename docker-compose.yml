@@ -1,0 +1,49 @@
+# Local + production Postgres 16 for Klaus Web 端 (Phase 1).
+#
+# Local dev:
+#   docker compose up -d postgres
+#   DATABASE_URL=postgres://klaus:klaus@localhost:5432/klaus npm run dev
+#
+# Production (VPS):
+#   Same compose file, override password / port via .env.
+#   See docs/db-migration-plan.md §8.3 for postgresql.conf tuning + backup ops.
+#
+# Decision #5 reminder: this PG instance only stores Klaus-added tables.
+# CC engine's local files (transcripts JSONL / ~/.claude/tasks/) are NOT
+# moved here — they stay on the host filesystem.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: klaus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-klaus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-klaus}
+      POSTGRES_DB: ${POSTGRES_DB:-klaus}
+      # UTC + UTF8 to match docs §8.3 deployment guide
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+      TZ: UTC
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - klaus-pg-data:/var/lib/postgresql/data
+      # Auto-run on first init: enable extensions we depend on.
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/00-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-klaus} -d ${POSTGRES_DB:-klaus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "log_min_duration_statement=500"
+      - "-c"
+      - "log_statement=ddl"
+
+volumes:
+  klaus-pg-data:
+    name: klaus-pg-data
