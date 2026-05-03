@@ -48,7 +48,6 @@ export type LogOption = {
   prNumber?: number // GitHub PR number linked to this session
   prUrl?: string // Full URL to the linked PR
   prRepository?: string // Repository in "owner/repo" format
-  mode?: 'coordinator' | 'normal' // Session mode for coordinator/normal detection
   worktreeSession?: PersistedWorktreeSession | null // Worktree state at session end (null = exited, undefined = never entered)
   contentReplacements?: ContentReplacementRecord[] // Replacement decisions for resume reconstruction
 }
@@ -133,12 +132,6 @@ export type PRLinkMessage = {
   prUrl: string
   prRepository: string // e.g., "owner/repo"
   timestamp: string // ISO timestamp when linked
-}
-
-export type ModeEntry = {
-  type: 'mode'
-  sessionId: UUID
-  mode: 'coordinator' | 'normal'
 }
 
 /**
@@ -311,7 +304,6 @@ export type Entry =
   | AttributionSnapshotMessage
   | QueueOperationMessage
   | SpeculationAcceptMessage
-  | ModeEntry
   | WorktreeStateEntry
   | ContentReplacementEntry
   | ContextCollapseCommitEntry

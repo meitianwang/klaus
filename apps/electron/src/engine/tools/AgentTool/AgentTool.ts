@@ -6,8 +6,6 @@ import { getQuerySourceForAgent } from '../../utils/promptCategory.js';
 import { z } from 'zod/v4';
 import { clearInvokedSkillsForAgent, getSdkAgentProgressSummariesEnabled } from '../../bootstrap/state.js';
 import { enhanceSystemPromptWithEnvDetails, getSystemPrompt } from '../../constants/prompts.js';
-// coordinator mode removed — always false in Klaus
-const isCoordinatorMode = (): boolean => false;
 import { startAgentSummarization } from '../../services/AgentSummary/agentSummary.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
@@ -219,10 +217,7 @@ export const AgentTool = buildTool({
     const agentsWithMcpRequirementsMet = filterAgentsByMcpRequirements(agents, mcpServersWithTools);
     const filteredAgents = filterDeniedAgents(agentsWithMcpRequirementsMet, toolPermissionContext, AGENT_TOOL_NAME);
 
-    // Use inline env check instead of coordinatorModule to avoid circular
-    // dependency issues during test module loading.
-    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
-    return await getPrompt(filteredAgents, isCoordinator, allowedAgentTypes);
+    return await getPrompt(filteredAgents, false, allowedAgentTypes);
   },
   name: AGENT_TOOL_NAME,
   searchHint: 'delegate work to a subagent',
@@ -250,7 +245,7 @@ export const AgentTool = buildTool({
     cwd
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
-    const model = isCoordinatorMode() ? undefined : modelParam;
+    const model = modelParam;
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
@@ -499,10 +494,6 @@ export const AgentTool = buildTool({
       isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled()
     };
 
-    // Use inline env check instead of coordinatorModule to avoid circular
-    // dependency issues during test module loading.
-    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
-
     // Fork subagent experiment: force ALL spawns async for a unified
     // <task-notification> interaction model (not just fork spawns — all of them).
     const forceAsync = isForkSubagentEnabled();
@@ -515,7 +506,7 @@ export const AgentTool = buildTool({
     // <task-notification> re-entry there is handled by the else branch
     // below (registerAsyncAgentTask + notifyOnCompletion).
     const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || false) && !isBackgroundTasksDisabled();
+    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || forceAsync || assistantForceAsync) && !isBackgroundTasksDisabled();
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
@@ -649,8 +640,7 @@ export const AgentTool = buildTool({
       });
 
       // Register name → agentId for SendMessage routing. Post-registerAsyncAgent
-      // so we don't leave a stale entry if spawn fails. Sync agents skipped —
-      // coordinator is blocked, so SendMessage routing doesn't apply.
+      // so we don't leave a stale entry if spawn fails.
       if (name) {
         rootSetAppState(prev => {
           const next = new Map(prev.agentNameRegistry);
@@ -698,7 +688,7 @@ export const AgentTool = buildTool({
         toolUseContext,
         rootSetAppState,
         agentIdForCleanup: asyncAgentId,
-        enableSummarization: isCoordinator || isForkSubagentEnabled() || getSdkAgentProgressSummariesEnabled(),
+        enableSummarization: isForkSubagentEnabled() || getSdkAgentProgressSummariesEnabled(),
         getWorktreeResult: cleanupWorktreeIfNeeded
       })));
       const canReadOutputFile = toolUseContext.options.tools.some(t => toolMatchesName(t, FILE_READ_TOOL_NAME) || toolMatchesName(t, BASH_TOOL_NAME));

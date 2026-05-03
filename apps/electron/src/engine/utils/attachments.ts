@@ -1073,7 +1073,7 @@ export function getAgentPendingMessageAttachments(
   return drained.map(msg => ({
     type: 'queued_command' as const,
     prompt: msg,
-    origin: { kind: 'coordinator' as const },
+    origin: { kind: 'task-notification' as const },
     isMeta: true,
   }))
 }

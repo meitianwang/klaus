@@ -129,7 +129,6 @@ export type AppState = DeepImmutable<{
   isBriefOnly: boolean
   showTeammateMessagePreview?: boolean
   selectedIPAgentIndex: number
-  coordinatorTaskIndex: number
   viewSelectionMode: 'none' | 'selecting-agent' | 'viewing-agent'
   footerSelection: FooterItem | null
   toolPermissionContext: ToolPermissionContext
@@ -346,7 +345,6 @@ export function getDefaultAppState(): AppState {
     isBriefOnly: false,
     showTeammateMessagePreview: false,
     selectedIPAgentIndex: -1,
-    coordinatorTaskIndex: -1,
     viewSelectionMode: 'none',
     footerSelection: null,
     kairosEnabled: false,

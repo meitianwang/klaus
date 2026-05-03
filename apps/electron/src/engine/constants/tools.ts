@@ -98,12 +98,3 @@ export const IN_PROCESS_TEAMMATE_ALLOWED_TOOLS = new Set([
  * - ReadMcpResourceTool: TBD
  */
 
-/**
- * Tools allowed in coordinator mode - only output and agent management tools for the coordinator
- */
-export const COORDINATOR_MODE_ALLOWED_TOOLS = new Set([
-  AGENT_TOOL_NAME,
-  TASK_STOP_TOOL_NAME,
-  SEND_MESSAGE_TOOL_NAME,
-  SYNTHETIC_OUTPUT_TOOL_NAME,
-])

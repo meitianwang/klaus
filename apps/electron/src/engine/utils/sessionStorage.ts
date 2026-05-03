@@ -432,7 +432,6 @@ class Project {
   currentSessionAgentColor: string | undefined
   currentSessionLastPrompt: string | undefined
   currentSessionAgentSetting: string | undefined
-  currentSessionMode: 'coordinator' | 'normal' | undefined
   // Tri-state: undefined = never touched (don't write), null = exited worktree,
   // object = currently in worktree. reAppendSessionMetadata writes null so
   // --resume knows the session exited (vs. crashed while inside).
@@ -699,13 +698,6 @@ class Project {
       appendEntryToFile(this.sessionFile, {
         type: 'agent-setting',
         agentSetting: this.currentSessionAgentSetting,
-        sessionId,
-      })
-    }
-    if (this.currentSessionMode) {
-      appendEntryToFile(this.sessionFile, {
-        type: 'mode',
-        mode: this.currentSessionMode,
         sessionId,
       })
     }
@@ -1085,9 +1077,6 @@ class Project {
       void this.enqueueWrite(sessionFile, entry)
     } else if (entry.type === 'speculation-accept') {
       // Speculation accept entries can always be appended
-      void this.enqueueWrite(sessionFile, entry)
-    } else if (entry.type === 'mode') {
-      // Mode entries can always be appended
       void this.enqueueWrite(sessionFile, entry)
     } else if (entry.type === 'worktree-state') {
       void this.enqueueWrite(sessionFile, entry)
@@ -2591,7 +2580,6 @@ export function restoreSessionMetadata(meta: {
   agentName?: string
   agentColor?: string
   agentSetting?: string
-  mode?: 'coordinator' | 'normal'
   worktreeSession?: PersistedWorktreeSession | null
   prNumber?: number
   prUrl?: string
@@ -2605,7 +2593,6 @@ export function restoreSessionMetadata(meta: {
   if (meta.agentName) project.currentSessionAgentName = meta.agentName
   if (meta.agentColor) project.currentSessionAgentColor = meta.agentColor
   if (meta.agentSetting) project.currentSessionAgentSetting = meta.agentSetting
-  if (meta.mode) project.currentSessionMode = meta.mode
   if (meta.worktreeSession !== undefined)
     project.currentSessionWorktree = meta.worktreeSession
   if (meta.prNumber !== undefined)
@@ -2627,7 +2614,6 @@ export function clearSessionMetadata(): void {
   project.currentSessionAgentColor = undefined
   project.currentSessionLastPrompt = undefined
   project.currentSessionAgentSetting = undefined
-  project.currentSessionMode = undefined
   project.currentSessionWorktree = undefined
   project.currentSessionPrNumber = undefined
   project.currentSessionPrUrl = undefined
@@ -2698,15 +2684,6 @@ export function saveAgentSetting(agentSetting: string): void {
  */
 export function cacheSessionTitle(customTitle: string): void {
   getProject().currentSessionTitle = customTitle
-}
-
-/**
- * Cache the session mode. Written to disk by materializeSessionFile on the
- * first user message, and re-stamped by reAppendSessionMetadata on exit.
- * Cache-only here to avoid creating metadata-only session files at startup.
- */
-export function saveMode(mode: 'coordinator' | 'normal'): void {
-  getProject().currentSessionMode = mode
 }
 
 /**
@@ -2799,7 +2776,6 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       prNumbers,
       prUrls,
       prRepositories,
-      modes,
       worktreeStates,
       fileHistorySnapshots,
       attributionSnapshots,
@@ -2842,7 +2818,6 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       agentName: sessionId ? agentNames.get(sessionId) : log.agentName,
       agentColor: sessionId ? agentColors.get(sessionId) : log.agentColor,
       agentSetting: sessionId ? agentSettings.get(sessionId) : log.agentSetting,
-      mode: sessionId ? (modes.get(sessionId) as LogOption['mode']) : log.mode,
       worktreeSession:
         sessionId && worktreeStates.has(sessionId)
           ? worktreeStates.get(sessionId)
@@ -2946,7 +2921,6 @@ const METADATA_TYPE_MARKERS = [
   '"type":"agent-name"',
   '"type":"agent-color"',
   '"type":"agent-setting"',
-  '"type":"mode"',
   '"type":"worktree-state"',
   '"type":"pr-link"',
 ]
@@ -3312,7 +3286,6 @@ export async function loadTranscriptFile(
   prNumbers: Map<UUID, number>
   prUrls: Map<UUID, string>
   prRepositories: Map<UUID, string>
-  modes: Map<UUID, string>
   worktreeStates: Map<UUID, PersistedWorktreeSession | null>
   fileHistorySnapshots: Map<UUID, FileHistorySnapshotMessage>
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
@@ -3332,7 +3305,6 @@ export async function loadTranscriptFile(
   const prNumbers = new Map<UUID, number>()
   const prUrls = new Map<UUID, string>()
   const prRepositories = new Map<UUID, string>()
-  const modes = new Map<UUID, string>()
   const worktreeStates = new Map<UUID, PersistedWorktreeSession | null>()
   const fileHistorySnapshots = new Map<UUID, FileHistorySnapshotMessage>()
   const attributionSnapshots = new Map<UUID, AttributionSnapshotMessage>()
@@ -3357,7 +3329,7 @@ export async function loadTranscriptFile(
     // buffers (measured: arrayBuffers=0 after Bun.gc(true) but RSS stuck at
     // ~316 MB on the old scan+strip path vs ~155 MB here).
     //
-    // Pre-boundary metadata (agent-setting, mode, pr-link, etc.) is recovered
+    // Pre-boundary metadata (agent-setting, pr-link, etc.) is recovered
     // via a cheap byte-level forward scan of [0, boundary).
     let buf: Buffer | null = null
     let metadataLines: string[] | null = null
@@ -3408,7 +3380,7 @@ export async function loadTranscriptFile(
     }
 
     // First pass: process metadata-only lines collected during the boundary scan.
-    // These populate the session-scoped maps (agentSettings, modes, prNumbers,
+    // These populate the session-scoped maps (agentSettings, prNumbers,
     // etc.) for entries written before the compact boundary. Any overlap with
     // the post-boundary buffer is harmless — later values overwrite earlier ones.
     if (metadataLines && metadataLines.length > 0) {
@@ -3428,8 +3400,6 @@ export async function loadTranscriptFile(
           agentColors.set(entry.sessionId, entry.agentColor)
         } else if (entry.type === 'agent-setting' && entry.sessionId) {
           agentSettings.set(entry.sessionId, entry.agentSetting)
-        } else if (entry.type === 'mode' && entry.sessionId) {
-          modes.set(entry.sessionId, entry.mode)
         } else if (entry.type === 'worktree-state' && entry.sessionId) {
           worktreeStates.set(entry.sessionId, entry.worktreeSession)
         } else if (entry.type === 'pr-link' && entry.sessionId) {
@@ -3496,8 +3466,6 @@ export async function loadTranscriptFile(
         agentColors.set(entry.sessionId, entry.agentColor)
       } else if (entry.type === 'agent-setting' && entry.sessionId) {
         agentSettings.set(entry.sessionId, entry.agentSetting)
-      } else if (entry.type === 'mode' && entry.sessionId) {
-        modes.set(entry.sessionId, entry.mode)
       } else if (entry.type === 'worktree-state' && entry.sessionId) {
         worktreeStates.set(entry.sessionId, entry.worktreeSession)
       } else if (entry.type === 'pr-link' && entry.sessionId) {
@@ -3629,7 +3597,6 @@ export async function loadTranscriptFile(
     prNumbers,
     prUrls,
     prRepositories,
-    modes,
     worktreeStates,
     fileHistorySnapshots,
     attributionSnapshots,
@@ -4351,7 +4318,6 @@ export async function loadAllLogsFromSessionFile(
     prNumbers,
     prUrls,
     prRepositories,
-    modes,
     fileHistorySnapshots,
     attributionSnapshots,
     contentReplacements,
@@ -4413,7 +4379,6 @@ export async function loadAllLogsFromSessionFile(
       agentName: agentNames.get(sessionId),
       agentColor: agentColors.get(sessionId),
       agentSetting: agentSettings.get(sessionId),
-      mode: modes.get(sessionId) as LogOption['mode'],
       prNumber: prNumbers.get(sessionId),
       prUrl: prUrls.get(sessionId),
       prRepository: prRepositories.get(sessionId),

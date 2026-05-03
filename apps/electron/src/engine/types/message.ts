@@ -43,7 +43,6 @@ export type PartialCompactDirection = 'forward' | 'backward' | 'from' | 'up_to'
 export type MessageOrigin =
   | { kind: 'human' }
   | { kind: 'channel'; server: string }
-  | { kind: 'coordinator' }
   | { kind: 'cron' }
   | { kind: 'task-notification' }
 

@@ -198,7 +198,6 @@ assistant: "I'm going to use the ${AGENT_TOOL_NAME} tool to launch the greeting-
     : `Available agent types and the tools they have access to:
 ${effectiveAgents.map(agent => formatAgentLine(agent)).join('\n')}`
 
-  // Shared core prompt used by both coordinator and non-coordinator modes
   const shared = `Launch a new agent to handle complex, multi-step tasks autonomously.
 
 The ${AGENT_TOOL_NAME} tool launches specialized agents (subprocesses) that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
@@ -210,12 +209,6 @@ ${
     ? `When using the ${AGENT_TOOL_NAME} tool, specify a subagent_type to use a specialized agent, or omit it to fork yourself — a fork inherits your full conversation context.`
     : `When using the ${AGENT_TOOL_NAME} tool, specify a subagent_type parameter to select which agent type to use. If omitted, the general-purpose agent is used.`
 }`
-
-  // Coordinator mode gets the slim prompt -- the coordinator system prompt
-  // already covers usage notes, examples, and when-not-to-use guidance.
-  if (isCoordinator) {
-    return shared
-  }
 
   // Ant-native builds alias find/grep to embedded bfs/ugrep and remove the
   // dedicated Glob/Grep tools, so point at find via Bash instead.
@@ -248,7 +241,6 @@ When NOT to use the ${AGENT_TOOL_NAME} tool:
 - Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses`
       : ''
 
-  // Non-coordinator gets the full prompt with all sections
   return `${shared}
 ${whenNotToUseSection}
 
