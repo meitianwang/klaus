@@ -725,6 +725,8 @@ async function switchSession(id) {
   // Leaving any full-screen overlay — clicking a session in the sidebar
   // means the user wants to return to the chat surface.
   if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (typeof window.hideMcpView === 'function') window.hideMcpView()
+  if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
 
   // 必须在 DOM 搬运前快照；搬运会清空 messagesEl，之后 childNodes.length 恒为 0。
