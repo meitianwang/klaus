@@ -89,6 +89,107 @@ model: haiku  # 可选，默认走 getDefaultSubagentModel()
 | 工具池 | `tools` 字段 | frontmatter `tools` | 父的精确 tool 集（`useExactTools`）|
 | 默认是否开 | ✅ 三个常驻 | ✅ 取决于用户 | ❌ 默认关 |
 
+#### 2.5 两类 sub-agent 的创建路径与底层机制
+
+Klaus（以及 CC）里用户能实际用到的 sub-agent 只有两类，**在 `AgentTool.call()` 入口处就分叉**：
+
+```
+AgentTool.call(input)
+  ├─ input.team_name && input.name  →  spawnTeammate()  →  in_process_teammate
+  └─ 否则                           →  runAsyncAgentLifecycle()  →  local_agent
+```
+
+两者底层都调同一个 `query()` 函数做 LLM 推理，**差异在于给 `query()` 套了什么样的执行环境**。
+
+---
+
+**A. local_agent — 裸 async 调用**
+
+触发条件：`Agent` tool 调用时不传 `name`+`team_name`。
+
+底层创建原语：
+
+```
+registerAsyncAgent()           // 1. 在 appState.tasks 里挂一个 local_agent 类型的 task 记录
+void runAsyncAgentLifecycle()  // 2. fire-and-forget 进入子 agent 的执行循环
+  └── runAgent()
+        └── query()            // 3. 直接调 LLM，没有任何额外隔离层
+```
+
+`query()` 就是主 agent 用的那个推理函数，子 agent 在同一个 Node.js 进程、同一个 event loop 里并发执行，没有进程隔离，没有线程，没有 AsyncLocalStorage——就是一个普通的异步函数调用。子 agent 的"身份"只存在于传给 `query()` 的参数里（system prompt、初始 messages），不是运行时上下文的一部分。
+
+完成后：`enqueueAgentNotification()` 把结果写入全局 commandQueue，主 agent 当前 turn 结束后由 engine-host 的 do-while 循环用 `runTurn(notifText)` 消费。
+
+**fork 变体**（省略 `subagent_type`，`FORK_SUBAGENT` 开启时触发）：
+
+创建原语完全相同，唯一差异是传给 `query()` 的初始 messages 不是空的，而是由 `buildForkedMessages()` 构造的：把父 agent 最后一条 assistant message（含所有 tool_use block）+ 占位 tool_result + `<fork-boilerplate>` 指令拼在一起，让子 agent 从"知道父 agent 之前做了什么"的状态开始。工具池用 `useExactTools: true` 与父完全一致（保证 prompt cache 前缀命中），权限 `permissionMode: 'bubble'` 上浮到父 agent。
+
+---
+
+**B. in_process_teammate — AsyncLocalStorage 虚拟进程 / 真实 OS 进程**
+
+触发条件：`Agent` tool 调用时同时传 `name` 和 `team_name`（需先建团队）。
+
+根据环境分两条后端路径：
+
+**路径 1：in-process（Klaus 桌面端走这条，`isInProcessEnabled()` 为 true 时）**
+
+```
+spawnInProcessTeammate()       // 1. 在 appState.tasks 注册 in_process_teammate task，生成独立 AbortController
+startInProcessTeammate()       // 2. fire-and-forget
+  └── runWithAgentContext(teammateContext,  // 3. 用 AsyncLocalStorage 注入 teammate 身份
+        () => inProcessRunner()             // 4. 进入 teammate 自己的 query() 循环
+              └── query()
+      )
+```
+
+`AsyncLocalStorage` 是关键：它在同一个 Node.js 进程里开了一个"身份隔离槽"。任何在这个调用链里读取"当前 agentId / teamName / mailbox 路径"的代码，都从 ALS 里拿，拿到的是 teammate 的身份而不是主 agent 的。进程、event loop、内存都是共享的，但"我是谁"是隔离的。
+
+`inProcessRunner()` 不是跑一次就退出——它跑完一轮后进入 `waitForNextPromptOrShutdown()` 轮询，等 mailbox 里有新消息再启动下一轮 `query()`。这是一个持续存活的异步循环，直到收到 shutdown 信号。
+
+初始 prompt 直接作为参数传给 `startInProcessTeammate()`，**不经过 mailbox**（mailbox 只用于后续轮次的通信）。写团队文件 `~/.claude/teams/{teamName}/config.json` 记录成员名单。
+
+**路径 2：tmux/out-of-process（CC CLI 原生路径）**
+
+```
+execFile('tmux', ['send-keys', paneId,
+  'claude --agent-id x --agent-name y --team-name z --parent-session-id w'
+])
+```
+
+直接用 tmux/iTerm2 在新 pane 里 spawn 一个独立的 `claude` OS 进程，通过 CLI flags 注入 teammate 身份。初始 prompt 通过 `writeToMailbox()` 写入文件，新进程启动后自己轮询 mailbox 拿到第一条任务。尽管 TaskType 名字仍叫 `in_process_teammate`，实际是跨进程的。
+
+---
+
+**两条路径的通信机制相同（路径 1、2 汇合后）：**
+
+```
+teammate 完成一轮
+  → SendMessageTool 写 mailbox 文件
+  → 主 agent 侧 leaderMailboxPoller 轮询
+  → 发现新消息
+  → 调外层 chat()  ← 全新的 chat() 调用，不是 do-while 内的 runTurn()
+  → 主 agent 开新一轮对话处理 teammate 消息
+```
+
+这与 local_agent 的回传路径有本质区别：local_agent 结果在同一次 `chat()` 调用内被 do-while 的 `runTurn()` 消费；teammate 消息触发全新的 `chat()` 调用，绕过 renderer 的 `send()`，`busy` 标志需要在 `stream_mode: requesting` 事件里补位。
+
+`isIdle: true` 表示 teammate 完成本轮、进入 `waitForNextPromptOrShutdown()` 等待（`status` 仍是 `running`）。终态（`completed`/`failed`）只在 session 清理时出现，不是正常工作流的结束信号。
+
+---
+
+**底层创建原语对比：**
+
+| | local_agent | in_process_teammate (in-process) | in_process_teammate (tmux) |
+|---|---|---|---|
+| 执行环境 | 裸 async，同进程同 event loop | AsyncLocalStorage 隔离身份，同进程同 event loop | 独立 OS 进程 |
+| LLM 调用 | 直接 `query()` | `runWithAgentContext` 包裹后 `query()` | 新进程里独立 `query()` |
+| 身份注入 | 参数传入（system prompt / messages）| AsyncLocalStorage 运行时上下文 | CLI flags (`--agent-id` 等) |
+| 初始 prompt | `runAgent()` 直接传 | `startInProcessTeammate()` 直接传 | mailbox 文件 |
+| 生命周期 | 一次性：跑完即退 | 持续：`waitForNextPromptOrShutdown()` 轮询 | 持续：独立进程轮询 |
+| 结果回传 | commandQueue → do-while `runTurn()` | mailbox → leaderMailboxPoller → 新 `chat()` | 同左 |
+| 团队文件 | 无 | 写 `~/.claude/teams/{name}/config.json` | 同左 |
+
 ---
 
 ### 3. 协调机制：五种套路
@@ -359,7 +460,7 @@ CC 引擎 sub-agent 的内部对话**走独立 JSONL 文件**：
 
 **CC vs Klaus 差异**：CC CLI 的消费循环在 `print.ts`（非交互入口），Klaus 没有 `print.ts`，把等效 do-while 移植到了 [`engine-host.ts doChat()`](../apps/electron/src/main/engine-host.ts) 的 main for-await 结束后、`finally` 之前。`runTurn()` 是 `doChat()` 内的闭包，复用已构建的 tools/systemPrompt，绕过外层 `isRunning` 守卫。
 
-套路 4（teammate）走**不同路径**：文件 mailbox → `leaderMailboxPoller` 轮询 → 空闲时调外层 `chat()`，不经过 commandQueue。
+套路 4（teammate / in_process_teammate）走**完全不同的路径**：SendMessage 写 mailbox → `leaderMailboxPoller` 轮询 → 空闲时调外层 `chat()`，不经过 commandQueue。这也是为什么 teammate 回传消息时 renderer 的 `busy` 标志不会被自动置位（`send()` 没有被调用）——引擎推来 `stream_mode: requesting` / `text_delta` / `thinking_delta` 时，renderer 检测到 `!busy` 再补上去。
 
 #### 6.4 LocalAgent vs InProcessTeammate 数据形态对比
 
