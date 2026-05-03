@@ -728,6 +728,7 @@ async function switchSession(id) {
   if (typeof window.hideMcpView === 'function') window.hideMcpView()
   if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  restoreArtifactsPanelForChatView()
 
   // 必须在 DOM 搬运前快照；搬运会清空 messagesEl，之后 childNodes.length 恒为 0。
   const leavingHadContent = !!(currentSessionId && messagesEl.childNodes.length)
@@ -3778,6 +3779,7 @@ document.getElementById('btn-mcp')?.addEventListener('click', () => {
   if (typeof window.hideCronView === 'function') window.hideCronView()
   if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (typeof window.showMcpView === 'function') window.showMcpView()
+  hideArtifactsPanelForNonChatView()
 })
 
 document.getElementById('btn-skills')?.addEventListener('click', () => {
@@ -3785,6 +3787,7 @@ document.getElementById('btn-skills')?.addEventListener('click', () => {
   if (typeof window.hideCronView === 'function') window.hideCronView()
   if (typeof window.hideMcpView === 'function') window.hideMcpView()
   if (typeof window.showSkillsView === 'function') window.showSkillsView()
+  hideArtifactsPanelForNonChatView()
 })
 
 document.getElementById('btn-cron')?.addEventListener('click', () => {
@@ -3792,6 +3795,7 @@ document.getElementById('btn-cron')?.addEventListener('click', () => {
   if (typeof window.hideMcpView === 'function') window.hideMcpView()
   if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (typeof window.showCronView === 'function') window.showCronView()
+  hideArtifactsPanelForNonChatView()
 })
 
 // Sidebar toggle
@@ -4316,6 +4320,18 @@ function toggleArtifactsPanel() {
 artifactsToggleBtn?.addEventListener('click', toggleArtifactsPanel)
 artifactsToggleBtnInner?.addEventListener('click', toggleArtifactsPanel)
 syncArtifactsToggleVisibility()
+
+function hideArtifactsPanelForNonChatView() {
+  if (!artifactsPanel) return
+  artifactsPanel.classList.add('collapsed')
+  syncArtifactsToggleVisibility()
+}
+function restoreArtifactsPanelForChatView() {
+  if (!artifactsPanel) return
+  const shouldExpand = localStorage.getItem('klaus_artifacts_collapsed') === '0'
+  artifactsPanel.classList.toggle('collapsed', !shouldExpand)
+  syncArtifactsToggleVisibility()
+}
 
 function fileIconSvg(name) {
   const lower = (name || '').toLowerCase()
