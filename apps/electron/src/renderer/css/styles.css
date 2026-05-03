@@ -1599,6 +1599,21 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 .settings-tab-panel { display: none; }
 .settings-tab-panel.active { display: block; }
 
+/* ===== MCP / Skills views (independent overlays) ===== */
+#mcp-view, #skills-view {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 48px 48px 64px;
+  padding-top: calc(var(--titlebar-height) + 48px);
+  background: var(--bg);
+  z-index: 100;
+}
+#mcp-view.active, #skills-view.active { display: block; }
+#mcp-view-content, #skills-view-content { max-width: 760px; margin: 0 auto; }
+
 /* ===== Scheduled Tasks view (independent overlay, own layout) ===== */
 #cron-view {
   display: none;

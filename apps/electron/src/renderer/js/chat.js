@@ -3763,13 +3763,30 @@ btnSend.addEventListener('click', () => {
 btnNewChat.addEventListener('click', () => {
   // Coming from cron/settings view: close the overlay before starting a new chat
   if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (typeof window.hideMcpView === 'function') window.hideMcpView()
+  if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
   newChat()
 })
 
-document.getElementById('btn-cron')?.addEventListener('click', () => {
-  // Close settings if open, then toggle cron view
+document.getElementById('btn-mcp')?.addEventListener('click', () => {
   if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
+  if (typeof window.showMcpView === 'function') window.showMcpView()
+})
+
+document.getElementById('btn-skills')?.addEventListener('click', () => {
+  if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  if (typeof window.hideCronView === 'function') window.hideCronView()
+  if (typeof window.hideMcpView === 'function') window.hideMcpView()
+  if (typeof window.showSkillsView === 'function') window.showSkillsView()
+})
+
+document.getElementById('btn-cron')?.addEventListener('click', () => {
+  if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()
+  if (typeof window.hideMcpView === 'function') window.hideMcpView()
+  if (typeof window.hideSkillsView === 'function') window.hideSkillsView()
   if (typeof window.showCronView === 'function') window.showCronView()
 })
 

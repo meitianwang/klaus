@@ -61,6 +61,14 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
           <span data-i18n="new_chat">New chat</span>
         </button>
+        <button class="sidebar-nav-item" id="btn-mcp">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+          <span data-i18n="mcp">MCP</span>
+        </button>
+        <button class="sidebar-nav-item" id="btn-skills">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l2 4 4.5.5-3.3 3 .8 4.5L8 11.5 3.9 13.5 4.7 9 1.5 6l4.5-.5z"/></svg>
+          <span data-i18n="skills">Skills</span>
+        </button>
         <button class="sidebar-nav-item" id="btn-cron">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><polyline points="8,4 8,8 10.5,9.5"/></svg>
           <span data-i18n="cron">Scheduled Tasks</span>
@@ -182,6 +190,16 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- MCP Services view (independent overlay) -->
+      <div id="mcp-view">
+        <div id="mcp-view-content"></div>
+      </div>
+
+      <!-- Skills view (independent overlay) -->
+      <div id="skills-view">
+        <div id="skills-view-content"></div>
       </div>
 
       <!-- Scheduled Tasks view (independent overlay) -->
@@ -481,14 +499,6 @@
           <button class="settings-nav-item" data-stab="channels">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 12.5c0-3 1.5-5 4-5s4 2 4 5"/><circle cx="12.5" cy="4" r="1.5"/><circle cx="3.5" cy="4" r="1.5"/></svg>
             <span data-i18n="channels">Channels</span>
-          </button>
-          <button class="settings-nav-item" data-stab="skills">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l2 4 4.5.5-3.3 3 .8 4.5L8 11.5 3.9 13.5 4.7 9 1.5 6l4.5-.5z"/></svg>
-            <span data-i18n="skills">Skills</span>
-          </button>
-          <button class="settings-nav-item" data-stab="mcp">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
-            <span data-i18n="mcp">MCP</span>
           </button>
 
           <div class="settings-sidebar-group" data-i18n="settings_group_system">System</div>

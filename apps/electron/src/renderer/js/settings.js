@@ -27,8 +27,6 @@ function loadSettingsTab(tab) {
     case 'preferences': loadPreferencesTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
-    case 'skills': loadSkillsTab(content); break
-    case 'mcp': loadMcpTab(content); break
     case 'systemAuth': loadSystemAuthTab(content); break
   }
 }
@@ -893,7 +891,7 @@ function bindSkillTopbarEvents() {
   document.querySelectorAll('[data-skill-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
       skillsView = btn.dataset.skillTab
-      loadSettingsTab('skills')
+      reloadSkillsView()
     })
   })
   // Filter dropdown (installed tab only)
@@ -906,7 +904,7 @@ function bindSkillTopbarEvents() {
         { value: 'disabled', i18nKey: 'skills_filter_disabled' },
       ],
       value: skillsFilter,
-      onChange: (v) => { skillsFilter = v; loadSettingsTab('skills') },
+      onChange: (v) => { skillsFilter = v; reloadSkillsView() },
     })
   }
   // Search box — debounced reload so input focus survives
@@ -916,7 +914,7 @@ function bindSkillTopbarEvents() {
       skillsSearchQuery = searchInput.value
       clearTimeout(window.__skSearchTimer)
       window.__skSearchTimer = setTimeout(() => {
-        loadSettingsTab('skills')
+        reloadSkillsView()
         // Restore focus + caret after rerender
         setTimeout(() => {
           const el = document.getElementById('sk-search')
@@ -929,7 +927,7 @@ function bindSkillTopbarEvents() {
   document.getElementById('sk-refresh')?.addEventListener('click', (e) => {
     const btn = e.currentTarget
     btn.classList.add('spinning')
-    loadSettingsTab('skills')
+    reloadSkillsView()
     setTimeout(() => btn.classList.remove('spinning'), 600)
   })
   // Create via Klaus — mirror cron.js pattern
@@ -977,7 +975,7 @@ function bindSkillEvents() {
     el.addEventListener('click', async () => {
       el.disabled = true; el.textContent = tt('settings_skills_uploading')
       const result = await window.klaus.skills.install(el.dataset.install)
-      if (result.ok) { showToast(tt('settings_skills_installed_toast') + ': ' + result.name); loadSettingsTab('skills') }
+      if (result.ok) { showToast(tt('settings_skills_installed_toast') + ': ' + result.name); reloadSkillsView() }
       else { showToast(tt('toast_error_prefix') + (result.error || tt('toast_unknown'))); el.disabled = false; el.textContent = tt('skills_install_btn') }
     })
   })
@@ -988,7 +986,7 @@ function bindSkillEvents() {
         danger: true,
       }))) return
       await window.klaus.skills.uninstall(el.dataset.uninstall)
-      showToast(tt('settings_skills_uninstalled_toast')); loadSettingsTab('skills')
+      showToast(tt('settings_skills_uninstalled_toast')); reloadSkillsView()
     })
   })
 }
@@ -1001,7 +999,7 @@ async function uploadSkillFile(file) {
     const result = await window.klaus.skills.upload(file.name, buffer)
     if (result.ok) {
       statusEl.textContent = 'Installed: ' + result.name
-      loadSettingsTab('skills')
+      reloadSkillsView()
     } else {
       statusEl.textContent = 'Error: ' + (result.error || 'unknown')
     }
@@ -1261,7 +1259,7 @@ function bindMcpEvents(container) {
   container.querySelector('#mcp-refresh')?.addEventListener('click', async () => {
     await window.klaus.mcp.reconnect()
     showToast(tt('toast_reconnected') || tt('settings_mcp_reconnect'))
-    loadSettingsTab('mcp')
+    reloadMcpView()
   })
 
   container.querySelectorAll('[data-mcp-tab]').forEach(btn => {
@@ -1305,7 +1303,7 @@ function bindMcpEvents(container) {
     row.querySelector('[data-action="toggle"]')?.addEventListener('change', async (e) => {
       await window.klaus.mcp.toggle(name, e.target.checked)
       showToast(e.target.checked ? (tt('enabled') || 'Enabled') : (tt('disabled') || 'Disabled'))
-      setTimeout(() => loadSettingsTab('mcp'), 300)
+      setTimeout(() => reloadMcpView(), 300)
     })
 
     row.querySelector('[data-action="install"]')?.addEventListener('change', (e) => {
@@ -1327,13 +1325,13 @@ function bindMcpEvents(container) {
       }))) return
       await window.klaus.mcp.remove(name)
       showToast(tt('settings_deleted') || 'Deleted')
-      loadSettingsTab('mcp')
+      reloadMcpView()
     })
 
     row.querySelector('[data-action="reset"]')?.addEventListener('click', async () => {
       if (!(await window.klausDialog.confirm(tt('mcp_reset_confirm')))) return
       const r = await window.klaus.mcp.revokeAuth(name)
-      if (r?.ok) { showToast(tt('mcp_reset_done')); setTimeout(() => loadSettingsTab('mcp'), 400) }
+      if (r?.ok) { showToast(tt('mcp_reset_done')); setTimeout(() => reloadMcpView(), 400) }
       else showToast(r?.error || tt('settings_failed') || 'Failed')
     })
 
@@ -1363,7 +1361,7 @@ function bindMcpEvents(container) {
         return
       }
       showToast(enabled ? tt('enabled') : tt('disabled'))
-      setTimeout(() => loadSettingsTab('mcp'), 400)
+      setTimeout(() => reloadMcpView(), 400)
     })
   })
 
@@ -1530,7 +1528,7 @@ function openMcpEditModal(existing) {
     if (result?.ok) {
       showToast(tt('settings_saved') || 'Saved')
       closeModal()
-      loadSettingsTab('mcp')
+      reloadMcpView()
     } else {
       showToast(result?.error || tt('settings_failed') || 'Failed')
     }
@@ -1570,7 +1568,7 @@ function openMcpJsonModal() {
     if (r.imported?.length) showToast((tt('settings_mcp_imported') || 'Imported') + ': ' + r.imported.join(', '))
     if (r.errors?.length) showToast(r.errors.join('; '))
     closeModal()
-    loadSettingsTab('mcp')
+    reloadMcpView()
   })
 }
 
@@ -1620,7 +1618,7 @@ function openBuiltinInstallModal(builtinId) {
       const env = {}
       modal.querySelectorAll('[data-envkey]').forEach(el => { env[el.dataset.envkey] = el.value })
       const r = await window.klaus.mcp.builtinInstall(builtinId, env)
-      if (r?.ok) { showToast(tt('settings_saved') || 'Enabled'); closeModal(); loadSettingsTab('mcp') }
+      if (r?.ok) { showToast(tt('settings_saved') || 'Enabled'); closeModal(); reloadMcpView() }
       else showToast(r?.error || 'Failed')
     })
   })
@@ -1659,7 +1657,7 @@ function openMcpDiagnoseModal(name, errText) {
   modal.querySelector('#mcpm-diag-retry').addEventListener('click', async () => {
     await window.klaus.mcp.reconnect()
     closeModal()
-    loadSettingsTab('mcp')
+    reloadMcpView()
   })
 }
 
@@ -1904,6 +1902,25 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('show'), 2500)
 }
 
+function reloadMcpView() { loadMcpTab(document.getElementById('mcp-view-content')) }
+function reloadSkillsView() { loadSkillsTab(document.getElementById('skills-view-content')) }
+
+function showMcpView() {
+  document.getElementById('mcp-view')?.classList.add('active')
+  reloadMcpView()
+}
+function hideMcpView() { document.getElementById('mcp-view')?.classList.remove('active') }
+
+function showSkillsView() {
+  document.getElementById('skills-view')?.classList.add('active')
+  reloadSkillsView()
+}
+function hideSkillsView() { document.getElementById('skills-view')?.classList.remove('active') }
+
 window.toggleSettings = toggleSettings
 window.loadSettingsTab = loadSettingsTab
 window.showToast = showToast
+window.showMcpView = showMcpView
+window.hideMcpView = hideMcpView
+window.showSkillsView = showSkillsView
+window.hideSkillsView = hideSkillsView
