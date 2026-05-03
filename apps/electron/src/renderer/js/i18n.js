@@ -383,6 +383,7 @@ const I18N = {
     // failed / killed / cancelled). Aligned with CC's pillLabel.
     agent_status_pending: 'queued',
     agent_status_running: 'running',
+    agent_status_idle: 'idle',
     agent_status_completed: 'done',
     agent_status_failed: 'failed',
     agent_status_killed: 'killed',
@@ -908,6 +909,7 @@ const I18N = {
     // failed / killed / cancelled). Aligned with CC's pillLabel.
     agent_status_pending: '排队中',
     agent_status_running: '运行中',
+    agent_status_idle: '空闲',
     agent_status_completed: '已完成',
     agent_status_failed: '失败',
     agent_status_killed: '已终止',

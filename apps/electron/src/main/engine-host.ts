@@ -3023,6 +3023,7 @@ export class EngineHost {
       snap.agentId = task.identity?.agentId
       const tu = task.progress?.toolUseCount
       if (typeof tu === 'number') snap.toolUseCount = tu
+      if (task.isIdle) snap.isIdle = true
     }
     return snap
   }

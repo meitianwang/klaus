@@ -2212,7 +2212,7 @@ function updateAgentToggle() {
   if (visible.length === 0) { meta.textContent = ''; return }
   let runningCount = 0
   for (const [, t] of visible) {
-    if (t.status === 'running' || t.status === 'pending') runningCount++
+    if ((t.status === 'running' && !t.isIdle) || t.status === 'pending') runningCount++
   }
   meta.textContent = runningCount > 0
     ? runningCount + ' ' + tt('agent_running')
@@ -2239,7 +2239,7 @@ function renderAgentPanel() {
   for (const [id, task] of visible) {
     const row = document.createElement('div')
     const isSelected = selectedAgentId === id
-    row.className = `agent-row status-${task.status}${isSelected ? ' selected' : ''}`
+    row.className = `agent-row status-${task.status}${task.isIdle ? ' status-idle' : ''}${isSelected ? ' selected' : ''}`
     row.setAttribute('data-task-id', id)
     const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'killed' || task.status === 'cancelled'
     const color = isTerminal ? 'var(--fg-quaternary, #999)' : (AGENT_COLOR_MAP[task.color] || AGENT_COLOR_MAP.blue)
@@ -2248,13 +2248,15 @@ function renderAgentPanel() {
     const displayName = isTeammate
       ? ('@' + (task.agentName || task.description || id))
       : (task.description || task.agentName || id)
-    const isRunning = task.status === 'running'
+    const isIdle = task.status === 'running' && !!task.isIdle
+    const isRunning = task.status === 'running' && !task.isIdle
     const typeTag = isTeammate
       ? `<span class="agent-tag agent-type-teammate">${escapeHtml(tt('agent_type_teammate'))}</span>`
       : `<span class="agent-tag agent-type-background">${escapeHtml(tt('agent_type_background'))}</span>`
     const tc = task.toolUseCount ?? 0
     const statusLabel = isRunning
       ? tt('agent_status_running') + (tc > 0 ? ' · ' + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many')) : '')
+      : isIdle ? tt('agent_status_idle') + (tc > 0 ? ' · ' + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many')) : '')
       : agentStatusText(task)
     const statusTag = `<span class="agent-tag agent-status-tag status-${task.status}">${escapeHtml(statusLabel)}</span>`
     const unreadHtml = (task.status === 'completed' && !task.notified)
@@ -3889,7 +3891,8 @@ function setSubAgentViewVisible(on, task) {
       if (titleEl) titleEl.textContent = name
       if (statusEl) {
         if (!task) statusEl.textContent = ''
-        else if (task.status === 'running') statusEl.textContent = tt('subagent_view_status_running')
+        else if (task.status === 'running' && !task.isIdle) statusEl.textContent = tt('subagent_view_status_running')
+        else if (task.status === 'running' && task.isIdle) statusEl.textContent = tt('agent_status_idle')
         else if (task.status === 'completed') statusEl.textContent = tt('subagent_view_status_done')
         else statusEl.textContent = agentStatusText(task)
       }

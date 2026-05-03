@@ -265,6 +265,8 @@ export interface AgentTaskSnapshot {
   agentName?: string
   teamName?: string
   color?: string
+  /** true when the teammate finished its work turn and is polling for new work */
+  isIdle?: boolean
 }
 
 export type ArtifactOp = 'write' | 'edit' | 'notebook_edit'
