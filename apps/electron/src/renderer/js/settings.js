@@ -7,6 +7,7 @@ const settingsApi = window.klaus.settings
 let settingsVisible = false
 let currentSettingsTab = 'profile'
 let skillsView = 'market' // market | builtin | installed
+let mcpServersView = 'builtin' // builtin | custom
 let skillsFilter = 'all' // all | enabled | disabled (only applied on installed tab)
 let skillsSearchQuery = ''
 
@@ -26,7 +27,6 @@ function loadSettingsTab(tab) {
     case 'preferences': loadPreferencesTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
-    case 'connectors': loadConnectorsTab(content); break
     case 'skills': loadSkillsTab(content); break
     case 'mcp': loadMcpTab(content); break
     case 'systemAuth': loadSystemAuthTab(content); break
@@ -1027,14 +1027,41 @@ function mcpStatusDot(status) {
 }
 
 async function loadMcpTab(container) {
-  const [servers, status, builtin] = await Promise.all([
+  const [servers, status, builtin, connectorItems, connectorStatuses] = await Promise.all([
     window.klaus.mcp.list(),
     window.klaus.mcp.status(),
     window.klaus.mcp.builtinList(),
+    window.klaus.connectors.list(),
+    window.klaus.connectors.status().catch(() => []),
   ])
   const statusMap = new Map(status.map(s => [s.name, s]))
   const builtinIds = new Set(builtin.map(b => b.id))
   const customServers = servers.filter(s => !builtinIds.has(s.name))
+
+  // Build connector groups HTML
+  const connectorStatusMap = new Map(connectorStatuses.map(s => [s.name, s]))
+  const connectorGroups = new Map()
+  for (const c of connectorItems) {
+    if (!c.availableOnThisPlatform) continue
+    if (!connectorGroups.has(c.group)) connectorGroups.set(c.group, [])
+    connectorGroups.get(c.group).push(c)
+  }
+  const connectorGroupTitles = { macos: tt('connectors_group_macos') }
+  const connectorGroupsHtml = [...connectorGroups.entries()].map(([groupId, list]) => {
+    const enabledCount = list.filter(c => c.enabled).length
+    const rows = list.map(c => renderConnectorRow(c, connectorStatusMap.get(`klaus-${c.id}`))).join('')
+    return `
+      <div class="connector-group" data-group="${esc(groupId)}">
+        <button class="connector-group-head" data-toggle-group="${esc(groupId)}">
+          <span class="connector-group-icon">${connectorIcon('group:' + groupId)}</span>
+          <span class="connector-group-title">${esc(connectorGroupTitles[groupId] || groupId)}</span>
+          <span class="connector-group-count">${tt('connectors_enabled_count').replace('{n}', enabledCount).replace('{total}', list.length)}</span>
+          <svg class="connector-group-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4,6 8,10 12,6"/></svg>
+        </button>
+        <div class="connector-group-body">${rows}</div>
+      </div>
+    `
+  }).join('')
 
   container.innerHTML = `
     <div class="settings-section mcp-section">
@@ -1084,17 +1111,26 @@ async function loadMcpTab(container) {
         </div>
       </div>
 
-      <div class="mcp-group-title">${tt('mcp_custom_servers')}</div>
-      <div class="mcp-list" id="mcp-custom-list">${
-        customServers.length === 0
-          ? `<div class="mcp-empty">${tt('mcp_no_custom')}</div>`
-          : customServers.map(s => renderMcpRow(s, statusMap.get(s.name))).join('')
-      }</div>
+      <div class="sk-tabbar">
+        <div class="sk-tabs">
+          <button class="sk-tab ${mcpServersView === 'builtin' ? 'active' : ''}" data-mcp-tab="builtin">${tt('mcp_builtin_servers')}</button>
+          <button class="sk-tab ${mcpServersView === 'custom' ? 'active' : ''}" data-mcp-tab="custom">${tt('mcp_custom_servers')}${customServers.length > 0 ? `<span class="sk-tab-count">${customServers.length}</span>` : ''}</button>
+        </div>
+      </div>
 
-      <div class="mcp-group-title">${tt('mcp_builtin_servers')}</div>
-      <div class="mcp-list" id="mcp-builtin-list">${
-        builtin.map(b => renderBuiltinRow(b, statusMap.get(b.id))).join('')
-      }</div>
+      <div data-mcp-panel="builtin" ${mcpServersView !== 'builtin' ? 'hidden' : ''}>
+        ${connectorGroupsHtml}
+        <div class="mcp-list" id="mcp-builtin-list">${
+          builtin.map(b => renderBuiltinRow(b, statusMap.get(b.id))).join('')
+        }</div>
+      </div>
+      <div data-mcp-panel="custom" ${mcpServersView !== 'custom' ? 'hidden' : ''}>
+        <div class="mcp-list" id="mcp-custom-list">${
+          customServers.length === 0
+            ? `<div class="mcp-empty">${tt('mcp_no_custom')}</div>`
+            : customServers.map(s => renderMcpRow(s, statusMap.get(s.name))).join('')
+        }</div>
+      </div>
     </div>
   `
 
@@ -1228,6 +1264,14 @@ function bindMcpEvents(container) {
     loadSettingsTab('mcp')
   })
 
+  container.querySelectorAll('[data-mcp-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      mcpServersView = btn.dataset.mcpTab
+      container.querySelectorAll('[data-mcp-tab]').forEach(b => b.classList.toggle('active', b.dataset.mcpTab === mcpServersView))
+      container.querySelectorAll('[data-mcp-panel]').forEach(p => { p.hidden = p.dataset.mcpPanel !== mcpServersView })
+    })
+  })
+
   const addBtn = container.querySelector('#mcp-add-btn')
   const addMenu = container.querySelector('#mcp-add-menu')
   addBtn?.addEventListener('click', (e) => {
@@ -1297,6 +1341,47 @@ function bindMcpEvents(container) {
       const status = await window.klaus.mcp.status()
       const s = status.find(x => x.name === name)
       openMcpDiagnoseModal(name, s?.error || 'Unknown error')
+    })
+  })
+
+  // Connector group expand/collapse
+  container.querySelectorAll('[data-toggle-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.connector-group').classList.toggle('collapsed')
+    })
+  })
+
+  // Per-connector enable/disable
+  container.querySelectorAll('[data-connector-toggle]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const id = input.dataset.connectorToggle
+      const enabled = input.checked
+      const r = await window.klaus.connectors.toggle(id, enabled)
+      if (!r?.ok) {
+        input.checked = !enabled
+        showToast(r?.error || tt('settings_failed'))
+        return
+      }
+      showToast(enabled ? tt('enabled') : tt('disabled'))
+      setTimeout(() => loadSettingsTab('mcp'), 400)
+    })
+  })
+
+  // Per-connector row expand (tool list)
+  container.querySelectorAll('[data-toggle-row]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.connector-row').classList.toggle('is-expanded')
+    })
+  })
+
+  // Per-tool checkbox
+  container.querySelectorAll('[data-tool-enabled]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const r = await window.klaus.connectors.setToolEnabled(input.dataset.connectorId, input.dataset.tool, input.checked)
+      if (!r?.ok) {
+        input.checked = !input.checked
+        showToast(r?.error || tt('settings_failed'))
+      }
     })
   })
 }
@@ -1614,93 +1699,6 @@ function connectorIcon(key) {
   return CONNECTOR_ICONS[key] || ''
 }
 
-async function loadConnectorsTab(container) {
-  const [items, statuses] = await Promise.all([
-    window.klaus.connectors.list(),
-    window.klaus.connectors.status().catch(() => []),
-  ])
-  const statusMap = new Map(statuses.map(s => ({ name: s.name, ...s })).map(s => [s.name, s]))
-
-  // Group by catalog group field (currently just 'macos'; forward-compatible)
-  const groups = new Map()
-  for (const c of items) {
-    if (!c.availableOnThisPlatform) continue
-    if (!groups.has(c.group)) groups.set(c.group, [])
-    groups.get(c.group).push(c)
-  }
-
-  const groupTitles = { macos: tt('connectors_group_macos') }
-
-  const groupsHtml = [...groups.entries()].map(([groupId, list]) => {
-    const enabledCount = list.filter(c => c.enabled).length
-    const rows = list.map(c => renderConnectorRow(c, statusMap.get(`klaus-${c.id}`))).join('')
-    return `
-      <div class="connector-group" data-group="${esc(groupId)}">
-        <button class="connector-group-head" data-toggle-group="${esc(groupId)}">
-          <span class="connector-group-icon">${connectorIcon('group:' + groupId)}</span>
-          <span class="connector-group-title">${esc(groupTitles[groupId] || groupId)}</span>
-          <span class="connector-group-count">${tt('connectors_enabled_count').replace('{n}', enabledCount).replace('{total}', list.length)}</span>
-          <svg class="connector-group-chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4,6 8,10 12,6"/></svg>
-        </button>
-        <div class="connector-group-body">${rows}</div>
-      </div>
-    `
-  }).join('')
-
-  container.innerHTML = `
-    <div class="connectors-wrap">
-      <h1 class="connectors-title">${tt('connectors')}</h1>
-      <p class="connectors-subtitle">${tt('connectors_subtitle')} <em>${tt('connectors_banner')}</em></p>
-      ${groups.size === 0 ? `<div class="connectors-empty">${tt('connectors_empty_platform')}</div>` : groupsHtml}
-    </div>
-  `
-
-  // Expand/collapse group
-  container.querySelectorAll('[data-toggle-group]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const group = btn.closest('.connector-group')
-      group.classList.toggle('collapsed')
-    })
-  })
-
-  // Per-connector switch — enable/disable
-  container.querySelectorAll('[data-connector-toggle]').forEach(input => {
-    input.addEventListener('change', async () => {
-      const id = input.dataset.connectorToggle
-      const enabled = input.checked
-      const r = await window.klaus.connectors.toggle(id, enabled)
-      if (!r?.ok) {
-        input.checked = !enabled
-        showToast(r?.error || tt('settings_failed'))
-        return
-      }
-      showToast(enabled ? tt('enabled') : tt('disabled'))
-      // Reconnect happens in main; re-load to refresh status/tool counts.
-      setTimeout(() => loadSettingsTab('connectors'), 400)
-    })
-  })
-
-  // Expand/collapse the row's tool list — the status line is the affordance
-  container.querySelectorAll('[data-toggle-row]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const row = btn.closest('.connector-row')
-      row.classList.toggle('is-expanded')
-    })
-  })
-
-  // Per-tool checkbox
-  container.querySelectorAll('[data-tool-enabled]').forEach(input => {
-    input.addEventListener('change', async () => {
-      const id = input.dataset.connectorId
-      const toolName = input.dataset.tool
-      const r = await window.klaus.connectors.setToolEnabled(id, toolName, input.checked)
-      if (!r?.ok) {
-        input.checked = !input.checked
-        showToast(r?.error || tt('settings_failed'))
-      }
-    })
-  })
-}
 
 function renderConnectorRow(c, status) {
   // currentLang is defined in i18n.js (classic script, shared global scope)
