@@ -39,6 +39,15 @@ const ENABLED_GATES: Record<string, unknown> = {
   'tengu_moth_copse': true,       // Smart memory selection (skip MEMORY.md index load)
 }
 
+/** Override a runtime gate value. Used to toggle verification agent at runtime. */
+export function setGateEnabled(key: string, value: unknown): void {
+  if (value === false || value === null || value === undefined) {
+    delete ENABLED_GATES[key]
+  } else {
+    ENABLED_GATES[key] = value
+  }
+}
+
 export function getFeatureValue_CACHED_MAY_BE_STALE<T>(key: string, defaultValue: T): T {
   if (key in ENABLED_GATES) return ENABLED_GATES[key] as T
   return defaultValue

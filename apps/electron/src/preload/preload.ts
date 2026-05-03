@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld('klaus', {
     // loaded on session switch to restore completed agents across restarts.
     saveTasks: (sessionId: string, tasks: Record<string, unknown>) => ipcRenderer.invoke('agents:save-tasks', { sessionId, tasks }),
     loadTasks: (sessionId: string) => ipcRenderer.invoke('agents:load-tasks', { sessionId }),
+    // Agent feature toggles (fork / swarms / verification)
+    getFeatures: () => ipcRenderer.invoke('agents:features:get'),
+    setFeature: (key: string, enabled: boolean) => ipcRenderer.invoke('agents:features:set', { key, enabled }),
   },
 
   // Engine introspection / control surfaces that don't fit chat or session.

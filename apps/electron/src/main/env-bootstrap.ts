@@ -20,7 +20,6 @@ delete process.env.ELECTRON_RUN_AS_NODE
 // 把 CC 引擎的 home 重定向到 ~/.klaus — skills / MCP / settings / permissions / user memory 全局共享到这里
 // 必须在任何 engine 模块加载前设置，getClaudeConfigHomeDir() 会读这个 env
 process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.klaus')
-process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
 
 // Enable streaming idle watchdog — without this, silently dropped connections
 // hang for the full API_TIMEOUT_MS (10 min). Default idle timeout is 90s.
@@ -48,13 +47,14 @@ process.env.CLAUDE_ENABLE_STREAM_WATCHDOG = '1'
 process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = '1'
 
 // --- Feature flags (same as Web端) ---
+// FORK_SUBAGENT and CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS are NOT set here;
+// they're controlled per-user in the agent settings panel via applyAgentFeatureEnvs().
 const REQUIRED_FEATURES = [
   'EXTRACT_MEMORIES',
   'CONTEXT_COLLAPSE',
   'BUILTIN_EXPLORE_PLAN_AGENTS',
   'TRANSCRIPT_CLASSIFIER',
   'BASH_CLASSIFIER',
-  'FORK_SUBAGENT',
 ]
 if (!process.env.CLAUDE_CODE_FEATURES) {
   process.env.CLAUDE_CODE_FEATURES = REQUIRED_FEATURES.join(',')

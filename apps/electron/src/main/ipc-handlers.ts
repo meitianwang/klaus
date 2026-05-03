@@ -15,6 +15,8 @@ import type { ConnectorManager } from './connector-manager.js'
 import type { NotificationService } from './notification-service.js'
 import { connectorServerName } from './connectors-catalog.js'
 import { openArtifactWindow } from './artifact-window.js'
+import { setGateEnabled } from '../engine/services/analytics/growthbook.js'
+import { clearToolSchemaCache } from '../engine/utils/toolSchemaCache.js'
 
 // Persisted agent task snapshots — written by renderer after every
 // mergeAgentTasks call (debounced). Loaded on session switch so
@@ -31,6 +33,9 @@ export function registerIpcHandlers(
   connectors: ConnectorManager,
   notify: NotificationService,
 ): void {
+  // Apply agent feature toggles at startup so env vars reflect saved user preferences.
+  applyAgentFeatureEnvs(store)
+
   // --- Chat ---
   // Register forwarders on chat():
   // - onEvent forwards engine stream events to the renderer via 'chat:event'
@@ -272,6 +277,20 @@ export function registerIpcHandlers(
       const { rebuildTrayMenu } = await import('./tray.js')
       rebuildTrayMenu()
     }
+  })
+
+  // --- Agent feature toggles ---
+  // Returns the three toggleable agent features as { fork, swarms, verification }.
+  // Defaults: fork=true, swarms=true, verification=false.
+  ipcMain.handle('agents:features:get', async () => ({
+    fork: store.get('agents.fork') !== 'false',
+    swarms: store.get('agents.swarms') !== 'false',
+    verification: store.get('agents.verification') === 'true',
+  }))
+  ipcMain.handle('agents:features:set', async (_e, { key, enabled }: { key: string; enabled: boolean }) => {
+    store.set(`agents.${key}`, enabled ? 'true' : 'false')
+    applyAgentFeatureEnvs(store)
+    return { ok: true }
   })
 
   // --- Settings: Cron ---
@@ -784,6 +803,37 @@ export function registerIpcHandlers(
     return { ok: true, status: 'waiting' }
   })
 
+}
+
+// Apply agent feature toggles to process.env so CC engine sees the correct values.
+// Called once at startup and again after each agents:features:set IPC.
+// Fork and Swarms default ON; Verification defaults OFF.
+export function applyAgentFeatureEnvs(store: SettingsStore): void {
+  const features = new Set((process.env.CLAUDE_CODE_FEATURES ?? '').split(',').filter(Boolean))
+
+  if (store.get('agents.fork') !== 'false') features.add('FORK_SUBAGENT')
+  else features.delete('FORK_SUBAGENT')
+
+  const verificationOn = store.get('agents.verification') === 'true'
+  if (verificationOn) {
+    features.add('VERIFICATION_AGENT')
+  } else {
+    features.delete('VERIFICATION_AGENT')
+  }
+  // Sync growthbook gate — verification requires both CLAUDE_CODE_FEATURES flag
+  // AND tengu_hive_evidence gate (dual-gate requirement in builtInAgents.ts)
+  setGateEnabled('tengu_hive_evidence', verificationOn)
+
+  process.env.CLAUDE_CODE_FEATURES = [...features].join(',')
+
+  if (store.get('agents.swarms') !== 'false') process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+  else delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+
+  // Bust the tool-schema cache so the next conversation's tool.prompt() call
+  // re-evaluates isForkSubagentEnabled() / isAgentSwarmsEnabled() and produces
+  // a description that matches the new feature flags.
+  clearToolSchemaCache()
+  console.log('[Klaus] agent features applied — CLAUDE_CODE_FEATURES:', process.env.CLAUDE_CODE_FEATURES, '| AGENT_TEAMS:', process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS ?? 'off')
 }
 
 // 通知授权探测 —— 解析 ~/Library/Preferences/com.apple.ncprefs.plist 的 apps 数组。
