@@ -28,6 +28,7 @@ function loadSettingsTab(tab) {
     case 'permissionMode': loadPermissionModeTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
+    case 'agents': loadAgentSettingsTab(content); break
     case 'systemAuth': loadSystemAuthTab(content); break
   }
 }
@@ -1901,6 +1902,54 @@ function showSkillsView() {
   reloadSkillsView()
 }
 function hideSkillsView() { document.getElementById('skills-view')?.classList.remove('active') }
+
+// ==================== Agent Settings ====================
+async function loadAgentSettingsTab(container) {
+  const features = await window.klaus.agents.getFeatures().catch(() => ({ fork: true, swarms: true, verification: false }))
+
+  const toggleRow = (key, label, desc, checked, disabled) => `
+    <div class="pref-row${disabled ? ' pref-row-disabled' : ''}">
+      <div class="pref-row-text">
+        <div class="pref-row-label">${label}</div>
+        <div class="pref-row-desc">${desc}</div>
+      </div>
+      <label class="pref-switch${disabled ? ' pref-switch-disabled' : ''}">
+        <input type="checkbox" data-agent-key="${key}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+        <span class="pref-switch-track"></span>
+      </label>
+    </div>
+  `
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="settings-section-title">${tt('settings_agents')}</div>
+
+    <div class="pref-card">
+      <div class="pref-card-label">${tt('agent_settings_builtin_title')}</div>
+      ${toggleRow('', tt('agent_general_purpose'), tt('agent_general_purpose_desc'), true, true)}
+      ${toggleRow('', tt('agent_statusline'), tt('agent_statusline_desc'), true, true)}
+      ${toggleRow('', tt('agent_sandbox_checker'), tt('agent_sandbox_checker_desc'), true, true)}
+      ${toggleRow('', tt('agent_explore'), tt('agent_explore_desc'), true, true)}
+    </div>
+
+    <div class="pref-card" style="margin-top:12px">
+      <div class="pref-card-label">${tt('agent_settings_experimental_title')}</div>
+      ${toggleRow('fork', tt('agent_fork_title'), tt('agent_fork_desc'), features.fork, false)}
+      ${toggleRow('swarms', tt('agent_swarms_title'), tt('agent_swarms_desc'), features.swarms, false)}
+      ${toggleRow('verification', tt('agent_verification_title'), tt('agent_verification_desc'), features.verification, false)}
+    </div>
+  </div>`
+
+  container.querySelectorAll('input[data-agent-key]').forEach(input => {
+    if (input.disabled) return
+    input.addEventListener('change', async (e) => {
+      const key = e.target.dataset.agentKey
+      const enabled = e.target.checked
+      const res = await window.klaus.agents.setFeature(key, enabled).catch(() => ({ ok: false }))
+      if (!res?.ok) { e.target.checked = !enabled; showToast('Failed'); return }
+      showToast(tt('settings_saved'))
+    })
+  })
+}
 
 window.toggleSettings = toggleSettings
 window.loadSettingsTab = loadSettingsTab

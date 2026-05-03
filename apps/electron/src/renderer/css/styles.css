@@ -5002,6 +5002,9 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 }
 .pref-switch input:checked + .pref-switch-track { background: var(--accent); }
 .pref-switch input:checked + .pref-switch-track::before { transform: translateX(14px); }
+.pref-card-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-tertiary); padding: 10px 20px 6px; }
+.pref-row-disabled { opacity: 0.45; pointer-events: none; }
+.pref-switch-disabled .pref-switch-track { cursor: default; }
 
 /* ===== Artifacts panel toggles (in #header when collapsed, inside panel when expanded) ===== */
 .header-right {
