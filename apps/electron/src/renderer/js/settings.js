@@ -811,16 +811,18 @@ async function loadSkillsTab(container) {
   const plusSvg = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>`
 
   container.innerHTML = `
-    <div class="settings-section sk-section">
-      <div class="sk-topbar">
-        <button class="cron-icon-btn" id="sk-refresh" title="${tt('skills_refresh')}" aria-label="${tt('skills_refresh')}">${refreshSvg}</button>
-        <div class="sk-search-wrap">
-          <span class="sk-search-icon">${searchSvg}</span>
-          <input type="text" id="sk-search" class="sk-search-input" placeholder="${tt('skills_search_ph')}" value="${esc(skillsSearchQuery)}">
+    <div class="sk-section">
+      <div class="kls-topbar">
+        <button class="kls-icon-btn" id="sk-refresh" title="${tt('skills_refresh')}" aria-label="${tt('skills_refresh')}">${refreshSvg}</button>
+        <div class="kls-search">
+          <span class="kls-search-icon">${searchSvg}</span>
+          <input type="text" id="sk-search" class="kls-search-input" placeholder="${tt('skills_search_ph')}" value="${esc(skillsSearchQuery)}">
         </div>
-        <button class="cron-pill-btn" id="sk-via-klaus">${klausSvg}<span>${tt('skills_via_klaus')}</span></button>
-        <button class="cron-new-btn" id="sk-upload-btn">${plusSvg}<span>${tt('skills_install_btn')}</span></button>
+        <button class="kls-pill-btn" id="sk-via-klaus">${klausSvg}<span>${tt('skills_via_klaus')}</span></button>
+        <button class="kls-btn" id="sk-upload-btn">${plusSvg}<span>${tt('skills_install_btn')}</span></button>
       </div>
+      <h1 class="kls-title">${tt('skills')}</h1>
+      <p class="kls-subtitle">${tt('skills_subtitle')}</p>
 
       <div class="sk-tabbar">
         <div class="sk-tabs">
@@ -1062,37 +1064,13 @@ async function loadMcpTab(container) {
   }).join('')
 
   container.innerHTML = `
-    <div class="settings-section mcp-section">
-      <div class="mcp-head">
-        <div>
-          <h2 class="mcp-title">${tt('mcp')}</h2>
-          <p class="mcp-subtitle">${tt('mcp_subtitle')} <em>${tt('mcp_banner')}</em></p>
-        </div>
-        <button class="mcp-refresh-btn" id="mcp-refresh" title="${tt('settings_mcp_reconnect')}" aria-label="${tt('settings_mcp_reconnect')}">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
-            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-            <path d="M21 21v-5h-5"/>
-          </svg>
+    <div class="mcp-section">
+      <div class="kls-topbar">
+        <button class="kls-icon-btn" id="mcp-refresh" title="${tt('settings_mcp_reconnect')}" aria-label="${tt('settings_mcp_reconnect')}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M21 21v-5h-5"/></svg>
         </button>
-      </div>
-
-      <div class="mcp-add-card">
-        <div class="mcp-add-card-info">
-          <div class="mcp-add-card-icon">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-          </div>
-          <div>
-            <div class="mcp-add-card-title">${tt('mcp_add_title')}</div>
-            <div class="mcp-add-card-desc">${tt('mcp_add_desc')}</div>
-          </div>
-        </div>
         <div class="mcp-add-dropdown">
-          <button class="mcp-add-btn" id="mcp-add-btn">
+          <button class="kls-btn" id="mcp-add-btn">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
             <span>${tt('mcp_add')}</span>
           </button>
@@ -1108,6 +1086,8 @@ async function loadMcpTab(container) {
           </div>
         </div>
       </div>
+      <h1 class="kls-title">${tt('mcp')}</h1>
+      <p class="kls-subtitle">${tt('mcp_subtitle')} <em>${tt('mcp_banner')}</em></p>
 
       <div class="sk-tabbar">
         <div class="sk-tabs">

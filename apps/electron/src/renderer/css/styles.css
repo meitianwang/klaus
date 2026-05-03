@@ -1606,13 +1606,13 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   inset: 0;
   overflow-y: scroll;
   scrollbar-gutter: stable;
-  padding: 48px 48px 64px;
-  padding-top: calc(var(--titlebar-height) + 48px);
+  padding: 28px 32px 48px;
+  padding-top: calc(var(--titlebar-height) + 20px);
   background: var(--bg);
   z-index: 100;
 }
 #mcp-view.active, #skills-view.active { display: block; }
-#mcp-view-content, #skills-view-content { max-width: 760px; margin: 0 auto; }
+#mcp-view-content, #skills-view-content { max-width: 1040px; margin: 0 auto; }
 
 /* ===== Scheduled Tasks view (independent overlay, own layout) ===== */
 #cron-view {
@@ -1632,7 +1632,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   margin: 0 auto;
 }
 
-.cron-topbar {
+/* ===== Klaus Design System — shared topbar components ===== */
+.kls-topbar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1640,7 +1641,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   margin-bottom: 20px;
 }
 
-.cron-icon-btn {
+/* Circle icon button (refresh, etc.) */
+.kls-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1651,39 +1653,74 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   border-radius: 50%;
   color: var(--fg-tertiary);
   cursor: pointer;
+  flex-shrink: 0;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.cron-icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.cron-icon-btn svg { width: 16px; height: 16px; }
-.cron-icon-btn.spinning svg { animation: cron-spin 0.8s linear infinite; }
-@keyframes cron-spin { to { transform: rotate(360deg); } }
+.kls-icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.kls-icon-btn svg { width: 16px; height: 16px; }
+.kls-icon-btn.spinning svg { animation: kls-spin 0.8s linear infinite; }
+@keyframes kls-spin { to { transform: rotate(360deg); } }
 
-.cron-pill-btn {
+/* Search input with icon */
+.kls-search { flex: 1; position: relative; min-width: 0; }
+.kls-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  color: var(--fg-quaternary);
+  pointer-events: none;
+}
+.kls-search-icon svg { width: 14px; height: 14px; }
+.kls-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 34px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 7px 14px;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.kls-search-input::placeholder { color: var(--fg-quaternary); }
+.kls-search-input:focus { border-color: var(--input-focus); }
+
+/* Secondary outlined pill button */
+.kls-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 14px;
   font-family: var(--font);
   font-size: 13px;
   font-weight: 500;
   color: var(--fg-secondary);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: border-color var(--transition), color var(--transition);
 }
-.cron-pill-btn:hover { border-color: var(--fg-quaternary); color: var(--fg); }
-.cron-pill-btn svg { width: 13px; height: 13px; opacity: 0.85; }
+.kls-pill-btn:hover { border-color: var(--fg-quaternary); color: var(--fg); }
+.kls-pill-btn svg { width: 13px; height: 13px; opacity: 0.85; }
 
-.cron-title {
+/* Page title + subtitle */
+.kls-title {
   font-size: 26px;
   font-weight: 700;
   color: var(--fg);
   letter-spacing: -0.02em;
   margin-bottom: 8px;
 }
-.cron-subtitle {
+.kls-subtitle {
   font-size: 14px;
   color: var(--fg-tertiary);
   line-height: 1.6;
@@ -1691,23 +1728,40 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   margin-bottom: 24px;
 }
 
-.cron-new-btn {
+/* Primary filled button */
+.kls-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  height: 34px;
   background: var(--accent);
   color: var(--accent-text);
   border: 1px solid var(--accent);
   border-radius: 999px;
-  padding: 7px 14px;
+  padding: 0 14px;
   font-family: var(--font);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--transition), border-color var(--transition);
   flex-shrink: 0;
+  transition: background var(--transition), border-color var(--transition);
 }
+.kls-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.kls-btn svg { width: 13px; height: 13px; }
+
+/* Aliases for legacy class names (do not use in new code) */
+.cron-topbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 20px; }
+.cron-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; background: transparent; border: 1px solid transparent; border-radius: 50%; color: var(--fg-tertiary); cursor: pointer; flex-shrink: 0; transition: background var(--transition), color var(--transition); }
+.cron-icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.cron-icon-btn svg { width: 16px; height: 16px; }
+.cron-icon-btn.spinning svg { animation: kls-spin 0.8s linear infinite; }
+.cron-pill-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 999px; padding: 0 14px; font-family: var(--font); font-size: 13px; font-weight: 500; color: var(--fg-secondary); cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: border-color var(--transition), color var(--transition); }
+.cron-pill-btn:hover { border-color: var(--fg-quaternary); color: var(--fg); }
+.cron-pill-btn svg { width: 13px; height: 13px; opacity: 0.85; }
+.cron-title { font-size: 26px; font-weight: 700; color: var(--fg); letter-spacing: -0.02em; margin-bottom: 8px; }
+.cron-subtitle { font-size: 14px; color: var(--fg-tertiary); line-height: 1.6; max-width: 620px; margin-bottom: 24px; }
+.cron-new-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); border-radius: 999px; padding: 0 14px; font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background var(--transition), border-color var(--transition); }
 .cron-new-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .cron-new-btn svg { width: 13px; height: 13px; }
 
@@ -4035,40 +4089,14 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
 /* ===== Skills page (settings → skills tab) ===== */
 .sk-section { padding-top: 4px; }
 
-/* Top bar: refresh · search · via-klaus · install */
-.sk-topbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
+/* sk-topbar/sk-search-* -- legacy aliases, use kls-* in new code */
+.sk-topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .sk-search-wrap { flex: 1; position: relative; min-width: 0; }
-.sk-search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  color: var(--fg-quaternary);
-  pointer-events: none;
-}
+.sk-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; color: var(--fg-quaternary); pointer-events: none; }
 .sk-search-icon svg { width: 14px; height: 14px; }
-.sk-search-input {
-  width: 100%;
-  height: 34px;
-  padding: 0 12px 0 34px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-family: var(--font);
-  font-size: 13px;
-  color: var(--fg);
-  outline: none;
-  transition: border-color var(--transition);
-}
+.sk-search-input { width: 100%; height: 34px; padding: 0 12px 0 34px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 999px; font-family: var(--font); font-size: 13px; color: var(--fg); outline: none; transition: border-color var(--transition); }
 .sk-search-input::placeholder { color: var(--fg-quaternary); }
-.sk-search-input:focus { border-color: var(--fg-quaternary); }
+.sk-search-input:focus { border-color: var(--input-focus); }
 
 /* Tab row */
 .sk-tabbar {
