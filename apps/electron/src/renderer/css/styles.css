@@ -1586,7 +1586,8 @@ body { height: 100vh; overflow: hidden; -webkit-app-region: drag; }
   -webkit-app-region: no-drag;
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   padding: 48px 48px 64px;
   padding-top: calc(var(--titlebar-height) + 48px);
   background: var(--bg);
