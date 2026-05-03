@@ -2254,7 +2254,9 @@ function renderAgentPanel() {
     const isRunning = task.status === 'running' && !task.isIdle
     const typeTag = isTeammate
       ? `<span class="agent-tag agent-type-teammate">${escapeHtml(tt('agent_type_teammate'))}</span>`
-      : `<span class="agent-tag agent-type-background">${escapeHtml(tt('agent_type_background'))}</span>`
+      : task.agentType === 'fork'
+        ? `<span class="agent-tag agent-type-fork">${escapeHtml(tt('agent_type_fork'))}</span>`
+        : `<span class="agent-tag agent-type-background">${escapeHtml(tt('agent_type_background'))}</span>`
     const tc = task.toolUseCount ?? 0
     const statusLabel = isRunning
       ? tt('agent_status_running') + (tc > 0 ? ' · ' + tc + (tc === 1 ? tt('agent_tool_call_one') : tt('agent_tool_call_many')) : '')
