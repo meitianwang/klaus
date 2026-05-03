@@ -33,9 +33,13 @@ function intToBool(v: number | null | undefined): boolean {
   return v === 1;
 }
 
-function openDb(name: string): Database {
+function openDb(name: string): Database | null {
   const path = join(DB_DIR, `${name}.db`);
-  return new Database(path, { readonly: true });
+  try {
+    return new Database(path, { readonly: true });
+  } catch {
+    return null;
+  }
 }
 
 function tableExists(db: Database, tableName: string): boolean {
@@ -83,6 +87,7 @@ async function migrate(): Promise<void> {
 
 async function migrateUsers(client: pg.PoolClient): Promise<void> {
   const db = openDb("users");
+  if (!db) { console.log("users.db:           (file not found, skipped)"); return; }
 
   // --- users ---
   const users = db.query("SELECT * FROM users").all() as Record<string, unknown>[];
@@ -184,6 +189,7 @@ async function migrateUsers(client: pg.PoolClient): Promise<void> {
 
 async function migrateInvites(client: pg.PoolClient): Promise<void> {
   const db = openDb("invites");
+  if (!db) { console.log("invites.db:         (file not found, skipped)"); return; }
   const rows = db.query("SELECT * FROM invite_codes").all() as Record<string, unknown>[];
   let inserted = 0;
   for (const r of rows) {
@@ -212,6 +218,7 @@ async function migrateInvites(client: pg.PoolClient): Promise<void> {
 
 async function migrateSettings(client: pg.PoolClient): Promise<void> {
   const db = openDb("settings");
+  if (!db) { console.log("settings.db:        (file not found, skipped)"); return; }
 
   // --- models → platform_models ---
   const models = db.query("SELECT * FROM models").all() as Record<string, unknown>[];
@@ -416,6 +423,7 @@ async function migrateSettings(client: pg.PoolClient): Promise<void> {
 
 async function migrateKlausDb(client: pg.PoolClient): Promise<void> {
   const db = openDb("klaus");
+  if (!db) { console.log("klaus.db:           (file not found, skipped)"); return; }
   const sessions = db.query("SELECT * FROM sessions").all() as Record<string, unknown>[];
   let inserted = 0;
   for (const s of sessions) {
