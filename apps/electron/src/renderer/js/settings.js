@@ -25,6 +25,7 @@ function loadSettingsTab(tab) {
   switch (tab) {
     case 'profile': loadProfileTab(content); break
     case 'preferences': loadPreferencesTab(content); break
+    case 'permissionMode': loadPermissionModeTab(content); break
     case 'models': loadModelsTab(content); break
     case 'channels': loadChannelsTab(content); break
     case 'systemAuth': loadSystemAuthTab(content); break
@@ -210,9 +211,36 @@ async function loadProfileTab(container) {
   })
 }
 
+// ==================== Permission Mode ====================
+async function loadPermissionModeTab(container) {
+  const permMode = await settingsApi.kv.get('permission_mode') || 'default'
+
+  container.innerHTML = `<div class="settings-section">
+    <div class="pref-card" id="perm-options" style="margin-top:0">
+      <div class="pref-row perm-row ${permMode === 'default' ? 'active' : ''}" data-perm="default">
+        <div class="pref-row-text"><div class="pref-row-label">${tt('perm_default')}</div><div class="pref-row-desc">${tt('perm_default_desc')}</div></div>
+        <div class="settings-theme-radio"></div>
+      </div>
+      <div class="pref-row perm-row ${permMode === 'auto' ? 'active' : ''}" data-perm="auto">
+        <div class="pref-row-text"><div class="pref-row-label">${tt('perm_auto')}</div><div class="pref-row-desc">${tt('perm_auto_desc')}</div></div>
+        <div class="settings-theme-radio"></div>
+      </div>
+      <div class="pref-row perm-row ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions">
+        <div class="pref-row-text"><div class="pref-row-label">${tt('perm_bypass')}</div><div class="pref-row-desc">${tt('perm_bypass_desc')}</div></div>
+        <div class="settings-theme-radio"></div>
+      </div>
+    </div>
+  </div>`
+
+  container.querySelector('#perm-options')?.addEventListener('click', async (e) => {
+    const card = e.target.closest('.perm-row'); if (!card) return
+    container.querySelectorAll('.perm-row').forEach(c => c.classList.toggle('active', c.dataset.perm === card.dataset.perm))
+    await settingsApi.kv.set('permission_mode', card.dataset.perm); showToast(tt('perm_mode_saved'))
+  })
+}
+
 // ==================== Preferences ====================
 async function loadPreferencesTab(container) {
-  const permMode = await settingsApi.kv.get('permission_mode') || 'default'
   let keepAwake = false
   try { keepAwake = (await settingsApi.cron.keepAwake.get())?.enabled === true } catch {}
   let loginItem = false
@@ -234,24 +262,6 @@ async function loadPreferencesTab(container) {
   `
 
   container.innerHTML = `<div class="settings-section">
-    <div class="settings-field">
-      <label class="settings-field-label">${tt("permission_mode")}</label>
-      <div class="pref-card" id="perm-options" style="margin-top:0">
-        <div class="pref-row perm-row ${permMode === 'default' ? 'active' : ''}" data-perm="default">
-          <div class="pref-row-text"><div class="pref-row-label">${tt('perm_default')}</div><div class="pref-row-desc">${tt('perm_default_desc')}</div></div>
-          <div class="settings-theme-radio"></div>
-        </div>
-        <div class="pref-row perm-row ${permMode === 'auto' ? 'active' : ''}" data-perm="auto">
-          <div class="pref-row-text"><div class="pref-row-label">${tt('perm_auto')}</div><div class="pref-row-desc">${tt('perm_auto_desc')}</div></div>
-          <div class="settings-theme-radio"></div>
-        </div>
-        <div class="pref-row perm-row ${permMode === 'bypassPermissions' ? 'active' : ''}" data-perm="bypassPermissions">
-          <div class="pref-row-text"><div class="pref-row-label">${tt('perm_bypass')}</div><div class="pref-row-desc">${tt('perm_bypass_desc')}</div></div>
-          <div class="settings-theme-radio"></div>
-        </div>
-      </div>
-    </div>
-
     <div class="pref-card">
       ${row('pref-login-item', tt('pref_login_item'), tt('pref_login_item_desc'), loginItem)}
       ${row('pref-keep-awake', tt('cron_keep_awake'), tt('pref_keep_awake_desc'), keepAwake)}
@@ -260,11 +270,6 @@ async function loadPreferencesTab(container) {
     </div>
   </div>`
 
-  container.querySelector('#perm-options')?.addEventListener('click', async (e) => {
-    const card = e.target.closest('.perm-row'); if (!card) return
-    container.querySelectorAll('.perm-row').forEach(c => c.classList.toggle('active', c.dataset.perm === card.dataset.perm))
-    await settingsApi.kv.set('permission_mode', card.dataset.perm); showToast(tt('perm_mode_saved'))
-  })
   container.querySelector('#pref-login-item')?.addEventListener('change', async (e) => {
     const checked = e.target.checked
     const res = await window.klaus.app.loginItem.set(checked)
