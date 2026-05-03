@@ -947,7 +947,7 @@ async function handleAdminInvites(
   }
 
   if (req.method === "GET") {
-    const invites = inviteStoreRef.list();
+    const invites = await inviteStoreRef.list();
     jsonResponse(res, 200, { invites });
     return;
   }
@@ -1701,7 +1701,7 @@ async function handleUserMcp(
       const result = await gateway.createMcpServer(userId, parsed);
       // Auto-enable (like skills)
       if (settingsStoreRef && result.name) {
-        settingsStoreRef.set(`user.${userId}.mcp.${result.name}`, "on");
+        await settingsStoreRef.set(`user.${userId}.mcp.${result.name}`, "on");
       }
       await agentManagerRef?.invalidateMcpCache(userId);
       jsonResponse(res, 201, result);
@@ -1720,7 +1720,7 @@ async function handleUserMcp(
         return;
       }
       if (!settingsStoreRef) { jsonResponse(res, 503, { error: "not ready" }); return; }
-      settingsStoreRef.set(
+      await settingsStoreRef.set(
         `user.${userId}.mcp.${name}`,
         parsed.enabled ? "on" : "off",
       );
@@ -1740,7 +1740,7 @@ async function handleUserMcp(
       if (!deleted) { jsonResponse(res, 404, { error: "server not found" }); return; }
       // Clear preference
       if (settingsStoreRef) {
-        settingsStoreRef.set(`user.${userId}.mcp.${name}`, "");
+        await settingsStoreRef.set(`user.${userId}.mcp.${name}`, "");
       }
       await agentManagerRef?.invalidateMcpCache(userId);
       jsonResponse(res, 200, { ok: true });
@@ -1829,7 +1829,7 @@ async function handleUserSkills(
         jsonResponse(res, 400, { error: "invalid skill name" });
         return;
       }
-      settingsStoreRef.set(
+      await settingsStoreRef.set(
         `user.${auth.user.id}.skill.${name}`,
         parsed.enabled ? "on" : "off",
       );
@@ -1861,34 +1861,38 @@ async function handleUserSettings(
   const userId = auth.user.id;
 
   if (req.method === "GET") {
-    jsonResponse(res, 200, {
-      language: settingsStoreRef.getUserLanguage(userId),
-      output_style: settingsStoreRef.getUserOutputStyle(userId),
-      permission_mode: settingsStoreRef.getUserPermissionMode(userId),
-    });
+    const [language, output_style, permission_mode] = await Promise.all([
+      settingsStoreRef.getUserLanguage(userId),
+      settingsStoreRef.getUserOutputStyle(userId),
+      settingsStoreRef.getUserPermissionMode(userId),
+    ]);
+    jsonResponse(res, 200, { language, output_style, permission_mode });
     return;
   }
 
   if (req.method === "PATCH") {
     try {
       const parsed = await readJsonBody(req, 2048);
+      const writes: Promise<void>[] = [];
       if (typeof parsed.language === "string") {
-        settingsStoreRef.setUserLanguage(userId, parsed.language);
+        writes.push(settingsStoreRef.setUserLanguage(userId, parsed.language));
       }
       if (typeof parsed.output_style === "string") {
-        settingsStoreRef.setUserOutputStyle(userId, parsed.output_style);
+        writes.push(settingsStoreRef.setUserOutputStyle(userId, parsed.output_style));
       }
       if (typeof parsed.permission_mode === "string") {
         const validModes = ["default", "plan", "acceptEdits", "bypassPermissions"];
         if (validModes.includes(parsed.permission_mode)) {
-          settingsStoreRef.setUserPermissionMode(userId, parsed.permission_mode);
+          writes.push(settingsStoreRef.setUserPermissionMode(userId, parsed.permission_mode));
         }
       }
-      jsonResponse(res, 200, {
-        language: settingsStoreRef.getUserLanguage(userId),
-        output_style: settingsStoreRef.getUserOutputStyle(userId),
-        permission_mode: settingsStoreRef.getUserPermissionMode(userId),
-      });
+      await Promise.all(writes);
+      const [language, output_style, permission_mode] = await Promise.all([
+        settingsStoreRef.getUserLanguage(userId),
+        settingsStoreRef.getUserOutputStyle(userId),
+        settingsStoreRef.getUserPermissionMode(userId),
+      ]);
+      jsonResponse(res, 200, { language, output_style, permission_mode });
     } catch (err) {
       gatewayErrorResponse(res, err);
     }
@@ -2020,7 +2024,7 @@ async function handleSkillsInstall(
       await mkdirP(destDir, { recursive: true });
       await cp(srcDir, destDir, { recursive: true });
       // Auto-enable
-      settingsStoreRef.set(`user.${userId}.skill.${name}`, "on");
+      await settingsStoreRef.set(`user.${userId}.skill.${name}`, "on");
       // Invalidate this user's cached commands so next query picks up the new skill
       const { invalidateUserCommandsCache } = await import("../engine/commands.js");
       invalidateUserCommandsCache(userId);
@@ -2091,7 +2095,7 @@ async function handleSkillsInstall(
       }
 
       // Auto-enable
-      settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "on");
+      await settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "on");
       const { invalidateUserCommandsCache } = await import("../engine/commands.js");
       invalidateUserCommandsCache(userId);
       jsonResponse(res, 200, { ok: true, name: skillName });
@@ -2144,7 +2148,7 @@ async function handleSkillUninstall(
   const { rm } = await import("node:fs/promises");
   await rm(skillDir, { recursive: true, force: true });
   // Clear the preference (setting to empty so it won't affect future installs)
-  settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "");
+  await settingsStoreRef.set(`user.${userId}.skill.${skillName}`, "");
   const { invalidateUserCommandsCache } = await import("../engine/commands.js");
   invalidateUserCommandsCache(userId);
   jsonResponse(res, 200, { ok: true });
@@ -2273,12 +2277,14 @@ async function handleAdminChannelFeishu(
       }
 
       // Save to SettingsStore (including owner for user-level isolation)
-      settingsStoreRef.set("channel.feishu.app_id", appId);
-      settingsStoreRef.set("channel.feishu.app_secret", encryptCred(appSecret));
-      settingsStoreRef.set("channel.feishu.enabled", "true");
-      settingsStoreRef.set("channel.feishu.bot_name", identity.botName ?? "");
-      settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId);
-      settingsStoreRef.set("channel.feishu.owner_id", authUser.id);
+      await Promise.all([
+        settingsStoreRef.set("channel.feishu.app_id", appId),
+        settingsStoreRef.set("channel.feishu.app_secret", encryptCred(appSecret)),
+        settingsStoreRef.set("channel.feishu.enabled", "true"),
+        settingsStoreRef.set("channel.feishu.bot_name", identity.botName ?? ""),
+        settingsStoreRef.set("channel.feishu.bot_open_id", identity.botOpenId),
+        settingsStoreRef.set("channel.feishu.owner_id", authUser.id),
+      ]);
 
       hotStartChannel("feishu");
 
@@ -2297,11 +2303,13 @@ async function handleAdminChannelFeishu(
 
   // DELETE /api/admin/channels/feishu — disconnect
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.feishu.enabled", "false");
-    settingsStoreRef.set("channel.feishu.app_id", "");
-    settingsStoreRef.set("channel.feishu.app_secret", "");
-    settingsStoreRef.set("channel.feishu.bot_name", "");
-    settingsStoreRef.set("channel.feishu.bot_open_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.feishu.enabled", "false"),
+      settingsStoreRef.set("channel.feishu.app_id", ""),
+      settingsStoreRef.set("channel.feishu.app_secret", ""),
+      settingsStoreRef.set("channel.feishu.bot_name", ""),
+      settingsStoreRef.set("channel.feishu.bot_open_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2503,11 +2511,13 @@ async function handleAdminChannelWechat(
 
       if (result.status === "confirmed" && result.botToken && result.accountId) {
         // Save credentials
-        settingsStoreRef.set("channel.wechat.token", encryptCred(result.botToken));
-        settingsStoreRef.set("channel.wechat.base_url", result.baseUrl || baseUrl);
-        settingsStoreRef.set("channel.wechat.account_id", result.accountId);
-        settingsStoreRef.set("channel.wechat.enabled", "true");
-        settingsStoreRef.set("channel.wechat.owner_id", authUser.id);
+        await Promise.all([
+          settingsStoreRef.set("channel.wechat.token", encryptCred(result.botToken)),
+          settingsStoreRef.set("channel.wechat.base_url", result.baseUrl || baseUrl),
+          settingsStoreRef.set("channel.wechat.account_id", result.accountId),
+          settingsStoreRef.set("channel.wechat.enabled", "true"),
+          settingsStoreRef.set("channel.wechat.owner_id", authUser.id),
+        ]);
 
         hotStartChannel("wechat");
 
@@ -2528,11 +2538,13 @@ async function handleAdminChannelWechat(
 
   // DELETE /api/admin/channels/wechat — disconnect
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.wechat.enabled", "false");
-    settingsStoreRef.set("channel.wechat.token", "");
-    settingsStoreRef.set("channel.wechat.base_url", "");
-    settingsStoreRef.set("channel.wechat.account_id", "");
-    settingsStoreRef.set("channel.wechat.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.wechat.enabled", "false"),
+      settingsStoreRef.set("channel.wechat.token", ""),
+      settingsStoreRef.set("channel.wechat.base_url", ""),
+      settingsStoreRef.set("channel.wechat.account_id", ""),
+      settingsStoreRef.set("channel.wechat.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2577,10 +2589,12 @@ async function handleAdminChannelDingtalk(
         return;
       }
 
-      settingsStoreRef.set("channel.dingtalk.client_id", clientId);
-      settingsStoreRef.set("channel.dingtalk.client_secret", encryptCred(clientSecret));
-      settingsStoreRef.set("channel.dingtalk.enabled", "true");
-      settingsStoreRef.set("channel.dingtalk.owner_id", authUser.id);
+      await Promise.all([
+        settingsStoreRef.set("channel.dingtalk.client_id", clientId),
+        settingsStoreRef.set("channel.dingtalk.client_secret", encryptCred(clientSecret)),
+        settingsStoreRef.set("channel.dingtalk.enabled", "true"),
+        settingsStoreRef.set("channel.dingtalk.owner_id", authUser.id),
+      ]);
 
       hotStartChannel("dingtalk");
 
@@ -2592,10 +2606,12 @@ async function handleAdminChannelDingtalk(
   }
 
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.dingtalk.enabled", "false");
-    settingsStoreRef.set("channel.dingtalk.client_id", "");
-    settingsStoreRef.set("channel.dingtalk.client_secret", "");
-    settingsStoreRef.set("channel.dingtalk.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.dingtalk.enabled", "false"),
+      settingsStoreRef.set("channel.dingtalk.client_id", ""),
+      settingsStoreRef.set("channel.dingtalk.client_secret", ""),
+      settingsStoreRef.set("channel.dingtalk.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2636,10 +2652,12 @@ async function handleAdminChannelQQ(
         return;
       }
 
-      settingsStoreRef.set("channel.qq.app_id", appId);
-      settingsStoreRef.set("channel.qq.client_secret", encryptCred(clientSecret));
-      settingsStoreRef.set("channel.qq.enabled", "true");
-      settingsStoreRef.set("channel.qq.owner_id", authUser.id);
+      await Promise.all([
+        settingsStoreRef.set("channel.qq.app_id", appId),
+        settingsStoreRef.set("channel.qq.client_secret", encryptCred(clientSecret)),
+        settingsStoreRef.set("channel.qq.enabled", "true"),
+        settingsStoreRef.set("channel.qq.owner_id", authUser.id),
+      ]);
 
       hotStartChannel("qq");
 
@@ -2651,10 +2669,12 @@ async function handleAdminChannelQQ(
   }
 
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.qq.enabled", "false");
-    settingsStoreRef.set("channel.qq.app_id", "");
-    settingsStoreRef.set("channel.qq.client_secret", "");
-    settingsStoreRef.set("channel.qq.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.qq.enabled", "false"),
+      settingsStoreRef.set("channel.qq.app_id", ""),
+      settingsStoreRef.set("channel.qq.client_secret", ""),
+      settingsStoreRef.set("channel.qq.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2695,10 +2715,12 @@ async function handleAdminChannelWecom(
         return;
       }
 
-      settingsStoreRef.set("channel.wecom.bot_id", botId);
-      settingsStoreRef.set("channel.wecom.secret", encryptCred(secret));
-      settingsStoreRef.set("channel.wecom.enabled", "true");
-      settingsStoreRef.set("channel.wecom.owner_id", authUser.id);
+      await Promise.all([
+        settingsStoreRef.set("channel.wecom.bot_id", botId),
+        settingsStoreRef.set("channel.wecom.secret", encryptCred(secret)),
+        settingsStoreRef.set("channel.wecom.enabled", "true"),
+        settingsStoreRef.set("channel.wecom.owner_id", authUser.id),
+      ]);
 
       hotStartChannel("wecom");
 
@@ -2710,10 +2732,12 @@ async function handleAdminChannelWecom(
   }
 
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.wecom.enabled", "false");
-    settingsStoreRef.set("channel.wecom.bot_id", "");
-    settingsStoreRef.set("channel.wecom.secret", "");
-    settingsStoreRef.set("channel.wecom.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.wecom.enabled", "false"),
+      settingsStoreRef.set("channel.wecom.bot_id", ""),
+      settingsStoreRef.set("channel.wecom.secret", ""),
+      settingsStoreRef.set("channel.wecom.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2747,11 +2771,13 @@ async function handleAdminChannelTelegram(
         const bot = new Bot(botToken);
         const me = await bot.api.getMe();
 
-        settingsStoreRef.set("channel.telegram.bot_token", encryptCred(botToken));
-        settingsStoreRef.set("channel.telegram.enabled", "true");
-        settingsStoreRef.set("channel.telegram.bot_username", me.username);
-        settingsStoreRef.set("channel.telegram.bot_name", me.first_name);
-        settingsStoreRef.set("channel.telegram.owner_id", authUser.id);
+        await Promise.all([
+          settingsStoreRef.set("channel.telegram.bot_token", encryptCred(botToken)),
+          settingsStoreRef.set("channel.telegram.enabled", "true"),
+          settingsStoreRef.set("channel.telegram.bot_username", me.username),
+          settingsStoreRef.set("channel.telegram.bot_name", me.first_name),
+          settingsStoreRef.set("channel.telegram.owner_id", authUser.id),
+        ]);
 
         hotStartChannel("telegram");
 
@@ -2767,11 +2793,13 @@ async function handleAdminChannelTelegram(
   }
 
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.telegram.enabled", "false");
-    settingsStoreRef.set("channel.telegram.bot_token", "");
-    settingsStoreRef.set("channel.telegram.bot_username", "");
-    settingsStoreRef.set("channel.telegram.bot_name", "");
-    settingsStoreRef.set("channel.telegram.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.telegram.enabled", "false"),
+      settingsStoreRef.set("channel.telegram.bot_token", ""),
+      settingsStoreRef.set("channel.telegram.bot_username", ""),
+      settingsStoreRef.set("channel.telegram.bot_name", ""),
+      settingsStoreRef.set("channel.telegram.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
@@ -2789,8 +2817,10 @@ async function handleAdminChannelWhatsapp(
 
   // POST /api/admin/channels/whatsapp — start WhatsApp and return QR code
   if (req.method === "POST") {
-    settingsStoreRef.set("channel.whatsapp.enabled", "true");
-    settingsStoreRef.set("channel.whatsapp.owner_id", authUser.id);
+    await Promise.all([
+      settingsStoreRef.set("channel.whatsapp.enabled", "true"),
+      settingsStoreRef.set("channel.whatsapp.owner_id", authUser.id),
+    ]);
     hotStartChannel("whatsapp");
 
     // Wait up to 10s for QR to appear
@@ -2833,8 +2863,10 @@ async function handleAdminChannelWhatsapp(
   }
 
   if (req.method === "DELETE") {
-    settingsStoreRef.set("channel.whatsapp.enabled", "false");
-    settingsStoreRef.set("channel.whatsapp.owner_id", "");
+    await Promise.all([
+      settingsStoreRef.set("channel.whatsapp.enabled", "false"),
+      settingsStoreRef.set("channel.whatsapp.owner_id", ""),
+    ]);
     jsonResponse(res, 200, { ok: true });
     return;
   }
