@@ -3322,8 +3322,6 @@ klausApi.on.notifySound?.((kind) => playNotifySound(kind))
 // (channel just finished replying in the background), refresh the sidebar
 // so its title/mtime updates are visible.
 klausApi.on.chatEvent((event) => {
-  // DEBUG: 临时 log — 定位 "一次回复渲染成两段" 问题。确认后删除。
-  console.log('[chat:event]', event.type, event)
   // Task panel updates must be cached even for off-screen sessions so that
   // when the user switches in we can render the latest list from cache before
   // the IPC refetch resolves.
@@ -3343,6 +3341,28 @@ klausApi.on.chatEvent((event) => {
       // collapsed — otherwise the user doesn't see anything changed in the
       // sidebar after a scheduled task fires.
       if (isCronRunSession(event.sessionId)) refreshCronRunsForAllTasks()
+    } else if (event.type === 'tasks_changed') {
+      // Keep tasksBySession up-to-date for off-screen sessions so that
+      // when the user switches in, the panel hydrates from cache rather
+      // than from a stale snapshot. renderAgentPanel() is intentionally
+      // skipped — that session isn't visible.
+      autoTerminateVanishedRunningTasks(event.sessionId, event.tasks || {})
+      mergeAgentTasks(event.sessionId, event.tasks || {})
+    } else if (event.type === 'teammate_messages') {
+      // Messages captured at isIdle transition must be stored even when the
+      // session is off-screen; otherwise switching back shows empty transcript.
+      const { sessionId: sid, taskId, messages } = event
+      if (sid && taskId && Array.isArray(messages) && messages.length) {
+        const tasks = tasksBySession.get(sid)
+        if (tasks && tasks[taskId]) {
+          tasks[taskId] = { ...tasks[taskId], messages }
+          if (_agentSaveTimers.has(sid)) clearTimeout(_agentSaveTimers.get(sid))
+          _agentSaveTimers.set(sid, setTimeout(() => {
+            _agentSaveTimers.delete(sid)
+            klausApi.agents.saveTasks(sid, tasks).catch(() => {})
+          }, 600))
+        }
+      }
     } else if (event.type === 'permission_cancelled') {
       // Engine withdrew a pending ask while we weren't looking at that
       // session — drop it from the queued list so we don't pop a stale
@@ -3374,8 +3394,14 @@ klausApi.on.chatEvent((event) => {
       }
       break
     }
-    case 'text_delta': appendStreamText(event.text); break
-    case 'thinking_delta': thinkingUI.append(event.thinking); break
+    case 'text_delta':
+      if (!busy) { busy = true; btnSend.disabled = false; btnSend.classList.add('busy') }
+      appendStreamText(event.text)
+      break
+    case 'thinking_delta':
+      if (!busy) { busy = true; btnSend.disabled = false; btnSend.classList.add('busy') }
+      thinkingUI.append(event.thinking)
+      break
     case 'tool_start': appendToolStart(event.toolName, event.toolCallId, event.args); break
     case 'tool_end':
       updateToolEnd(event.toolCallId, event.isError, event.content)
@@ -3389,8 +3415,17 @@ klausApi.on.chatEvent((event) => {
     case 'tool_input_delta': updateToolArgs(event.toolCallId, event.delta); break
     case 'progress': appendToolProgress(event.toolCallId, event.content); break
     case 'stream_mode':
-      if (event.mode === 'requesting') thinkingUI.show() // 幂等，已有就是 no-op
-      else if (event.mode === 'responding') thinkingUI.finalize()
+      if (event.mode === 'requesting') {
+        thinkingUI.show() // 幂等，已有就是 no-op
+        // Inbox-poller-triggered turns (teammate → leader) bypass send(), so
+        // busy is never set. Activate interrupt mode here on the first event
+        // of the turn so the button shows stop, not send.
+        if (!busy) {
+          busy = true
+          btnSend.disabled = false
+          btnSend.classList.add('busy')
+        }
+      } else if (event.mode === 'responding') thinkingUI.finalize()
       else if (event.mode === 'tool-use') { thinkingUI.finalize(); finalizeStream() }
       break
     case 'context_collapse_stats': {
