@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld('klaus', {
     history: (sessionId: string, agentId: string) => ipcRenderer.invoke('agents:history', { sessionId, agentId }),
     // In-process teammate messages from AppState (no JSONL file — read memory).
     teammateMessages: (sessionId: string, taskId: string) => ipcRenderer.invoke('agents:teammate-messages', { sessionId, taskId }),
+    // Persistent task cache — renderer writes after every mergeAgentTasks;
+    // loaded on session switch to restore completed agents across restarts.
+    saveTasks: (sessionId: string, tasks: Record<string, unknown>) => ipcRenderer.invoke('agents:save-tasks', { sessionId, tasks }),
+    loadTasks: (sessionId: string) => ipcRenderer.invoke('agents:load-tasks', { sessionId }),
   },
 
   // Engine introspection / control surfaces that don't fit chat or session.
@@ -212,4 +216,5 @@ contextBridge.exposeInMainWorld('klaus', {
       ipcRenderer.on('klausAuth:updated', (_e, payload) => cb(payload))
     },
   },
+
 })

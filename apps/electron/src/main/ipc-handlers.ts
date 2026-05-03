@@ -2,7 +2,7 @@ import { ipcMain, shell, app } from 'electron'
 import { join, basename as pathBasename } from 'path'
 import { homedir } from 'os'
 import { mkdirSync, writeFileSync, accessSync, constants as fsConstants } from 'fs'
-import { readFile as fsReadFile, stat as fsStat } from 'fs/promises'
+import { readFile as fsReadFile, writeFile as fsWriteFile, stat as fsStat } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { getMainWindow } from './window.js'
@@ -15,6 +15,12 @@ import type { ConnectorManager } from './connector-manager.js'
 import type { NotificationService } from './notification-service.js'
 import { connectorServerName } from './connectors-catalog.js'
 import { openArtifactWindow } from './artifact-window.js'
+
+// Persisted agent task snapshots — written by renderer after every
+// mergeAgentTasks call (debounced). Loaded on session switch so
+// previously-completed agents remain visible after app restart.
+const AGENT_TASKS_DIR = join(homedir(), '.klaus', 'agent-tasks')
+mkdirSync(AGENT_TASKS_DIR, { recursive: true })
 
 export function registerIpcHandlers(
   engine: EngineHost,
@@ -154,6 +160,27 @@ export function registerIpcHandlers(
     } catch (err) {
       console.warn('[agents:teammate-messages] failed:', err)
       return { messages: [] }
+    }
+  })
+
+  ipcMain.handle('agents:save-tasks', async (_e, { sessionId, tasks }) => {
+    if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/.test(sessionId)) return
+    try {
+      const filePath = join(AGENT_TASKS_DIR, `${sessionId}.json`)
+      await fsWriteFile(filePath, JSON.stringify(tasks), 'utf8')
+    } catch (err) {
+      console.warn('[agents:save-tasks] failed:', err)
+    }
+  })
+
+  ipcMain.handle('agents:load-tasks', async (_e, { sessionId }) => {
+    if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/.test(sessionId)) return { tasks: {} }
+    try {
+      const filePath = join(AGENT_TASKS_DIR, `${sessionId}.json`)
+      const raw = await fsReadFile(filePath, 'utf8')
+      return { tasks: JSON.parse(raw) }
+    } catch {
+      return { tasks: {} }
     }
   })
 

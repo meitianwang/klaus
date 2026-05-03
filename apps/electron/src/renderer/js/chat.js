@@ -94,14 +94,46 @@ let currentTeam = null  // { name } when team_created has fired
 const MAIN_TASK_ID = '__main__'
 let selectedAgentId = null   // null = main conversation (default)
 
+// Debounce timers for per-session disk saves (keyed by sessionId).
+const _agentSaveTimers = new Map()
+
+// When the engine sends a live snapshot, tasks that were running but are now
+// absent were evicted immediately after completion (inProcessRunner calls
+// evictTerminalTask right after setting status→completed, so the two
+// setAppState calls collapse into one tasks_changed without the intermediate
+// "completed" state). Auto-terminate those tasks here so the panel never
+// shows a permanently-running badge for a finished agent.
+function autoTerminateVanishedRunningTasks(sessionId, engineSnapshot) {
+  const existing = tasksBySession.get(sessionId)
+  if (!existing) return
+  for (const [id, task] of Object.entries(existing)) {
+    if (!task) continue
+    if ((task.status === 'running' || task.status === 'pending') && !(id in engineSnapshot)) {
+      existing[id] = { ...task, status: 'completed', notified: true }
+    }
+  }
+}
+
 function mergeAgentTasks(sessionId, newTasks) {
   const existing = tasksBySession.get(sessionId) || {}
   for (const [id, task] of Object.entries(newTasks || {})) {
-    existing[id] = task
+    // Preserve captured teammate messages: the engine snapshot deliberately
+    // excludes task.messages to avoid IPC bloat, but the renderer may have
+    // already received them via the teammate_messages event. Don't overwrite.
+    const prev = existing[id]
+    existing[id] = (prev?.messages && !task.messages)
+      ? { ...task, messages: prev.messages }
+      : task
   }
   // Keep any previously-seen terminal tasks even if absent from the new
   // snapshot (engine evicted them from appState.tasks after evictAfter).
   tasksBySession.set(sessionId, existing)
+  // Persist to disk (debounced 600ms so rapid task_changed bursts coalesce).
+  if (_agentSaveTimers.has(sessionId)) clearTimeout(_agentSaveTimers.get(sessionId))
+  _agentSaveTimers.set(sessionId, setTimeout(() => {
+    _agentSaveTimers.delete(sessionId)
+    klausApi.agents.saveTasks(sessionId, existing).catch(() => {})
+  }, 600))
 }
 
 // Task list state (mirrors CC's TasksV2Store). Per-session cache keyed by
@@ -2241,9 +2273,21 @@ function renderAgentPanel() {
  */
 async function refreshAgentsForSession(sessionId) {
   if (!sessionId) return
+  // Load persisted tasks first so previously-completed agents are always
+  // present even if the engine's in-memory snapshot is empty (e.g. after restart).
+  try {
+    const persisted = await klausApi.agents.loadTasks(sessionId)
+    if (persisted && typeof persisted.tasks === 'object') {
+      mergeAgentTasks(sessionId, persisted.tasks)
+    }
+  } catch (err) {
+    console.warn('[agents] load-tasks failed:', err)
+  }
+  // Then merge the live engine snapshot on top (may add running/updated tasks).
   try {
     const res = await klausApi.agents.snapshot(sessionId)
     const tasks = (res && res.tasks && typeof res.tasks === 'object') ? res.tasks : {}
+    autoTerminateVanishedRunningTasks(sessionId, tasks)
     mergeAgentTasks(sessionId, tasks)
   } catch (err) {
     console.warn('[agents] snapshot failed:', err)
@@ -3362,8 +3406,27 @@ klausApi.on.chatEvent((event) => {
     // but the panel ignores them to avoid double-bookkeeping.
     case 'team_created': currentTeam = { name: event.teamName }; renderAgentPanel(); break
     case 'tasks_changed': {
+      autoTerminateVanishedRunningTasks(event.sessionId, event.tasks || {})
       mergeAgentTasks(event.sessionId, event.tasks || {})
       if (event.sessionId === currentSessionId) renderAgentPanel()
+      break
+    }
+    case 'teammate_messages': {
+      // Processed transcript captured just before inProcessRunner strips/evicts.
+      // Store in tasksBySession so enterTeammateView can render without an IPC
+      // round-trip, and trigger a sidecar save so it survives across restarts.
+      const { sessionId: sid, taskId, messages } = event
+      if (sid && taskId && Array.isArray(messages) && messages.length) {
+        const tasks = tasksBySession.get(sid)
+        if (tasks && tasks[taskId]) {
+          tasks[taskId] = { ...tasks[taskId], messages }
+          if (_agentSaveTimers.has(sid)) clearTimeout(_agentSaveTimers.get(sid))
+          _agentSaveTimers.set(sid, setTimeout(() => {
+            _agentSaveTimers.delete(sid)
+            klausApi.agents.saveTasks(sid, tasks).catch(() => {})
+          }, 600))
+        }
+      }
       break
     }
     case 'teammate_spawned':
@@ -3893,8 +3956,14 @@ async function enterTeammateView(taskId) {
   let res
   try {
     if (task.type === 'in_process_teammate') {
-      // In-process teammates have no JSONL file — read from AppState memory.
-      res = await klausApi.agents.teammateMessages(currentSessionId, taskId)
+      // Prefer renderer cache (populated by teammate_messages event at completion,
+      // or restored from the agent-tasks sidecar file). Fall back to AppState IPC
+      // only when the task is still running and messages haven't been captured yet.
+      if (Array.isArray(task.messages) && task.messages.length > 0) {
+        res = { messages: task.messages }
+      } else {
+        res = await klausApi.agents.teammateMessages(currentSessionId, taskId)
+      }
     } else {
       res = await klausApi.agents.history(currentSessionId, task.agentId)
     }
@@ -3910,7 +3979,11 @@ async function enterTeammateView(taskId) {
   if (msgs.length === 0) {
     const empty = document.createElement('div')
     empty.className = 'subagent-empty'
-    empty.textContent = tt('subagent_view_empty')
+    const tasks = tasksBySession.get(currentSessionId) || {}
+    const t = tasks[taskId]
+    const isTerminalTeammate = t?.type === 'in_process_teammate' &&
+      (t.status === 'completed' || t.status === 'failed' || t.status === 'killed' || t.status === 'cancelled')
+    empty.textContent = isTerminalTeammate ? tt('teammate_transcript_cleared') : tt('subagent_view_empty')
     subEl.appendChild(empty)
     return
   }

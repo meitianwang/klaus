@@ -395,6 +395,7 @@ const I18N = {
     agent_type_teammate: 'Team',
     subagent_view_loading: 'Loading…',
     subagent_view_empty: 'No transcript recorded',
+    teammate_transcript_cleared: 'Teammate transcript is cleared after completion — see result in main conversation.',
     subagent_view_status_running: 'running',
     subagent_view_status_done: 'finished',
     // Task panel (CC TaskListV2 mirror)
@@ -919,6 +920,7 @@ const I18N = {
     agent_type_teammate: '协作',
     subagent_view_loading: '加载中…',
     subagent_view_empty: '尚无对话记录',
+    teammate_transcript_cleared: '协作智能体完成后对话已清理，结果见主对话',
     subagent_view_status_running: '运行中',
     subagent_view_status_done: '已完成',
     // Task panel (对齐 CC TaskListV2)

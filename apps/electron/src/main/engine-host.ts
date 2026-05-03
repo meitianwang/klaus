@@ -1152,8 +1152,17 @@ export class EngineHost {
     if (!task || task.type !== 'in_process_teammate') return []
     const messages: any[] = task.messages ?? []
     if (messages.length === 0) return []
-
     const agentId = task.identity?.agentId ?? taskId
+    return this.processTeammateMessages(agentId, messages)
+  }
+
+  /**
+   * Convert raw CC Message[] from AppState into the ChatMessage[] shape the
+   * renderer expects. Used by getTeammateMessages (live path) and by
+   * captureTeammateMessagesOnTerminal (capture-before-strip path).
+   */
+  private processTeammateMessages(agentId: string, messages: any[]): ChatMessage[] {
+    if (!messages.length) return []
     const toolResultById = new Map<string, string>()
     for (const m of messages) {
       if (m.type !== 'user') continue
@@ -1219,6 +1228,35 @@ export class EngineHost {
       lastAssistantMsgId = m.type === 'assistant' ? msgId : undefined
     }
     return out
+  }
+
+  /**
+   * Detect when an in_process_teammate transitions to a terminal status and
+   * immediately capture its full message list (from prevTasks, before
+   * inProcessRunner strips messages to [lastMessage] and evicts the task).
+   * Emits a teammate_messages event so the renderer can cache and persist the
+   * transcript in the agent-tasks sidecar file.
+   *
+   * Triggered on the isIdle false→true transition: this is when the agent
+   * finishes its turn and still has the full message list before
+   * inProcessRunner strips it to [lastMessage] on completion.
+   */
+  private captureTeammateMessagesOnTerminal(sessionId: string, prevTasks: any, nextTasks: any): void {
+    for (const taskId of Object.keys(prevTasks ?? {})) {
+      const prevTask = prevTasks[taskId]
+      if (prevTask?.type !== 'in_process_teammate') continue
+      const nextTask = nextTasks?.[taskId]
+      if (!nextTask) continue
+      // Detect isIdle false→true transition (agent just finished a work turn)
+      if (prevTask.isIdle || !nextTask.isIdle) continue
+      const rawMessages: any[] = nextTask.messages ?? []
+      if (!rawMessages.length) continue
+      const agentId = prevTask.identity?.agentId ?? taskId
+      const processed = this.processTeammateMessages(agentId, rawMessages)
+      if (processed.length > 0) {
+        this.pushEvent({ type: 'teammate_messages', sessionId, taskId, messages: processed })
+      }
+    }
   }
 
   /**
@@ -1983,6 +2021,9 @@ export class EngineHost {
           setAppState: (fn: (prev: AppState) => AppState) => {
             const prev = session.appState
             const next = fn(prev)
+            // Capture teammate transcript before inProcessRunner strips messages
+            // to [lastMessage] and evicts the task from AppState.
+            this.captureTeammateMessagesOnTerminal(sessionId, prev.tasks, next.tasks)
             session.appState = next
             this.dispatchTaskChanges(sessionId, prev.tasks, next.tasks)
           },

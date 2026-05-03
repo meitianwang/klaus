@@ -184,6 +184,10 @@ export type EngineEvent =
   // Record actually changes (sanitized, only serializable fields), and once
   // on session emitter registration so the panel hydrates immediately.
   | { type: 'tasks_changed'; sessionId: string; tasks: Record<string, AgentTaskSnapshot> }
+  // Processed transcript for an in_process_teammate captured at the moment it
+  // transitions to a terminal status (before messages are stripped / task evicted).
+  // Renderer caches this in tasksBySession and persists it to the agent-tasks sidecar.
+  | { type: 'teammate_messages'; sessionId: string; taskId: string; messages: unknown[] }
   | { type: 'interrupted'; sessionId: string }
   | { type: 'requesting'; sessionId: string }
   | { type: 'compaction_end'; sessionId: string }
