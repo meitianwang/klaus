@@ -38,6 +38,13 @@ function openDb(name: string): Database {
   return new Database(path, { readonly: true });
 }
 
+function tableExists(db: Database, tableName: string): boolean {
+  const row = db.query(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+  ).get(tableName) as Record<string, unknown> | null;
+  return row !== null;
+}
+
 async function run<T>(
   client: pg.PoolClient,
   sql: string,
@@ -325,68 +332,80 @@ async function migrateSettings(client: pg.PoolClient): Promise<void> {
   console.log(`cron_tasks:         ${formatCount(inserted)} / ${formatCount(tasks.length)} inserted${skipped > 0 ? ` (${skipped} skipped — FK/no-user)` : ""} (${totalSqlite.n - tasks.length} had no user_id)`);
 
   // --- cron_runs ---
-  const runs = db.query("SELECT * FROM cron_runs").all() as Record<string, unknown>[];
-  inserted = 0;
-  for (const r of runs) {
-    const res = await run(client, `
-      INSERT INTO cron_runs (
-        task_id, task_name, started_at, finished_at, duration_ms,
-        trigger_type, status, error, session_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      ON CONFLICT DO NOTHING
-    `, [
-      r.task_id,
-      r.task_name ?? "",
-      msToTs(r.started_at as number) ?? new Date(),
-      msToTs(r.finished_at as number),
-      r.duration_ms ?? null,
-      r.trigger_type ?? "scheduled",
-      r.status ?? "done",
-      r.error ?? null,
-      r.session_id ?? "",
-    ]);
-    inserted += res.rowCount ?? 0;
+  if (tableExists(db, "cron_runs")) {
+    const runs = db.query("SELECT * FROM cron_runs").all() as Record<string, unknown>[];
+    inserted = 0;
+    for (const r of runs) {
+      const res = await run(client, `
+        INSERT INTO cron_runs (
+          task_id, task_name, started_at, finished_at, duration_ms,
+          trigger_type, status, error, session_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT DO NOTHING
+      `, [
+        r.task_id,
+        r.task_name ?? "",
+        msToTs(r.started_at as number) ?? new Date(),
+        msToTs(r.finished_at as number),
+        r.duration_ms ?? null,
+        r.trigger_type ?? "scheduled",
+        r.status ?? "done",
+        r.error ?? null,
+        r.session_id ?? "",
+      ]);
+      inserted += res.rowCount ?? 0;
+    }
+    console.log(`cron_runs:          ${formatCount(inserted)} / ${formatCount(runs.length)} inserted`);
+  } else {
+    console.log(`cron_runs:          (table not found in SQLite, skipped)`);
   }
-  console.log(`cron_runs:          ${formatCount(inserted)} / ${formatCount(runs.length)} inserted`);
 
   // --- session_artifacts ---
-  const artifacts = db.query("SELECT * FROM session_artifacts").all() as Record<string, unknown>[];
-  inserted = 0;
-  for (const a of artifacts) {
-    const res = await run(client, `
-      INSERT INTO session_artifacts (session_id, file_path, last_op, first_seen_at, last_modified_at)
-      VALUES ($1,$2,$3,$4,$5)
-      ON CONFLICT (session_id, file_path) DO NOTHING
-    `, [
-      a.session_id,
-      a.file_path,
-      a.last_op ?? "write",
-      msToTs(a.first_seen_at as number) ?? new Date(),
-      msToTs(a.last_modified_at as number) ?? new Date(),
-    ]);
-    inserted += res.rowCount ?? 0;
+  if (tableExists(db, "session_artifacts")) {
+    const artifacts = db.query("SELECT * FROM session_artifacts").all() as Record<string, unknown>[];
+    inserted = 0;
+    for (const a of artifacts) {
+      const res = await run(client, `
+        INSERT INTO session_artifacts (session_id, file_path, last_op, first_seen_at, last_modified_at)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (session_id, file_path) DO NOTHING
+      `, [
+        a.session_id,
+        a.file_path,
+        a.last_op ?? "write",
+        msToTs(a.first_seen_at as number) ?? new Date(),
+        msToTs(a.last_modified_at as number) ?? new Date(),
+      ]);
+      inserted += res.rowCount ?? 0;
+    }
+    console.log(`session_artifacts:  ${formatCount(inserted)} / ${formatCount(artifacts.length)} inserted`);
+  } else {
+    console.log(`session_artifacts:  (table not found in SQLite, skipped)`);
   }
-  console.log(`session_artifacts:  ${formatCount(inserted)} / ${formatCount(artifacts.length)} inserted`);
 
   // --- mcp_servers ---
-  const mcpServers = db.query("SELECT * FROM mcp_servers").all() as Record<string, unknown>[];
-  inserted = 0;
-  for (const m of mcpServers) {
-    const res = await run(client, `
-      INSERT INTO mcp_servers (id, name, transport, enabled, created_at, updated_at)
-      VALUES ($1,$2,$3,$4,$5,$6)
-      ON CONFLICT (id) DO NOTHING
-    `, [
-      m.id,
-      m.name,
-      m.transport ?? "stdio",
-      intToBool(m.enabled as number),
-      msToTs(m.created_at as number) ?? new Date(),
-      msToTs(m.updated_at as number) ?? new Date(),
-    ]);
-    inserted += res.rowCount ?? 0;
+  if (tableExists(db, "mcp_servers")) {
+    const mcpServers = db.query("SELECT * FROM mcp_servers").all() as Record<string, unknown>[];
+    inserted = 0;
+    for (const m of mcpServers) {
+      const res = await run(client, `
+        INSERT INTO mcp_servers (id, name, transport, enabled, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (id) DO NOTHING
+      `, [
+        m.id,
+        m.name,
+        m.transport ?? "stdio",
+        intToBool(m.enabled as number),
+        msToTs(m.created_at as number) ?? new Date(),
+        msToTs(m.updated_at as number) ?? new Date(),
+      ]);
+      inserted += res.rowCount ?? 0;
+    }
+    console.log(`mcp_servers:        ${formatCount(inserted)} / ${formatCount(mcpServers.length)} inserted`);
+  } else {
+    console.log(`mcp_servers:        (table not found in SQLite, skipped)`);
   }
-  console.log(`mcp_servers:        ${formatCount(inserted)} / ${formatCount(mcpServers.length)} inserted`);
 
   db.close();
 }
