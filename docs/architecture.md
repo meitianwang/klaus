@@ -5,6 +5,16 @@
 ## 目录
 
 - [Agent 系统](#agent-系统)
+  - [1. 整体定位](#1-整体定位)
+  - [2. Agent 来源](#2-agent-来源三层-definition-pool)
+  - [3. 协调机制：五种套路](#3-协调机制五种套路)
+  - [4. 控制层：feature gate](#4-控制层feature-gate)
+  - [5. 决策层](#5-决策层主-agent-怎么挑)
+  - [6. Plan 模式机制](#6-plan-模式机制)
+  - [7. 数据流](#7-数据流state--transcript--通信)
+  - [8. UI 呈现层](#8-ui-呈现层klaus-桌面端实现)
+  - [9. 实现现状](#9-实现现状)
+  - [10. 调试与扩展指南](#10-调试与扩展指南)
 
 ---
 
@@ -323,17 +333,17 @@ CLAUDE_CODE_FEATURES=FORK_SUBAGENT npm run dev
 
 #### 4.4 互斥关系
 
-[`isForkSubagentEnabled()`](../apps/electron/src/engine/tools/AgentTool/forkSubagent.ts#L33) 第一行检查 `isCoordinatorMode()`：
+[`isForkSubagentEnabled()`](../apps/electron/src/engine/tools/AgentTool/forkSubagent.ts#L33) 在 Klaus 里只看两个条件：
 
 ```ts
 if (feature('FORK_SUBAGENT')) {
-  if (isCoordinatorMode()) return false        // coordinator 模式下不允许 fork
+  if (isCoordinatorMode()) return false        // Klaus 里恒 false，忽略
   if (getIsNonInteractiveSession()) return false  // SDK / API 模式下不允许 fork
   return true
 }
 ```
 
-**fork** 和 **coordinator mode**（CC 内部 orchestrator pattern）是互斥的，因为 coordinator 已经是另一种 agent 编排模式。Klaus 没启用 coordinator（[`forkSubagent.ts:9-10`](../apps/electron/src/engine/tools/AgentTool/forkSubagent.ts#L9) 注释 `coordinator mode removed — always false in Klaus`），所以 fork 只看后两个条件。
+`isCoordinatorMode()`（CC 内部 GitHub PR 自动化专用的编排模式）在 Klaus 里恒返回 false，不涉及。fork 在 Klaus 里实际只受"是否非交互 session"这一个条件约束。
 
 ---
 
@@ -400,7 +410,136 @@ shim 改动：[`bun-bundle.ts`](../apps/electron/src/engine/shims/bun-bundle.ts)
 
 ---
 
-### 6. 数据流：state + transcript + 通信
+### 6. Plan 模式机制
+
+Plan 模式是 CC 引擎内置的"先规划后执行"工作流，通过 permission mode 切换 + 动态 prompt 注入实现。本章覆盖完整的激活→注入→执行→退出链路，以及 Plan agent 与 plan 文件的关系。
+
+#### 6.1 Plan 模式是什么
+
+从引擎角度，plan 模式是 `appState.toolPermissionContext.mode` 的一个取值（与 `default` / `acceptEdits` / `auto` 并列）。进入该模式后：
+
+- 除计划文件外，主 agent **禁止写任何文件**（`permissions.ts` 里 `mode === 'plan'` 时拦截所有写操作）
+- 每轮 API 请求前，`attachments.ts` 检测到 mode 是 `'plan'`，自动向 user message 里注入**五阶段 workflow 文本**，告诉主 agent 该怎么规划
+- 主 agent 必须调 `ExitPlanModeTool` 才能退出，退出时需用户确认
+
+#### 6.2 激活路径
+
+有三条路进入 plan 模式：
+
+**路径 A：主 agent 自己调 `EnterPlanModeTool`（主路径）**
+
+`EnterPlanModeTool` 的 prompt 里写了详细的触发条件，主 agent 遇到"新功能、多种实现方案、多文件改动、需求不清"等情形时会**主动调用**，不需要用户操作。调用成功后 `mode` 立即切换到 `'plan'`，`prePlanMode` 字段记录切换前的旧 mode（退出时用于还原）。
+
+注意：`EnterPlanModeTool` 在 agent context 里**被禁用**（`agentId` 存在时抛 Error），只有主对话能进 plan 模式。
+
+**路径 B：用户手动切换权限模式**
+
+CC TUI 有快捷键直接把 mode 改成 `'plan'`。Klaus 桌面端暂未暴露此入口，但引擎层完全支持。
+
+**路径 C：teammate spawn 时指定 `plan_mode_required: true`**
+
+通过 `AgentTool`（`spawnMode === 'plan'`）或 `spawnTeammate()` 的 `plan_mode_required` 参数，new teammate 启动时 permissionMode 已经是 `'plan'`。这条路不经 `EnterPlanModeTool`，teammate 直接处于规划约束下。
+
+#### 6.3 五阶段 workflow 注入机制
+
+plan 模式激活后，**不是一次性**注入 system prompt，而是**每轮 API 请求前动态附加**：
+
+```
+每次 query() 调用前
+  → collectAttachments()
+    → getPlanModeAttachments()
+      → 检查 mode === 'plan'
+      → 返回 plan_mode attachment
+  → messages.ts 把 attachment 渲染成 user message 里的文本块
+  → 五阶段 workflow 文本进入这轮的 context
+```
+
+有节流逻辑：第 1、6、11、16…轮（每隔 5 轮）发一次**完整 full reminder**（含全部五阶段说明），其他轮只发**sparse reminder**（简短提示），避免每轮都塞大段文字。
+
+五阶段内容（[`messages.ts`](../apps/electron/src/engine/utils/messages.ts)）：
+
+| 阶段 | 工具 | 目标 |
+|------|------|------|
+| Phase 1 - Initial Understanding | Explore agent | 理解需求，并行探索代码库（最多 3 个 Explore agent） |
+| Phase 2 - Design | Plan agent | 设计实现方案（最多 1-3 个，按订阅档位） |
+| Phase 3 - Review | AskUserQuestion | 审查计划，澄清问题 |
+| Phase 4 - Write plan file | Edit/Write（仅 plan 文件）| 把方案写入磁盘 plan 文件 |
+| Phase 5 - Exit | ExitPlanModeTool | 调用工具等待用户审批 |
+
+#### 6.4 Plan 文件
+
+Plan 文件是**磁盘上的 markdown 文件**，整个 plan 模式最核心的产物。
+
+路径逻辑（[`plans.ts`](../apps/electron/src/engine/utils/plans.ts)）：
+
+```
+默认目录：~/.claude/plans/（可在 settings.json 的 plansDirectory 字段覆盖）
+主对话：  <plansDir>/<slug>.md
+子 agent：<plansDir>/<slug>-agent-<agentId>.md
+```
+
+`slug` 是每个 session **懒生成**的随机词语 slug（如 `happy-river`），由 `generateWordSlug()` 生成，第一次调 `getPlanFilePath()` 时创建并缓存在 `planSlugCache`。slug 会写入 JSONL transcript 的 message.slug 字段，这样 `--resume` 恢复 session 时能找回同一个 plan 文件（`copyPlanForResume()`）。
+
+plan 模式下 **主 agent 唯一被允许写的文件就是这个 plan 文件**；权限层对其他路径的写操作全部拦截。
+
+#### 6.5 Plan agent vs plan 模式
+
+容易混淆的两个概念：
+
+| | Plan 模式 | Plan agent |
+|---|---|---|
+| 是什么 | 主 agent 的运行状态（permission mode） | 只读 sub-agent，专门设计实现方案 |
+| 触发者 | `EnterPlanModeTool` / 用户手动 | 主 agent 在 Phase 2 调 `AgentTool(subagent_type: "Plan")` |
+| 作用 | 约束主 agent 只能读 + 写 plan 文件 | 输出步骤详细的实现方案文本 |
+| 是否写文件 | 主 agent 写 plan 文件 | ❌ Plan agent 完全只读，写操作被 disallowedTools 屏蔽 |
+| 生命周期 | 整个规划阶段 | Phase 2 期间被召唤，完成即退 |
+
+Plan agent 是主 agent 的**工具**，不是 plan 模式本身。Plan agent 可以在主 agent 处于 plan 模式时被调用，但也只是普通的只读 sub-agent。
+
+Plan agent 定义（[`planAgent.ts`](../apps/electron/src/engine/tools/AgentTool/built-in/planAgent.ts)）：工具集与 Explore agent 相同（Glob/Grep/Read/Bash 只读），额外禁了 `ExitPlanModeTool` 和 `AgentTool`（不能再套娃），`omitClaudeMd: true` 节省 token。
+
+受 `BUILTIN_EXPLORE_PLAN_AGENTS` + GrowthBook `tengu_amber_stoat`（默认 true）控制；Klaus 已加入 `REQUIRED_FEATURES`，GrowthBook 缺失时走默认值 true，**实际可用**。
+
+Plan agent 数量上限由 `getPlanModeV2AgentCount()` 按订阅档位决定：Max 20x / 企业版 / 团队版 → 3 个；其他 → 1 个。Explore agent 上限默认 3 个（可通过 `CLAUDE_CODE_PLAN_V2_EXPLORE_AGENT_COUNT` 覆盖）。
+
+#### 6.6 退出路径
+
+**正常退出：主 agent 调 `ExitPlanModeTool`**
+
+`checkPermissions()` 对非 teammate 返回 `behavior: 'ask'`，弹出用户确认框"Exit plan mode?"。用户**必须点确认**才真正退出。退出时：
+
+1. `mode` 恢复为 `prePlanMode`（进入 plan 前的模式，如 `default` / `auto`）
+2. `setHasExitedPlanMode(true)` — 标记本 session 曾退出过 plan 模式
+3. `setNeedsPlanModeExitAttachment(true)` — 触发下一轮注入 `plan_mode_exit` attachment，告诉 agent "你不在 plan 模式了，可以开始实现"
+
+**手动退出：用户从 UI 切换 permission mode**
+
+`handlePlanModeTransition(fromMode, toMode)` 检测到 `fromMode === 'plan'` → 设 `needsPlanModeExitAttachment = true`，效果同上。
+
+**Teammate 特殊退出：计划审批流程**
+
+`plan_mode_required: true` 的 teammate 调 `ExitPlanModeTool` 时**不直接退出**，而是把计划内容序列化成 `plan_approval_request` JSON 写入 team leader 的 mailbox，自身进入 `awaitingPlanApproval` 状态。Leader 收到后发 `plan_approval_response`，teammate 根据 `approved: true/false` 决定继续执行还是重新规划。
+
+#### 6.7 Re-entry 与 /clear
+
+**Re-entry**：本 session 内曾退出过 plan 模式（`hasExitedPlanModeInSession() === true`）再次进入，且 plan 文件存在 → `getPlanModeAttachments()` 插入 `plan_mode_reentry` attachment，提示 agent"之前的计划文件还在，可以继续在上面修改"。
+
+**`/clear`**：`clearPlanSlug(sessionId)` 删除 slug 缓存，下次进入 plan 模式时生成新 slug + 新 plan 文件，旧文件保留在磁盘。
+
+**`--resume`**：`copyPlanForResume(log)` 从 JSONL 里找 `message.slug`，重新关联到已有 plan 文件，恢复后能在同一个 plan 文件上继续规划。
+
+#### 6.8 Klaus 当前状态
+
+Klaus 桌面端**没有暴露 plan 模式入口**（无快捷键、无 UI 按钮），但：
+
+- `EnterPlanModeTool` 在 Klaus 里默认可用，主 agent 遇到复杂任务**可以自发调用**进入 plan 模式
+- 整套 plan 文件管理、五阶段注入、退出流程都是 CC 引擎原生实现，Klaus 无需额外移植
+- Plan agent 需要 `BUILTIN_EXPLORE_PLAN_AGENTS` flag，Klaus 已在 `env-bootstrap.ts` 的 `REQUIRED_FEATURES` 里加入，**实际可用**
+- Plan mode V2 interview phase（`isPlanModeInterviewPhaseEnabled()`）需要 GrowthBook `tengu_plan_mode_interview_phase` 或 `USER_TYPE=ant`，Klaus 两者都没有，走旧版 workflow（差异很小：new 版省略了 `WHAT_HAPPENS_SECTION` 标题段，用 attachment 详细说明替代）
+
+---
+
+### 7. 数据流：state + transcript + 通信
 
 #### 6.1 Task state（运行时状态）
 
@@ -489,7 +628,7 @@ LLM 调 AgentTool
 
 ---
 
-### 7. UI 呈现层（Klaus 桌面端实现）
+### 8. UI 呈现层（Klaus 桌面端实现）
 
 #### 7.1 Agent dialog（CC BackgroundTasksDialog 风格）
 
@@ -584,7 +723,7 @@ CC 把 SendMessage 的内容通过 [`useInboxPoller`](../apps/electron/src/engin
 
 ---
 
-### 8. 实现现状
+### 9. 实现现状
 
 #### 8.1 已完整对齐 CC 的部分
 
@@ -628,7 +767,7 @@ CC 把 SendMessage 的内容通过 [`useInboxPoller`](../apps/electron/src/engin
 
 ---
 
-### 9. 调试与扩展指南
+### 10. 调试与扩展指南
 
 #### 9.1 排查"agent 没出现在面板"
 
